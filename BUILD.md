@@ -283,4 +283,43 @@ Refresh the tracked files from a running Pi with `scripts/pull-from-pi.sh`.
 
 ## Faust
 
-Build deps: `libjack-jackd2-dev libasound2-dev`. Play a patch on the DAC with `faust-play file.dsp [seconds]` (builds with faust2jackconsole, pins to CPU 3, links both channels with pw-link because only out_0 auto-connects).
+Console playback first. Install the JACK and ALSA headers, then the helper:
+
+```sh
+sudo apt-get install -y -q libjack-jackd2-dev libasound2-dev
+sudo install -m 755 bin/faust-play /usr/local/bin/faust-play
+```
+
+`faust-play file.dsp [seconds]` builds the patch with `faust2jackconsole`, pins it to CPU 3, and links both channels with `pw-link`. Only `out_0` auto-connects to the DAC, so the helper always links `out_1` as well. A short test tone is in `home/faust/tone.dsp`.
+
+### Faust GUI
+
+For a Qt window on the labwc desktop plus a browser control page, install the Qt 5, HTTP, and OSC build deps and the helper:
+
+```sh
+sudo apt-get install -y -q qtbase5-dev qt5-qmake libmicrohttpd-dev liblo-dev
+sudo install -m 755 bin/faust-gui /usr/local/bin/faust-gui
+```
+
+`qtwayland5` is already present with the desktop and is required for the Qt window to use Wayland. Copy `home/faust/synth.dsp` to `~/faust/synth.dsp` on the Pi.
+
+Usage:
+
+```sh
+faust-gui ~/faust/synth.dsp
+faust-gui file.dsp --no-qt      # no Qt window; web page and OSC only
+faust-gui file.dsp --no-web     # Qt window and OSC, no HTTP page
+faust-gui --stop
+```
+
+`faust-gui` builds with `faust2jaqt -httpd -osc`, caches the binary as `<name>-gui` next to the `.dsp` file, and rebuilds only when the patch or the build flags are newer. It joins the labwc session (`WAYLAND_DISPLAY=wayland-0`, `XDG_RUNTIME_DIR`, the session bus), starts the app with `QT_QPA_PLATFORM=wayland` (falls back to `xcb` on Xwayland if Wayland fails), runs it under `pw-jack` pinned to CPU 3, links both outputs to the DAC, and prints the web URL.
+
+The HTTP control page listens on all interfaces at port 5510 by default:
+
+    http://pilab.local:5510/
+
+OSC is also enabled (UDP ports 5510–5512). Ctrl-C, or `faust-gui --stop`, quits a running instance.
+
+`~/faust/synth.dsp` is a simple subtractive voice (sawtooth into a Moog-style low-pass, with an LFO on the cutoff). The gate checkbox defaults to off, so it starts silently. The Faust Qt window's default size can clip some knobs; drag a corner to resize, or use the browser page, which shows every control.
+
+`pw-link` reports "File exists" when `out_0` has already auto-connected; the helper treats that as success so `out_1` still gets linked to the right channel.

@@ -38,7 +38,12 @@ scp -o BatchMode=yes -q "$HOST:/home/lab/patches/*.scd" "$ROOT/home/patches/" ||
 
 copy /usr/local/bin/sc-play        "$ROOT/bin/sc-play"
 copy /usr/local/bin/pilab-bench    "$ROOT/bin/pilab-bench"
-chmod 755 "$ROOT/bin/sc-play" "$ROOT/bin/pilab-bench"
+copy /usr/local/bin/faust-play     "$ROOT/bin/faust-play"
+copy /usr/local/bin/faust-gui      "$ROOT/bin/faust-gui"
+chmod 755 "$ROOT/bin/sc-play" "$ROOT/bin/pilab-bench" "$ROOT/bin/faust-play" "$ROOT/bin/faust-gui"
+
+mkdir -p "$ROOT/home/faust"
+scp -o BatchMode=yes -q "$HOST:/home/lab/faust/*.dsp" "$ROOT/home/faust/" || true
 
 if [ -f "$HOME/bin/pilab-desktop.command" ]; then
     mkdir -p "$ROOT/mac"

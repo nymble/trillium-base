@@ -1,0 +1,306 @@
+#!/bin/sh
+# faust-gui <file.dsp> [--no-qt|--no-web]
+# Build a Faust patch as a JACK app with a Qt window and a browser
+# control page, then run it on the DAC.
+set -eu
+
+DAC_FL=alsa_output.platform-soc_107c000000_sound.stereo-fallback:playback_FL
+DAC_FR=alsa_output.platform-soc_107c000000_sound.stereo-fallback:playback_FR
+UID_NUM=$(id -u)
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$UID_NUM}"
+PIDFILE="$RUNTIME_DIR/faust-gui.pid"
+LOG=/tmp/faust-gui.log
+HTTP_PORT_DEFAULT=5510
+
+usage() {
+    echo "usage: faust-gui <file.dsp> [--no-qt|--no-web]" >&2
+    echo "       faust-gui --stop" >&2
+    exit 1
+}
+
+session_env() {
+    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$RUNTIME_DIR/bus}"
+    if [ -z "${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ]; then
+        export DISPLAY=:0
+    fi
+    if [ -z "${XAUTHORITY:-}" ] && [ -f "$HOME/.Xauthority" ]; then
+        export XAUTHORITY="$HOME/.Xauthority"
+    fi
+}
+
+stop_gui() {
+    stopped=0
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE" 2>/dev/null || true)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            n=0
+            while [ $n -lt 20 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 0.1
+                n=$((n + 1))
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+            stopped=1
+        fi
+        rm -f "$PIDFILE"
+    fi
+    if [ "$stopped" -eq 1 ]; then
+        echo "stopped Faust GUI"
+    else
+        echo "no Faust GUI running"
+    fi
+}
+
+# pw-link exits non-zero with "File exists" when a link is already present
+# (out_0 often auto-connects). Treat that as success so out_1 still gets linked.
+link_one() {
+    src=$1
+    dst=$2
+    err=$(pw-link "$src" "$dst" 2>&1) && return 0
+    case "$err" in
+        *"File exists"*) return 0 ;;
+    esac
+    return 1
+}
+
+link_dac() {
+    jackname=$1
+    i=0
+    linked0=0
+    linked1=0
+    while [ $i -lt 20 ]; do
+        if [ "$linked0" -eq 0 ] && link_one "$jackname:out_0" "$DAC_FL"; then
+            linked0=1
+        fi
+        if [ "$linked1" -eq 0 ] && link_one "$jackname:out_1" "$DAC_FR"; then
+            linked1=1
+        fi
+        if [ "$linked0" -eq 1 ] && [ "$linked1" -eq 1 ]; then
+            return 0
+        fi
+        sleep 0.25
+        i=$((i + 1))
+    done
+    echo "warning: could not link $jackname outputs to the DAC" >&2
+    return 1
+}
+
+wait_http() {
+    i=0
+    while [ $i -lt 20 ]; do
+        port=$(ss -lnt 2>/dev/null | sed -n 's/.*:\(55[0-9][0-9]\) .*/\1/p' | awk '$1 >= 5510 && $1 < 5530 { print; exit }')
+        if [ -n "${port:-}" ]; then
+            echo "$port"
+            return 0
+        fi
+        sleep 0.25
+        i=$((i + 1))
+    done
+    return 1
+}
+
+listen_addr() {
+    port=$1
+    ss -lnt 2>/dev/null | awk -v p=":$port" '
+        index($0, p) {
+            # column 4 is Local Address:Port on ss
+            n = split($4, a, ":")
+            if (n >= 2) {
+                addr = a[1]
+                for (i = 2; i < n; i++) addr = addr ":" a[i]
+                print addr
+                exit
+            }
+        }'
+}
+
+if [ "${1:-}" = "--stop" ]; then
+    stop_gui
+    exit 0
+fi
+
+dsp=""
+with_qt=1
+with_web=1
+for arg in "$@"; do
+    case "$arg" in
+        --stop) stop_gui; exit 0 ;;
+        --no-qt) with_qt=0 ;;
+        --no-web) with_web=0 ;;
+        -h|--help) usage ;;
+        -*)
+            echo "unknown option: $arg" >&2
+            usage
+            ;;
+        *)
+            if [ -n "$dsp" ]; then
+                echo "unexpected argument: $arg" >&2
+                usage
+            fi
+            dsp=$arg
+            ;;
+    esac
+done
+
+[ -n "$dsp" ] && [ -f "$dsp" ] || usage
+
+# Resolve to an absolute path so the cached binary is found after cd.
+case "$dsp" in
+    /*) ;;
+    *) dsp=$(CDPATH= cd -- "$(dirname "$dsp")" && pwd)/$(basename "$dsp") ;;
+esac
+
+name=$(basename "$dsp" .dsp)
+dir=$(dirname "$dsp")
+bin="$dir/$name-gui"
+stamp="$bin.stamp"
+jackname=$(basename "$bin")
+
+opts=""
+[ "$with_web" -eq 1 ] && opts="$opts -httpd"
+opts="$opts -osc"
+
+if [ "$with_qt" -eq 1 ]; then
+    builder="faust2jaqt"
+else
+    builder="faust2jackconsole"
+fi
+
+need_build=0
+if [ ! -x "$bin" ] || [ "$dsp" -nt "$bin" ]; then
+    need_build=1
+elif [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$builder$opts" ]; then
+    need_build=1
+fi
+
+if [ "$need_build" -eq 1 ]; then
+    echo "building $name with $builder$opts ..."
+    # faust2jaqt writes <name> next to the .dsp file.
+    (cd "$dir" && MAKEFLAGS="${MAKEFLAGS:--j3}" "$builder" $opts "$name.dsp")
+    built="$dir/$name"
+    if [ ! -x "$built" ]; then
+        echo "build failed: $built not produced" >&2
+        exit 1
+    fi
+    if [ "$built" != "$bin" ]; then
+        mv -f "$built" "$bin"
+    fi
+    printf '%s\n' "$builder$opts" > "$stamp"
+    echo "built $bin"
+fi
+
+session_env
+
+# Replace any previous instance so only one GUI holds the HTTP port.
+if [ -f "$PIDFILE" ]; then
+    old=$(cat "$PIDFILE" 2>/dev/null || true)
+    if [ -n "${old:-}" ] && kill -0 "$old" 2>/dev/null; then
+        echo "stopping previous Faust GUI (pid $old)"
+        stop_gui
+    else
+        rm -f "$PIDFILE"
+    fi
+fi
+
+child=""
+cleanup() {
+    trap - INT TERM EXIT
+    if [ -n "${child:-}" ] && kill -0 "$child" 2>/dev/null; then
+        kill "$child" 2>/dev/null || true
+        n=0
+        while [ $n -lt 20 ] && kill -0 "$child" 2>/dev/null; do
+            sleep 0.1
+            n=$((n + 1))
+        done
+        kill -9 "$child" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE"
+}
+trap cleanup INT TERM EXIT
+
+run_bin() {
+    platform=$1
+    : > "$LOG"
+    QT_QPA_PLATFORM="$platform" pw-jack taskset -c 3 "$bin" >>"$LOG" 2>&1 &
+    child=$!
+    echo "$child" > "$PIDFILE"
+    # Give the process a moment to connect to the display or exit.
+    sleep 1
+    if ! kill -0 "$child" 2>/dev/null; then
+        wait "$child" || true
+        child=""
+        rm -f "$PIDFILE"
+        return 1
+    fi
+    if grep -qiE 'could not connect to display|This plugin does not support|failed to create .*platform|error: failed to create' "$LOG"; then
+        kill "$child" 2>/dev/null || true
+        wait "$child" || true
+        child=""
+        rm -f "$PIDFILE"
+        return 1
+    fi
+    return 0
+}
+
+if [ "$with_qt" -eq 1 ]; then
+    if ! run_bin wayland; then
+        echo "Wayland Qt platform failed, retrying with xcb" >&2
+        cat "$LOG" >&2 || true
+        if ! run_bin xcb; then
+            echo "failed to start $bin" >&2
+            cat "$LOG" >&2 || true
+            exit 1
+        fi
+        echo "Qt platform: xcb (Xwayland)"
+    else
+        echo "Qt platform: wayland"
+    fi
+else
+    : > "$LOG"
+    pw-jack taskset -c 3 "$bin" >>"$LOG" 2>&1 &
+    child=$!
+    echo "$child" > "$PIDFILE"
+    sleep 1
+    if ! kill -0 "$child" 2>/dev/null; then
+        echo "failed to start $bin" >&2
+        cat "$LOG" >&2 || true
+        exit 1
+    fi
+fi
+
+link_dac "$jackname" || true
+
+if [ "$with_web" -eq 1 ]; then
+    port=$(wait_http || true)
+    if [ -z "${port:-}" ]; then
+        # Fall back to the log line printed by libHTTPDFaust.
+        port=$(sed -n 's/.* is running on TCP port \([0-9][0-9]*\).*/\1/p' "$LOG" | tail -n 1)
+    fi
+    port=${port:-$HTTP_PORT_DEFAULT}
+    addr=$(listen_addr "$port" || true)
+    url="http://pilab.local:$port/"
+    echo "web UI: $url"
+    if [ -n "${addr:-}" ] && [ "$addr" = "127.0.0.1" ]; then
+        echo "warning: HTTP control is bound to localhost only" >&2
+    fi
+fi
+
+echo "pid $child  log $LOG"
+echo "Ctrl-C or faust-gui --stop to quit"
+
+# If this script was launched without a terminal (for example from nohup
+# or an SSH command that backgrounds it), exit and leave the patch running.
+if [ ! -t 0 ]; then
+    trap - INT TERM EXIT
+    wait "$child" || true
+    rm -f "$PIDFILE"
+    exit 0
+fi
+
+wait "$child" || true
+rm -f "$PIDFILE"
+trap - INT TERM EXIT
