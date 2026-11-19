@@ -1,0 +1,1 @@
+Linux pilab 6.18.60+rpt-rpi-v8-rt #1 SMP PREEMPT_RT Debian 1:6.18.60-1+rpt1 (2026-11-03) aarch64 GNU/Linux

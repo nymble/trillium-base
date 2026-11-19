@@ -1,0 +1,14 @@
+6.18.60+rpt-rpi-v8-rt #1 SMP PREEMPT_RT Debian 1:6.18.60-1+rpt1 (2026-11-03)
+IDLE
+T: 0 ( 1017) P:95 I:1000 C:  45000 Min:      1 Act:    2 Avg:    1 Max:      14
+T: 1 ( 1018) P:95 I:1500 C:  29999 Min:      1 Act:    2 Avg:    1 Max:       9
+T: 2 ( 1019) P:95 I:2000 C:  22498 Min:      1 Act:    2 Avg:    1 Max:      12
+T: 3 ( 1020) P:95 I:2500 C:  17998 Min:      1 Act:    2 Avg:    1 Max:      12
+LOAD
+T: 0 ( 1059) P:95 I:1000 C:  45000 Min:      2 Act:   32 Avg:    8 Max:      81
+T: 1 ( 1060) P:95 I:1500 C:  29998 Min:      2 Act:    9 Avg:   10 Max:      94
+T: 2 ( 1061) P:95 I:2000 C:  22497 Min:      2 Act:   25 Avg:   10 Max:      86
+T: 3 ( 1062) P:95 I:2500 C:  17997 Min:      2 Act:   41 Avg:   12 Max:      94
+temp=58.2'C
+throttled=0x0
+DONE

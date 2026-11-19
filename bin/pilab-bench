@@ -1,0 +1,6 @@
+#!/bin/sh
+# Latency benchmark: cyclictest idle and under load
+out=/var/lib/pilab/bench/$(date +%Y%m%d-%H%M)-$(uname -r).txt
+{ uname -rv; echo IDLE; cyclictest -m -S -p 95 -i 1000 -D 45 -q | grep -E "Max|Avg|Min";
+  stress-ng --cpu 4 --vm 2 --vm-bytes 512M --io 1 -t 50 >/dev/null 2>&1 &
+  echo LOAD; cyclictest -m -S -p 95 -i 1000 -D 45 -q | grep -E "Max|Avg|Min"; wait; vcgencmd measure_temp; vcgencmd get_throttled; echo DONE; } > "$out" 2>&1

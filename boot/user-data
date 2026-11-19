@@ -1,0 +1,18 @@
+#cloud-config
+hostname: pilab
+manage_etc_hosts: true
+timezone: America/Los_Angeles
+keyboard:
+  model: pc105
+  layout: us
+users:
+  - name: lab
+    groups: users,adm,dialout,audio,netdev,video,plugdev,cdrom,games,input,gpio,spi,i2c,render,sudo
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      # Replace with one SSH public key, e.g. ssh-ed25519 AAAA... comment
+      - <YOUR_SSH_PUBKEY>
+ssh_pwauth: false
+enable_ssh: true

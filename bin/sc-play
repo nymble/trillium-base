@@ -1,0 +1,9 @@
+#!/bin/sh
+# Play a SuperCollider patch: starts scsynth on CPU 3 wired to the DAC, runs the patch, stops the server.
+patch="${1:?usage: sc-play file.scd}"
+export SC_JACK_DEFAULT_OUTPUTS="Built-in Audio Stereo:playback_FL,Built-in Audio Stereo:playback_FR"
+pw-jack taskset -c 3 scsynth -u 57110 -z 64 -o 2 -i 0 > /tmp/scsynth.log 2>&1 &
+sp=$!
+sleep 3
+QT_QPA_PLATFORM=minimal timeout "${2:-60}" sclang -D "$patch"
+kill "$sp" 2>/dev/null
