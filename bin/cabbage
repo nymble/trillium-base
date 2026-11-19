@@ -1,0 +1,70 @@
+#!/bin/sh
+# cabbage [file.csd] [-f]: open a Csound instrument in the Cabbage 2 IDE on the Pi desktop.
+#   Audio runs through JACK (PipeWire) to the DAC, pinned to the audio core (CPU 3).
+#   The instrument starts automatically (CABBAGE_AUTOPLAY=0 to just open the editor).
+#   Detaches by default; -f keeps it in the foreground.  cabbage --stop quits it.
+set -e
+BIN=/opt/cabbage/bin/Cabbage
+DAC=alsa_output.platform-soc_107c000000_sound.stereo-fallback
+LOG=/tmp/cabbage.log
+CFG="$HOME/.config/Cabbage2/Cabbage2.settings"
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DISPLAY="${DISPLAY:-:0}"          # JUCE 6 is X11-only: runs on labwc's Xwayland
+export CABBAGE_AUTOPLAY="${CABBAGE_AUTOPLAY:-1}"
+[ -S "$XDG_RUNTIME_DIR/bus" ] && export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+fg=0; csd=""
+for a in "$@"; do
+  case "$a" in
+    --stop) pkill -x Cabbage && echo "Cabbage stopped" || echo "Cabbage not running"; exit 0 ;;
+    -f) fg=1 ;;
+    -h|--help) sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) csd="$a" ;;
+  esac
+done
+csd="${csd:-$HOME/csound/cabbage-demo.csd}"
+case "$csd" in /*) ;; *) csd="$PWD/$csd" ;; esac
+[ -f "$csd" ] || { echo "cabbage: no such file: $csd" >&2; exit 1; }
+
+# Make JACK the audio device (JUCE would otherwise pick ALSA) at 48 kHz, output to the DAC.
+mkdir -p "$(dirname "$CFG")"
+python3 - "$CFG" "$DAC" <<'PY'
+import sys, os, xml.etree.ElementTree as ET
+cfg, dac = sys.argv[1], sys.argv[2]
+root = ET.parse(cfg).getroot() if os.path.exists(cfg) else ET.Element("PROPERTIES")
+want = dict(deviceType="JACK", audioOutputDeviceName=dac, audioInputDeviceName="",
+            audioDeviceRate="48000.0", audioDeviceBufferSize="64")
+val = next((v for v in root.findall("VALUE") if v.get("name") == "audioSetup"), None)
+cur = val.find("DEVICESETUP") if val is not None else None
+if cur is None or cur.get("deviceType") != "JACK" or cur.get("audioOutputDeviceName") != dac:
+    if val is None:
+        val = ET.SubElement(root, "VALUE", name="audioSetup")
+    for c in list(val): val.remove(c)
+    val.text = None
+    ET.SubElement(val, "DEVICESETUP", want)
+    ET.ElementTree(root).write(cfg, encoding="UTF-8", xml_declaration=True)
+PY
+
+if pgrep -x Cabbage >/dev/null; then
+  # Single-instance app: hand the file to the running copy.
+  "$BIN" "$csd" >>"$LOG" 2>&1 || true
+  echo "Cabbage already running; opened $csd there"
+  exit 0
+fi
+
+: >"$LOG"
+setsid pw-jack taskset -c 3 "$BIN" "$csd" </dev/null >>"$LOG" 2>&1 &
+pid=$!
+
+# JUCE auto-connects to the DAC; make sure both channels are linked anyway.
+i=0
+while [ $i -lt 40 ] && ! pw-link -o 2>/dev/null | grep -q '^JUCEJack:out_2$'; do sleep 0.25; i=$((i+1)); done
+pw-link JUCEJack:out_1 "$DAC:playback_FL" 2>/dev/null || true
+pw-link JUCEJack:out_2 "$DAC:playback_FR" 2>/dev/null || true
+
+echo "Cabbage running (pid $pid) with $csd; log in $LOG"
+pw-link -l 2>/dev/null | grep -A1 '^JUCEJack:out' || echo "warning: JACK ports not found yet; see $LOG"
+[ "$fg" = 1 ] && wait $pid
+exit 0

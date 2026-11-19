@@ -323,3 +323,49 @@ OSC is also enabled (UDP ports 5510–5512). Ctrl-C, or `faust-gui --stop`, quit
 `~/faust/synth.dsp` is a simple subtractive voice (sawtooth into a Moog-style low-pass, with an LFO on the cutoff). The gate checkbox defaults to off, so it starts silently. The Faust Qt window's default size can clip some knobs; drag a corner to resize, or use the browser page, which shows every control.
 
 `pw-link` reports "File exists" when `out_0` has already auto-connected; the helper treats that as success so `out_1` still gets linked to the right channel.
+
+## Cabbage (Csound instrument GUI)
+
+Csound itself needs nothing extra: `pw-jack csound file.csd` with `-odac -+rtaudio=jack -b 64 -B 256` in `<CsOptions>` plays on the DAC (test file `home/csound/hello.csd`).
+
+For instrument panels, Pi Lab runs the **Cabbage 2 IDE** (2.10.7, tag `v2-master-final`, commit `fe44ff9194373c883b60f118688ead06b519714d`) built from source on JUCE 6.1.2, linked against Debian's Csound 6.18 (`libcsound64`, double samples). There is no ARM Linux package. Cabbage 3 was not used: it is a VS Code extension plus a webview server and needs Csound 7.
+
+Build and install (about 13 minutes with `-j3`, 850 MB of sources and objects in `~/src/cabbage2`, about 50 MB installed):
+
+```sh
+scp scripts/build-cabbage.sh patches/cabbage-linux-aarch64.patch lab@pilab.local:/tmp/
+ssh lab@pilab.local 'sh /tmp/build-cabbage.sh /tmp/cabbage-linux-aarch64.patch'
+ssh lab@pilab.local 'sudo tee /usr/local/bin/cabbage >/dev/null && sudo chmod 755 /usr/local/bin/cabbage' < bin/cabbage
+ssh lab@pilab.local 'mkdir -p ~/.local/share/applications ~/csound && cat > ~/.local/share/applications/cabbage.desktop' < home/applications/cabbage.desktop
+scp home/csound/*.csd lab@pilab.local:csound/
+```
+
+The script installs the apt build deps, clones Cabbage and JUCE, applies Cabbage's own JUCE patches (as its `build.py` does), applies `patches/cabbage-linux-aarch64.patch`, builds only the IDE target with Ninja, and installs:
+
+- `/opt/cabbage/bin/Cabbage` (the IDE)
+- `/usr/share/doc/cabbage/Examples` and `/usr/share/cabbage/Themes` (these paths are hard-coded in the Linux build)
+- `/usr/share/icons/hicolor/512x512/apps/cabbage.png`
+
+What the patch changes, and why:
+
+1. **VST2 SDK.** `juce_set_vst2_sdk_path` fails configure when the SDK is absent, so it is skipped if missing, and VST2 plugin hosting is off (`JUCE_PLUGINHOST_VST=0`). VST3 hosting stays on.
+2. **JACK.** JUCE 6 defaults to `JUCE_JACK=0` on Linux, so the IDE could only use ALSA. The patch sets `JUCE_JACK=1`. JUCE loads `libjack.so.0` at runtime, which `pw-jack` points at PipeWire.
+3. **Autoplay.** With `CABBAGE_AUTOPLAY=1`, a `.csd` given on the command line is compiled and its instrument window opened 1.5 s after start, the same as pressing Play. Synthetic key presses (`wlrctl`) do not reach the Xwayland window, so this is the only reliable way to start an instrument without a mouse.
+
+`build.py` is not used. It switches the checkout to the `develop` branch, downloads the VST SDK, CabbageRack (x86_64 only) and the manual, and builds every plugin target. No `-m64`/`-msse` changes were needed; JUCE 6.1.2 builds cleanly with GCC 14 on aarch64 apart from the juceaide C++17 flag the script adds. `libcsnd-dev` is required because Cabbage includes `csound.hpp`.
+
+### Running it
+
+```sh
+cabbage                       # opens ~/csound/cabbage-demo.csd and starts it (detached)
+cabbage ~/csound/other.csd    # any instrument; hands it to a running copy if one is open
+cabbage file.csd -f           # stay in the foreground
+CABBAGE_AUTOPLAY=0 cabbage    # open the editor without starting the instrument
+cabbage --stop
+```
+
+The launcher joins the labwc session (`WAYLAND_DISPLAY=wayland-0`, `DISPLAY=:0`, because JUCE 6 is X11-only and runs on labwc's Xwayland), makes sure `~/.config/Cabbage2/Cabbage2.settings` selects the **JACK** device at 48 kHz with the DAC as output (otherwise JUCE picks ALSA), starts Cabbage under `pw-jack` pinned to CPU 3, and links `JUCEJack:out_1/out_2` to the DAC's `playback_FL/FR`. JUCE also auto-connects `in_1` to the first capture port (the USB sound card); instruments that do not read input ignore it. A **Cabbage** entry also appears in the desktop menu. Log: `/tmp/cabbage.log`.
+
+Do not run Cabbage on JUCE's ALSA device. The first test launch used ALSA (24 channels through `pipewire-alsa`, pinned to CPU 3), and the Pi rebooted about a minute later. The cause was not confirmed because the journal is not persistent, but the JACK setup has run stably since.
+
+`home/csound/cabbage-demo.csd` is a two-saw voice through a Moog ladder filter, with Freq, Cutoff and Resonance knobs, a Volume slider capped at 0.1, and a Gate checkbox. The Gate starts off, so the instrument is silent until you tick it. In the instrument's `<CsOptions>`, `-n -d` is correct: the Cabbage host does the audio I/O, so do not add `-odac`.

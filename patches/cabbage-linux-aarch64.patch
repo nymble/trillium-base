@@ -1,0 +1,46 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2eb1253..7c5b00e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -111,7 +111,9 @@ juce_set_vst2_sdk_path("$ENV{HOME}/SDKs/VST_SDK/VST3_SDK")
+ elseif(MSVC)
+ juce_set_vst2_sdk_path("C:/SDKs/VST_SDK/VST3_SDK")
+ else()
+-juce_set_vst2_sdk_path("$ENV{HOME}/SDKs/VST_SDK/VST3_SDK")
++if(EXISTS "$ENV{HOME}/SDKs/VST_SDK/VST3_SDK")
++    juce_set_vst2_sdk_path("$ENV{HOME}/SDKs/VST_SDK/VST3_SDK")
++endif()
+ endif()
+ 
+ if ("${PROJECT_NAME}" STREQUAL "CLIConverter")
+@@ -479,7 +481,8 @@ elseif("${PROJECT_NAME}" STREQUAL "Cabbage")
+             JUCE_ASIO=1
+             JUCE_VST3_CAN_REPLACE_VST2=0
+             JUCE_PLUGINHOST_VST3=1
+-            JUCE_PLUGINHOST_VST=1
++            JUCE_PLUGINHOST_VST=0
++            JUCE_JACK=1
+             JucePlugin_ProducesMidiOutput=1
+             Cabbage_IDE_Build=${IS_IDE_Build}
+             JUCE_DISPLAY_SPLASH_SCREEN=0
+diff --git a/Source/Application/CabbageDocumentWindow.cpp b/Source/Application/CabbageDocumentWindow.cpp
+index f3fae7e..e6cb8f4 100755
+--- a/Source/Application/CabbageDocumentWindow.cpp
++++ b/Source/Application/CabbageDocumentWindow.cpp
+@@ -158,6 +158,16 @@ commandLineArgs (commandLineParams)
+                 // CSD file will be opened in Cabbage::anotherInstanceStarted.
+ #else
+                 content->openFile (csdFile);
++                // Optional: start the instrument right away (used by a headless launcher).
++                if (SystemStats::getEnvironmentVariable ("CABBAGE_AUTOPLAY", "") == "1")
++                {
++                    Component::SafePointer<CabbageDocumentWindow> safeThis (this);
++                    Timer::callAfterDelay (1500, [safeThis]()
++                    {
++                        if (safeThis != nullptr)
++                            safeThis->getContentComponent()->saveDocument (false, true);
++                    });
++                }
+ #endif
+                 openingFile = true;
+             }

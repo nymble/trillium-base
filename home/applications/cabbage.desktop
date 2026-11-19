@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cabbage
+Comment=Csound instrument IDE (JACK audio on the DAC)
+Exec=/usr/local/bin/cabbage %f
+Icon=/usr/share/icons/hicolor/512x512/apps/cabbage.png
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+MimeType=text/x-csound-csd;
