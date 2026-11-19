@@ -65,6 +65,7 @@ less
 libacl1
 libapparmor1
 libapt-pkg7.0
+libasound2-dev
 libattr1
 libaudit-common
 libaudit1
@@ -90,6 +91,7 @@ libgmp10
 libgssapi-krb5-2
 libhogweed6t64
 libidn2-0
+libjack-jackd2-dev
 libjansson4
 libk5crypto3
 libkeyutils1

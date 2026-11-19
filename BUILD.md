@@ -280,3 +280,7 @@ TigerVNC Viewer is required. Copy `mac/pilab-desktop.command` to `~/bin/` and to
 - Knowledge-base cards (owned separately)
 
 Refresh the tracked files from a running Pi with `scripts/pull-from-pi.sh`.
+
+## Faust
+
+Build deps: `libjack-jackd2-dev libasound2-dev`. Play a patch on the DAC with `faust-play file.dsp [seconds]` (builds with faust2jackconsole, pins to CPU 3, links both channels with pw-link because only out_0 auto-connects).

@@ -1,0 +1,16 @@
+#!/bin/sh
+# faust-play <file.dsp> [seconds]: build a Faust patch as a JACK app and play it on the DAC.
+set -e
+dsp="$1"; secs="${2:-10}"
+[ -f "$dsp" ] || { echo "usage: faust-play file.dsp [seconds]"; exit 1; }
+name=$(basename "$dsp" .dsp); dir=$(dirname "$dsp")
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+if [ ! -x "$dir/$name" ] || [ "$dsp" -nt "$dir/$name" ]; then
+  (cd "$dir" && faust2jackconsole "$name.dsp" >/dev/null 2>&1)
+fi
+pw-jack taskset -c 3 "$dir/$name" >/tmp/faust-play.log 2>&1 &
+pid=$!
+sleep 1
+pw-link "$name:out_0" alsa_output.platform-soc_107c000000_sound.stereo-fallback:playback_FL 2>/dev/null || true
+pw-link "$name:out_1" alsa_output.platform-soc_107c000000_sound.stereo-fallback:playback_FR 2>/dev/null || true
+sleep "$secs"; kill $pid
