@@ -1,0 +1,221 @@
+#!/bin/bash
+# pilab-airplay: switch the AirPlay receiver and sender on or off, send audio
+# to an AirPlay speaker, and show what is running and listening.
+#
+#   pilab-airplay receiver on|off       AirPlay 2 receiver "pilab" -> PipeWire -> DAC
+#   pilab-airplay sender on|off         discover AirPlay speakers as PipeWire sinks
+#   pilab-airplay speakers              list discovered AirPlay speakers
+#   pilab-airplay send <speaker> [node] [--volume 0.0-1.0]
+#                                       link <node> (e.g. synth-gui, JUCEJack) to the
+#                                       speaker; with no node, play a short -20 dBFS tone
+#   pilab-airplay unsend <speaker> [node]
+#                                       remove links made by "send"
+#   pilab-airplay status                services, listening ports, speakers
+#
+# Run as the audio user (not root); it uses sudo only for the nqptp system unit.
+# Every subcommand is idempotent.
+set -euo pipefail
+
+RECEIVER_UNIT=shairport-sync.service          # user unit
+SENDER_UNIT=pilab-airplay-sender.service      # user unit
+NQPTP_UNIT=nqptp.service                      # system unit (PTP clock for AirPlay 2)
+PW_MODDIR_SYS=/usr/lib/aarch64-linux-gnu/pipewire-0.3
+PW_MODDIR_LOCAL="$HOME/.local/lib/pilab-pw-modules"
+# HomePods on HomePodOS 27 answer 403 to the "PipeWire/x.y.z" User-Agent that
+# PipeWire 1.4 hardcodes; newer PipeWire has raop.user-agent for this.
+RAOP_UA="AirPlay/366.0"
+TEST_WAV=/usr/local/share/pilab/airplay-test.wav
+DEFAULT_VOLUME=0.25
+
+die() { echo "pilab-airplay: $*" >&2; exit 1; }
+[ "$(id -u)" -ne 0 ] || die "run as the audio user, not root"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+ustate() { systemctl --user is-active "$1" 2>/dev/null || true; }
+uen()    { systemctl --user is-enabled "$1" 2>/dev/null || true; }
+sstate() { systemctl is-active "$1" 2>/dev/null || true; }
+sen()    { systemctl is-enabled "$1" 2>/dev/null || true; }
+
+# Build a private PipeWire module dir: symlinks to the system modules plus a
+# copy of the RAOP sink with an Apple-compatible User-Agent. Rebuilt whenever
+# the system module changes (e.g. after a PipeWire upgrade).
+prepare_raop_module() {
+    local src="$PW_MODDIR_SYS/libpipewire-module-raop-sink.so"
+    local dst="$PW_MODDIR_LOCAL/libpipewire-module-raop-sink.so"
+    [ -f "$src" ] || die "PipeWire RAOP module not found at $src"
+    if [ -f "$dst" ] && [ "$dst" -nt "$src" ] && [ -f "$PW_MODDIR_LOCAL/.ok" ]; then return 0; fi
+    rm -rf "$PW_MODDIR_LOCAL"; mkdir -p "$PW_MODDIR_LOCAL"
+    local f; for f in "$PW_MODDIR_SYS"/*; do ln -s "$f" "$PW_MODDIR_LOCAL/"; done
+    rm "$PW_MODDIR_LOCAL/libpipewire-module-raop-sink.so"
+    python3 - "$src" "$dst" "$RAOP_UA" <<'PY'
+import re, sys
+src, dst, ua = sys.argv[1], sys.argv[2], sys.argv[3].encode()
+b = open(src, "rb").read()
+m = re.search(rb"PipeWire/[0-9][0-9.]*\x00", b)
+if not m:
+    sys.exit("User-Agent string not found; this PipeWire may support raop.user-agent instead")
+old = m.group(0)
+if len(ua) + 1 > len(old):
+    sys.exit("replacement User-Agent too long")
+new = ua + b"\x00" * (len(old) - len(ua))
+open(dst, "wb").write(b.replace(old, new, 1))
+print("raop-sink User-Agent: %s -> %s" % (old.rstrip(b"\x00").decode(), ua.decode()))
+PY
+    touch "$PW_MODDIR_LOCAL/.ok"
+}
+
+# JSON helpers over pw-dump
+speakers_json() {
+    pw-dump 2>/dev/null | python3 -c '
+import json, sys
+for o in json.load(sys.stdin):
+    p = (o.get("info") or {}).get("props") or {}
+    if o.get("type","").endswith("Node") and str(p.get("node.name","")).startswith("raop_sink."):
+        print("%s\t%s\t%s\t%s" % (o["id"], p.get("node.description",""), p.get("node.name",""), p.get("device.model", p.get("raop.model",""))))
+'
+}
+
+find_speaker() {   # prints "id<TAB>node.name" for an exact (then prefix) description match
+    local want="$1" line
+    line=$(speakers_json | awk -F'\t' -v w="$want" 'tolower($2)==tolower(w){print $1"\t"$3; exit}')
+    [ -n "$line" ] || line=$(speakers_json | awk -F'\t' -v w="$want" 'index(tolower($2),tolower(w))==1{print $1"\t"$3; exit}')
+    [ -n "$line" ] || die "no AirPlay speaker named '$want' (is the sender on? try: pilab-airplay speakers)"
+    echo "$line"
+}
+
+out_ports() {      # output ports of the first node whose name/description matches $1
+    pw-link -o 2>/dev/null | grep -F "$1:" | grep -viE "monitor" || true
+}
+
+make_test_wav() {
+    [ -f "$TEST_WAV" ] && return 0
+    sudo mkdir -p "$(dirname "$TEST_WAV")"
+    python3 - <<'PY' | sudo tee "$TEST_WAV" >/dev/null
+import io, math, struct, sys, wave
+sr, secs, amp = 48000, 6, 10 ** (-20 / 20)    # 440 Hz, -20 dBFS, 6 s with fades
+n = sr * secs; buf = io.BytesIO(); w = wave.open(buf, "wb")
+w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr)
+w.writeframes(b"".join(struct.pack("<hh", *(2 * [int(amp * 32767 * math.sin(2 * math.pi * 440 * i / sr) * min(1, i / 2400, (n - i) / 2400))])) for i in range(n)))
+w.close(); sys.stdout.buffer.write(buf.getvalue())
+PY
+}
+
+receiver() {
+    case "${1:-}" in
+        on)
+            sudo systemctl enable --now "$NQPTP_UNIT" >/dev/null 2>&1 || die "nqptp failed: journalctl -u $NQPTP_UNIT"
+            systemctl --user reset-failed "$RECEIVER_UNIT" >/dev/null 2>&1 || true
+            systemctl --user enable --now "$RECEIVER_UNIT" >/dev/null 2>&1 || true
+            sleep 2
+            [ "$(ustate $RECEIVER_UNIT)" = active ] || die "receiver failed to start: journalctl --user -u $RECEIVER_UNIT"
+            echo "receiver: on (advertised as 'pilab', plays into the default PipeWire sink)";;
+        off)
+            systemctl --user disable --now "$RECEIVER_UNIT" >/dev/null 2>&1 || true
+            sudo systemctl disable --now "$NQPTP_UNIT" >/dev/null 2>&1 || true
+            echo "receiver: off";;
+        *) die "usage: pilab-airplay receiver on|off";;
+    esac
+}
+
+sender() {
+    case "${1:-}" in
+        on)
+            prepare_raop_module
+            systemctl --user reset-failed "$SENDER_UNIT" >/dev/null 2>&1 || true
+            systemctl --user enable --now "$SENDER_UNIT" >/dev/null 2>&1 || true
+            sleep 4
+            [ "$(ustate $SENDER_UNIT)" = active ] || die "sender failed to start: journalctl --user -u $SENDER_UNIT"
+            echo "sender: on ($(speakers_json | wc -l) AirPlay speakers discovered)";;
+        off)
+            systemctl --user disable --now "$SENDER_UNIT" >/dev/null 2>&1 || true
+            echo "sender: off";;
+        *) die "usage: pilab-airplay sender on|off";;
+    esac
+}
+
+speakers() {
+    [ "$(ustate $SENDER_UNIT)" = active ] || { echo "sender is off (pilab-airplay sender on)"; return 0; }
+    printf '%-6s %-28s %s\n' ID SPEAKER NODE
+    speakers_json | awk -F'\t' '{printf "%-6s %-28s %s\n", $1, $2, $3}'
+}
+
+send() {
+    local spk="" node="" vol="$DEFAULT_VOLUME"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --volume) vol="$2"; shift 2;;
+            *) if [ -z "$spk" ]; then spk="$1"; elif [ -z "$node" ]; then node="$1"; else die "too many arguments"; fi; shift;;
+        esac
+    done
+    [ -n "$spk" ] || die "usage: pilab-airplay send <speaker> [node] [--volume 0.0-1.0]"
+    [ "$(ustate $SENDER_UNIT)" = active ] || sender on >/dev/null
+    local id name; IFS=$'\t' read -r id name < <(find_speaker "$spk")
+    wpctl set-volume "$id" "$vol"
+    # Speakers can drop a volume sent before audio starts, and WirePlumber may
+    # restore a saved level when the stream links; re-apply shortly after start.
+    ( for d in 1 2; do sleep "$d"; wpctl set-volume "$id" "$vol" 2>/dev/null || true; done ) &
+    if [ -z "$node" ]; then
+        make_test_wav
+        echo "playing 6 s test tone (-20 dBFS) to '$spk' at speaker volume $vol (expect ~2 s delay)"
+        pw-play --target "$name" "$TEST_WAV"
+        return 0
+    fi
+    local ports; ports=$(out_ports "$node")
+    [ -n "$ports" ] || die "no output ports for node '$node' (see: pw-link -o)"
+    local ins; ins=$(pw-link -i 2>/dev/null | grep -F "$name:")
+    [ -n "$ins" ] || die "speaker '$spk' has no input ports"
+    local i=1 p q
+    while read -r q; do
+        p=$(echo "$ports" | sed -n "${i}p"); [ -n "$p" ] || p=$(echo "$ports" | sed -n 1p)
+        pw-link "$p" "$q" 2>/dev/null || pw-link -l 2>/dev/null | grep -qF "$p" \
+            || die "could not link $p -> $q"
+        i=$((i+1))
+    done <<< "$ins"
+    echo "linked '$node' -> '$spk' at speaker volume $vol (AirPlay adds ~2 s; the DAC keeps playing live)"
+}
+
+unsend() {
+    [ -n "${1:-}" ] || die "usage: pilab-airplay unsend <speaker> [node]"
+    local id name; IFS=$'\t' read -r id name < <(find_speaker "$1")
+    local in_port src
+    while read -r in_port src; do
+        if [ -z "${2:-}" ] || [[ "$src" == "$2:"* ]]; then
+            pw-link -d "$src" "$in_port" 2>/dev/null || true
+        fi
+    done < <(pw-link -l 2>/dev/null | awk -v n="$name:" '
+        index($0, n) == 1 { port = $1; next }
+        /^[^ ]/ { port = "" }
+        port != "" && /\|<-/ { print port, $NF }')
+    echo "unlinked ${2:-all sources} from '$1'"
+}
+
+status() {
+    printf '%-26s %-10s %s\n' SERVICE STATE ENABLED
+    printf '%-26s %-10s %s\n' "receiver (shairport-sync)" "$(ustate $RECEIVER_UNIT)" "$(uen $RECEIVER_UNIT)"
+    printf '%-26s %-10s %s\n' "receiver clock (nqptp)"    "$(sstate $NQPTP_UNIT)"    "$(sen $NQPTP_UNIT)"
+    printf '%-26s %-10s %s\n' "sender (raop-discover)"    "$(ustate $SENDER_UNIT)"   "$(uen $SENDER_UNIT)"
+    echo
+    echo "LISTENING (AirPlay processes):"
+    sudo ss -H -tulpn 2>/dev/null | grep -E '"(shairport-sync|nqptp)"' \
+        | awk '{split($5,a,":"); printf "  %-4s %-28s %s\n", $1, $5, $7}' || true
+    if [ "$(ustate $SENDER_UNIT)" = active ]; then
+        echo "  sender: outbound only (TCP 7000/RTSP to speakers, UDP RTP/timing while sending)"
+    fi
+    echo
+    if [ "$(ustate $RECEIVER_UNIT)" = active ]; then
+        echo "ADVERTISED: $(avahi-browse -tp _airplay._tcp 2>/dev/null | awk -F';' '$4=="pilab"' | wc -l) _airplay._tcp record(s) for 'pilab'"
+    fi
+    echo
+    speakers
+}
+
+case "${1:-}" in
+    receiver) shift; receiver "$@";;
+    sender)   shift; sender "$@";;
+    speakers) speakers;;
+    send)     shift; send "$@";;
+    unsend)   shift; unsend "$@";;
+    status|"") status;;
+    -h|--help|help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//';;
+    *) die "unknown command '$1' (try --help)";;
+esac

@@ -27,11 +27,16 @@ copy /etc/systemd/system/cpu-performance.service          "$ROOT/etc/systemd/sys
 copy /etc/systemd/system.conf.d/10-cpu-affinity.conf      "$ROOT/etc/systemd/system.conf.d/10-cpu-affinity.conf"
 copy /etc/pipewire/pipewire.conf.d/10-lowlatency.conf     "$ROOT/etc/pipewire/pipewire.conf.d/10-lowlatency.conf"
 copy /etc/wayvnc/config                                   "$ROOT/etc/wayvnc/config"
+copy /etc/shairport-sync.conf                             "$ROOT/etc/shairport-sync.conf" || true
+copy /usr/lib/systemd/system/nqptp.service                "$ROOT/etc/systemd/system/nqptp.service.installed" || true
 copy /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     "$ROOT/etc/systemd/system/getty@tty1.service.d/autologin.conf" || true
 
 copy /home/lab/.config/wayvnc/config                      "$ROOT/home/.config/wayvnc/config"
 copy /home/lab/.config/systemd/user/wayvnc-lab.service    "$ROOT/home/.config/systemd/user/wayvnc-lab.service"
+copy /home/lab/.config/systemd/user/shairport-sync.service       "$ROOT/home/.config/systemd/user/shairport-sync.service" || true
+copy /home/lab/.config/systemd/user/pilab-airplay-sender.service "$ROOT/home/.config/systemd/user/pilab-airplay-sender.service" || true
+copy /home/lab/.config/pipewire/pilab-airplay-sender.conf        "$ROOT/home/.config/pipewire/pilab-airplay-sender.conf" || true
 
 mkdir -p "$ROOT/home/patches"
 scp -o BatchMode=yes -q "$HOST:/home/lab/patches/*.scd" "$ROOT/home/patches/" || true
@@ -40,7 +45,8 @@ copy /usr/local/bin/sc-play        "$ROOT/bin/sc-play"
 copy /usr/local/bin/pilab-bench    "$ROOT/bin/pilab-bench"
 copy /usr/local/bin/faust-play     "$ROOT/bin/faust-play"
 copy /usr/local/bin/faust-gui      "$ROOT/bin/faust-gui"
-chmod 755 "$ROOT/bin/sc-play" "$ROOT/bin/pilab-bench" "$ROOT/bin/faust-play" "$ROOT/bin/faust-gui"
+copy /usr/local/bin/pilab-airplay  "$ROOT/bin/pilab-airplay"
+chmod 755 "$ROOT/bin/sc-play" "$ROOT/bin/pilab-bench" "$ROOT/bin/faust-play" "$ROOT/bin/faust-gui" "$ROOT/bin/pilab-airplay"
 
 mkdir -p "$ROOT/home/faust"
 scp -o BatchMode=yes -q "$HOST:/home/lab/faust/*.dsp" "$ROOT/home/faust/" || true
@@ -55,7 +61,7 @@ fi
 mkdir -p "$ROOT/packages"
 ssh -o BatchMode=yes "$HOST" 'uname -a' > "$ROOT/packages/uname.txt"
 ssh -o BatchMode=yes "$HOST" 'apt-mark showmanual' > "$ROOT/packages/apt-mark-showmanual.txt"
-ssh -o BatchMode=yes "$HOST" "dpkg-query -W -f='\${Package}\t\${Version}\n' linux-image-rpi-v8-rt linux-headers-rpi-v8-rt pipewire pipewire-bin pipewire-jack pipewire-pulse wireplumber rtkit alsa-utils supercollider supercollider-server supercollider-language sc3-plugins puredata csound faust rpd-wayland-core rpd-preferences wayvnc labwc jackd2 2>/dev/null" \
+ssh -o BatchMode=yes "$HOST" "dpkg-query -W -f='\${Package}\t\${Version}\n' linux-image-rpi-v8-rt linux-headers-rpi-v8-rt pipewire pipewire-bin pipewire-jack pipewire-pulse wireplumber rtkit alsa-utils supercollider supercollider-server supercollider-language sc3-plugins puredata csound faust rpd-wayland-core rpd-preferences wayvnc labwc jackd2 avahi-daemon avahi-utils libpipewire-0.3-modules 2>/dev/null" \
     > "$ROOT/packages/key-packages.txt" || true
 
 mkdir -p "$ROOT/bench"
@@ -67,3 +73,10 @@ scp -o BatchMode=yes -q "$HOST:/var/lib/pilab/bench/*" "$ROOT/bench/" 2>/dev/nul
 python3 "$ROOT/scripts/scrub-user-data.py" "$ROOT/boot/user-data"
 
 echo "Updated $ROOT from $HOST"
+
+# Source builds that dpkg does not know about
+{
+    printf 'shairport-sync\t%s\n' "$(ssh -o BatchMode=yes "$HOST" '/usr/local/bin/shairport-sync -V 2>/dev/null' || echo absent)"
+    printf 'nqptp\t%s\n' "$(ssh -o BatchMode=yes "$HOST" '/usr/local/bin/nqptp -V 2>/dev/null' || echo absent)"
+    printf 'cabbage\t%s\n' "$(ssh -o BatchMode=yes "$HOST" 'test -x /opt/cabbage/bin/Cabbage && echo 2.10.7 v2-master-final fe44ff9' || echo absent)"
+} > "$ROOT/packages/source-builds.txt"

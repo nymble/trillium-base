@@ -369,3 +369,38 @@ The launcher joins the labwc session (`WAYLAND_DISPLAY=wayland-0`, `DISPLAY=:0`,
 Do not run Cabbage on JUCE's ALSA device. The first test launch used ALSA (24 channels through `pipewire-alsa`, pinned to CPU 3), and the Pi rebooted about a minute later. The cause was not confirmed because the journal is not persistent, but the JACK setup has run stably since.
 
 `home/csound/cabbage-demo.csd` is a two-saw voice through a Moog ladder filter, with Freq, Cutoff and Resonance knobs, a Volume slider capped at 0.1, and a Gate checkbox. The Gate starts off, so the instrument is silent until you tick it. In the instrument's `<CsOptions>`, `-n -d` is correct: the Cabbage host does the audio I/O, so do not add `-odac`.
+
+## AirPlay receiver and sender (optional)
+
+Full notes, ports, test results and licensing: [docs/airplay.md](./docs/airplay.md).
+
+Build the receiver (nqptp 1.2.9 and shairport-sync 5.6.3 with AirPlay 2 and the PipeWire backend; about 1 minute):
+
+```sh
+scp scripts/build-airplay.sh lab@pilab.local:/tmp/ && ssh lab@pilab.local 'sh /tmp/build-airplay.sh'
+```
+
+Install the config, units and toggle:
+
+```sh
+scp etc/shairport-sync.conf lab@pilab.local:/tmp/ && ssh lab@pilab.local 'sudo install -m 644 /tmp/shairport-sync.conf /etc/shairport-sync.conf'
+ssh lab@pilab.local 'mkdir -p ~/.config/systemd/user ~/.config/pipewire'
+scp home/.config/systemd/user/shairport-sync.service home/.config/systemd/user/pilab-airplay-sender.service lab@pilab.local:.config/systemd/user/
+scp home/.config/pipewire/pilab-airplay-sender.conf lab@pilab.local:.config/pipewire/
+ssh lab@pilab.local 'sudo tee /usr/local/bin/pilab-airplay >/dev/null && sudo chmod 755 /usr/local/bin/pilab-airplay' < bin/pilab-airplay
+ssh lab@pilab.local 'systemctl --user daemon-reload'
+```
+
+Both stay off until switched on:
+
+```sh
+pilab-airplay receiver on     # advertises "pilab"; plays into the default sink (the DAC)
+pilab-airplay sender on       # also builds ~/.local/lib/pilab-pw-modules (HomePod User-Agent fix)
+pilab-airplay status
+```
+
+Notes:
+
+- Debian's `shairport-sync` package (4.3.7) is classic AirPlay only, and there is no `nqptp` package, so both come from source. `systemd-dev` is needed to build on Trixie. Its dry run installed only that package.
+- shairport-sync must be a **user** service, because PipeWire is one. `nqptp` is a system service (UDP 319/320). The user unit waits for it, and the config pins `service_type = "airplay2"` so a race never silently produces a classic-only receiver.
+- The sender runs as its own PipeWire client process, so switching it never restarts the realtime graph.

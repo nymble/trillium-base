@@ -3,7 +3,10 @@ alsa-utils
 apt
 apt-listchanges
 apt-utils
+autoconf
+automake
 avahi-daemon
+avahi-utils
 base-files
 base-passwd
 bash
@@ -72,6 +75,10 @@ libasound2-dev
 libattr1
 libaudit-common
 libaudit1
+libavahi-client-dev
+libavcodec-dev
+libavformat-dev
+libavutil-dev
 libblkid1
 libbpf1
 libbsd0
@@ -82,6 +89,7 @@ libcap-ng0
 libcap2
 libcap2-bin
 libcom-err2
+libconfig-dev
 libcrypt1
 libcsnd-dev
 libcsound64-dev
@@ -94,6 +102,7 @@ libext2fs2t64
 libfdisk1
 libfreetype-dev
 libgcc-s1
+libgcrypt20-dev
 libgl-dev
 libgmp10
 libgssapi-krb5-2
@@ -128,6 +137,10 @@ libpam-modules-bin
 libpam-runtime
 libpam0g
 libpcre2-8-0
+libpipewire-0.3-dev
+libplist-dev
+libplist-utils
+libpopt-dev
 libpopt0
 libproc2-0
 libreadline8t64
@@ -139,10 +152,15 @@ libsepol2
 libslang2
 libsmartcols1
 libsndfile1-dev
+libsodium-dev
+libsoxr-dev
+libspa-0.2-dev
 libsqlite3-0
 libss2
+libssl-dev
 libssl3t64
 libstdc++6
+libswresample-dev
 libsystemd-shared
 libsystemd0
 libtext-charwidth-perl
@@ -151,6 +169,7 @@ libtext-wrapi18n-perl
 libtinfo6
 libtirpc-common
 libtirpc3t64
+libtool
 libudev1
 libunistring5
 libuuid1
@@ -252,6 +271,7 @@ stress-ng
 sudo
 supercollider
 systemd
+systemd-dev
 systemd-sysv
 systemd-timesyncd
 sysvinit-utils
@@ -264,6 +284,7 @@ usb-modeswitch
 usbutils
 userconf-pi
 util-linux
+uuid-dev
 v4l-utils
 vim-common
 vim-tiny
@@ -273,5 +294,6 @@ wireless-tools
 wireplumber
 wlrctl
 wpasupplicant
+xxd
 zip
 zlib1g

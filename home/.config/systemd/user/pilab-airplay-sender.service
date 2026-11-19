@@ -1,0 +1,13 @@
+[Unit]
+Description=AirPlay sender (PipeWire RAOP discovery, Apple-compatible User-Agent)
+After=pipewire.service wireplumber.service
+Requires=pipewire.service
+
+[Service]
+Environment=PIPEWIRE_MODULE_DIR=%h/.local/lib/pilab-pw-modules
+ExecStart=/usr/bin/pipewire -c pilab-airplay-sender.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

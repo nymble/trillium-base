@@ -33,6 +33,8 @@ The login user is `lab` (key-only SSH, passwordless sudo). Hostname is `pilab` (
 | `packages/` | `uname -a`, `apt-mark showmanual`, and versions of the key packages |
 | `bench/` | Latest `pilab-bench` / cyclictest results pulled from the Pi |
 | `scripts/pull-from-pi.sh` | Idempotent, read-only refresh of the files above |
+| `bin/pilab-airplay`, [docs/airplay.md](./docs/airplay.md) | Optional AirPlay 2 receiver ("pilab") and AirPlay sender to LAN speakers |
+| `scripts/build-airplay.sh` | Builds nqptp and shairport-sync (AirPlay 2, PipeWire) from source on the Pi |
 
 ## Refreshing from a running Pi
 
