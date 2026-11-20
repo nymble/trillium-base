@@ -1,0 +1,25 @@
+# pilab console: the Waveform synth (a PipeWire node via pw-jack) plus the web console
+# on TCP 8410. Installed by scripts/install-console.sh; enabled at boot (linger is on).
+# Audio starts quiet: master -18 dBFS max, fade-in, limiter and soft clip on the output.
+[Unit]
+Description=pilab console and Waveform synth
+After=pipewire.service wireplumber.service pipewire-pulse.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pw-jack %h/.local/bin/pilabd serve
+# Ask PipeWire for a 64-frame period at 48 kHz (the graph's quantum may still differ).
+Environment=PIPEWIRE_LATENCY=64/48000
+# Control threads on CPUs 0-2; the audio thread moves itself to CPU 3 (pilabd --audio-cpu).
+CPUAffinity=0-2
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+Restart=on-failure
+RestartSec=3
+# SIGTERM fades the output to silence, stops any recording and closes the audio client.
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target
