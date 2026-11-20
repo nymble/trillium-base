@@ -1,0 +1,43 @@
+/* Copyright (C) 2026 Nymble — SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * pilab console theme. Every color, font and radius comes from the Trillium brand
+ * tokens in brand/tokens.css (--tr-*). Swap that file to re-skin the console; this file
+ * only maps tokens to roles and derives neutral tints with color-mix (no new hues).
+ */
+@font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url(/fonts/inter-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url(/fonts/inter-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-display: swap; src: url(/fonts/inter-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Outfit"; font-weight: 300; font-display: swap; src: url(/fonts/outfit-latin-300-normal.woff2) format("woff2"); }
+@font-face { font-family: "Outfit"; font-weight: 400; font-display: swap; src: url(/fonts/outfit-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Outfit"; font-weight: 500; font-display: swap; src: url(/fonts/outfit-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-display: swap; src: url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
+
+:root {
+  /* roles */
+  --bg: var(--tr-bg);
+  --panel: var(--tr-surface);
+  --panel-deep: color-mix(in srgb, var(--tr-graphite) 45%, var(--tr-black));
+  --panel-raised: color-mix(in srgb, var(--tr-graphite) 82%, var(--tr-ash));
+  --line: color-mix(in srgb, var(--tr-ash) 22%, transparent);
+  --line-strong: color-mix(in srgb, var(--tr-ash) 40%, transparent);
+  --text: var(--tr-text);
+  --text-2: var(--tr-ash-light);
+  --text-3: var(--tr-ash);
+  --disabled: var(--tr-unavailable);
+  --accent: var(--tr-accent);          /* the one active thing, one primary button */
+  --on-accent: var(--tr-on-accent);    /* always black on orange */
+  --accent-tint: color-mix(in srgb, var(--tr-signal) 14%, transparent);
+  --meter: var(--tr-amber);            /* levels and meters only */
+  --meter-dim: color-mix(in srgb, var(--tr-amber) 18%, var(--tr-black));
+  --ok: var(--tr-connected);           /* status dots */
+  --rec: var(--tr-record);
+  --warn-tint: color-mix(in srgb, var(--tr-amber) 10%, var(--tr-graphite));
+
+  --font-display: var(--tr-font-display);
+  --font-ui: var(--tr-font-ui);
+  --font-mono: var(--tr-font-mono);
+  --r-card: var(--tr-radius-card);
+  --r-ctl: var(--tr-radius-control);
+  --r-pill: 999px;
+}
