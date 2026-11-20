@@ -6,6 +6,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::osc::Waveform;
 
+/// Phase or shape transform applied to the oscillator (wavetable-synth style "warp").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Warp {
+    #[default]
+    None,
+    /// Phase bend: skews the cycle toward its start (+) or end (-).
+    Bend,
+    /// Hard-sync style: replays the cycle 1..8 times per period.
+    Sync,
+    /// Plays the cycle forward then backward (blend by amount).
+    Mirror,
+    /// PWM-style asymmetry: moves the half-cycle point.
+    Asym,
+    /// Wavefolder on the output.
+    Fold,
+}
+
+impl Warp {
+    pub const ALL: [Warp; 6] = [Warp::None, Warp::Bend, Warp::Sync, Warp::Mirror, Warp::Asym, Warp::Fold];
+}
+
 /// ADSR in seconds (sustain is a level 0..1).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Env {
@@ -74,6 +96,24 @@ pub struct SlotParams {
     pub amp_env: Env,
     pub filter: FilterParams,
     pub filter_env: Env,
+    /// Wavetable position 0..1 across the frames of the slot's table set.
+    pub position: f32,
+    /// Modulation envelope (the filter envelope) to position, -1..1.
+    pub pos_env: f32,
+    /// LFO to position depth, 0..1 (peak-to-peak as a fraction of the table).
+    pub pos_lfo: f32,
+    /// Mod wheel (CC 1) to position, -1..1.
+    pub pos_mod: f32,
+    /// LFO rate in Hz (sine, free-running per voice).
+    pub lfo_hz: f32,
+    pub warp: Warp,
+    /// Warp amount 0..1 (Bend: -1..1).
+    pub warp_amount: f32,
+    /// Oscillator copies per voice, 1..=3, spread by `unison_detune` cents.
+    pub unison: u8,
+    pub unison_detune: f32,
+    /// Saturation before the filter, 0..1.
+    pub drive: f32,
 }
 
 impl Default for SlotParams {
@@ -91,6 +131,16 @@ impl Default for SlotParams {
             amp_env: Env::default(),
             filter: FilterParams::default(),
             filter_env: Env { a: 0.005, d: 0.4, s: 0.2, r: 0.4 },
+            position: 0.0,
+            pos_env: 0.0,
+            pos_lfo: 0.0,
+            pos_mod: 0.0,
+            lfo_hz: 0.5,
+            warp: Warp::None,
+            warp_amount: 0.0,
+            unison: 1,
+            unison_detune: 12.0,
+            drive: 0.0,
         }
     }
 }

@@ -8,6 +8,37 @@
 
 pub const TABLE_LEN: usize = 2048;
 
+/// An ordered set of single-cycle frames (an AKWF group) scanned by a position control.
+pub struct TableSet {
+    pub name: String,
+    pub frames: Vec<Wavetable>,
+}
+
+impl TableSet {
+    /// Crossfades the two frames around `pos` (0..1). Allocation-free.
+    #[inline]
+    pub fn sample(&self, pos: f32, level: usize, phase: f32) -> f32 {
+        let n = self.frames.len();
+        if n == 0 {
+            return 0.0;
+        }
+        let x = pos.clamp(0.0, 1.0) * (n - 1) as f32;
+        let i = (x as usize).min(n - 1);
+        let f = x - i as f32;
+        let a = self.frames[i].sample(level, phase);
+        if f <= 0.0 || i + 1 >= n {
+            a
+        } else {
+            a + (self.frames[i + 1].sample(level, phase) - a) * f
+        }
+    }
+
+    #[inline]
+    pub fn level_for_dt(&self, dt: f32) -> usize {
+        self.frames.first().map(|f| f.level_for_dt(dt)).unwrap_or(0)
+    }
+}
+
 pub struct Wavetable {
     pub name: String,
     /// (max harmonic, samples with one guard sample), highest harmonic count first.

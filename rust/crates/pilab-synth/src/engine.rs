@@ -12,7 +12,9 @@ use crate::params::SlotParams;
 use crate::routing::{Hit, RouteTable};
 use crate::tuning::{db_to_gain, note_to_hz};
 use crate::wavetable::{Bands, Wavetable};
+use crate::params::Warp;
 use crate::sampler::{self, Instrument, LoopMode};
+use crate::wavetable::TableSet;
 use crate::{BLOCK, ENGINE_SLOTS, MAX_LAYERS, MAX_PORTS, MAX_VOICES, MAX_ZONE_LAYERS};
 
 const NO_ZONE: u16 = u16::MAX;
@@ -32,6 +34,8 @@ const XFADE_S: f32 = 0.005;
 pub enum Cmd {
     SetSlot(u8, SlotParams),
     SetTable(u8, Option<Arc<Wavetable>>),
+    /// Wavetable frame set (scanned by `position`) for a slot.
+    SetTableSet(u8, Option<Arc<TableSet>>),
     /// Sampler instrument for a slot. Voices of that slot stop at once.
     SetInstrument(u8, Option<Arc<Instrument>>),
     SetRoutes(Box<RouteTable>),
@@ -47,6 +51,7 @@ pub enum Cmd {
 pub enum Garbage {
     Table(Arc<Wavetable>),
     Instrument(Arc<Instrument>),
+    TableSet(Arc<TableSet>),
     Routes(Box<RouteTable>),
 }
 
@@ -120,6 +125,10 @@ struct Voice {
     spos: f64,
     sstep: f64,
     svf_r: Svf,
+    /// Unison copy phases and the per-voice LFO phase (0..1) and position.
+    uph: [f64; 2],
+    lfo: f32,
+    pos: f32,
 }
 
 impl Default for Voice {
@@ -155,6 +164,9 @@ impl Default for Voice {
             spos: 0.0,
             sstep: 0.0,
             svf_r: Svf::default(),
+            uph: [0.33, 0.67],
+            lfo: 0.0,
+            pos: 0.0,
         }
     }
 }
@@ -165,6 +177,7 @@ pub struct Engine {
     slots: [SlotParams; ENGINE_SLOTS],
     tables: [Option<Arc<Wavetable>>; ENGINE_SLOTS],
     instruments: [Option<Arc<Instrument>>; ENGINE_SLOTS],
+    tablesets: [Option<Arc<TableSet>>; ENGINE_SLOTS],
     rr: [[u8; 128]; ENGINE_SLOTS],
     rng: u32,
     routes: Box<RouteTable>,
@@ -202,6 +215,7 @@ impl Engine {
             slots: [SlotParams::default(); ENGINE_SLOTS],
             tables: Default::default(),
             instruments: Default::default(),
+            tablesets: Default::default(),
             rr: [[0; 128]; ENGINE_SLOTS],
             rng: 0x9E37_79B9,
             routes: Box::new(RouteTable::new()),
@@ -267,6 +281,13 @@ impl Engine {
                     return old.map(Garbage::Table);
                 }
                 t.map(Garbage::Table)
+            }
+            Cmd::SetTableSet(i, t) => {
+                if (i as usize) < ENGINE_SLOTS {
+                    let old = core::mem::replace(&mut self.tablesets[i as usize], t);
+                    return old.map(Garbage::TableSet);
+                }
+                t.map(Garbage::TableSet)
             }
             Cmd::SetInstrument(i, t) => {
                 if (i as usize) < ENGINE_SLOTS {
@@ -471,6 +492,8 @@ impl Engine {
         let bend = self.chans[port as usize][ch as usize].bend;
         let v = &mut self.voices[idx];
         if !v.active || v.zone != zone {
+            v.uph = [0.33, 0.67];
+            v.lfo = 0.0;
             v.osc.reset();
             v.svf.reset();
             v.svf_r.reset();
@@ -553,6 +576,7 @@ impl Engine {
             }
             let p = &self.slots[v.slot as usize];
             let table = self.tables[v.slot as usize].as_deref();
+            let set = if p.wave == Waveform::Table { self.tablesets[v.slot as usize].as_deref() } else { None };
             let chan = self.chans[v.port as usize][v.ch as usize];
             if v.zone != NO_ZONE {
                 let inst = self.instruments[v.slot as usize].as_deref();
@@ -573,8 +597,18 @@ impl Engine {
                     let note = v.key as f32 + p.octave as f32 * 12.0 + p.detune_cents * 0.01 + v.bend_s * br;
                     let f = note_to_hz(note, a4).min(sr * 0.49);
                     v.dt = f / sr;
-                    if let Some(t) = table {
+                    if let Some(t) = set {
                         v.level = t.level_for_dt(v.dt);
+                    } else if let Some(t) = table {
+                        v.level = t.level_for_dt(v.dt);
+                    }
+                    if set.is_some() {
+                        let lfo = (v.lfo * core::f32::consts::TAU).sin();
+                        v.lfo += p.lfo_hz.clamp(0.0, 40.0) * CTL as f32 / sr;
+                        if v.lfo >= 1.0 {
+                            v.lfo -= 1.0;
+                        }
+                        v.pos = (p.position + p.pos_env * v.fe + p.pos_lfo * 0.5 * lfo + p.pos_mod * chan.modw).clamp(0.0, 1.0);
                     }
                     v.blevel = bands.saw.level_for_dt(v.dt);
                     v.pw = (p.pulse_width + chan.modw * p.pwm_mod).clamp(0.02, 0.98);
@@ -597,11 +631,16 @@ impl Engine {
                     v.gain_r = g * ang.sin();
                 }
                 v.ctl -= 1;
+                let (warp, wa) = (p.warp, p.warp_amount);
+                let (vpos, vdt, vpw, vlevel, vblevel) = (v.pos, v.dt, v.pw, v.level, v.blevel);
                 let shape = |w: Waveform, ph: f64| {
-                    if blep_mode {
-                        Osc::shape(w, ph, v.dt, v.pw, table, v.level)
+                    let ph = warp_phase(warp, wa, ph);
+                    if let (Waveform::Table, Some(ts)) = (w, set) {
+                        ts.sample(vpos, vlevel, ph as f32)
+                    } else if blep_mode {
+                        Osc::shape(w, ph, vdt, vpw, table, vlevel)
                     } else {
-                        Osc::shape_table(w, ph, v.pw, bands, v.blevel, table, v.level)
+                        Osc::shape_table(w, ph, vpw, bands, vblevel, table, vlevel)
                     }
                 };
                 let mut s = shape(v.wave, v.osc.phase);
@@ -610,6 +649,26 @@ impl Engine {
                     let s0 = shape(v.prev_wave, v.osc.phase);
                     s = s * (1.0 - a) + s0 * a;
                     v.xf -= 1;
+                }
+                let uni = p.unison.clamp(1, 3) as usize;
+                if uni > 1 {
+                    let r = (p.unison_detune.clamp(0.0, 100.0) / 1200.0).exp2() as f64;
+                    let ratios = [r, 1.0 / r];
+                    for k in 0..uni - 1 {
+                        s += shape(v.wave, v.uph[k]);
+                        v.uph[k] += v.dt as f64 * ratios[k];
+                        if v.uph[k] >= 1.0 {
+                            v.uph[k] -= 1.0;
+                        }
+                    }
+                    s *= if uni == 2 { core::f32::consts::FRAC_1_SQRT_2 } else { 0.577 };
+                }
+                if warp == Warp::Fold && wa > 0.0 {
+                    s = (s * (1.0 + wa * 5.0) * core::f32::consts::FRAC_PI_2).sin();
+                }
+                if p.drive > 0.0 {
+                    let g = 1.0 + p.drive.clamp(0.0, 1.0) * 8.0;
+                    s = soft_clip(s * g) / (1.0 + p.drive.clamp(0.0, 1.0) * 1.5);
                 }
                 v.osc.phase += v.dt as f64;
                 if v.osc.phase >= 1.0 {
@@ -676,6 +735,33 @@ impl Engine {
         Stats::hold_peak(&self.stats.peak_r, pr);
         let db = crate::tuning::gain_to_db(min_gain);
         self.stats.limiter_db.store(db.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// Phase transform for the oscillator warp modes (Fold acts on the output instead).
+#[inline]
+fn warp_phase(w: Warp, a: f32, ph: f64) -> f64 {
+    let a = a as f64;
+    match w {
+        Warp::None | Warp::Fold => ph,
+        Warp::Bend => {
+            // a > 0 compresses the start of the cycle, a < 0 the end.
+            let e = (-(a.clamp(-1.0, 1.0)) * 2.0).exp2();
+            ph.powf(e)
+        }
+        Warp::Sync => {
+            let x = ph * (1.0 + a.clamp(0.0, 1.0) * 7.0);
+            x - x.floor()
+        }
+        Warp::Mirror => {
+            let m = if ph < 0.5 { 2.0 * ph } else { 2.0 - 2.0 * ph };
+            let m = m.min(0.999_999);
+            ph + (m - ph) * a.clamp(0.0, 1.0)
+        }
+        Warp::Asym => {
+            let k = (0.5 + 0.45 * a.clamp(-1.0, 1.0)).clamp(0.05, 0.95);
+            if ph < k { 0.5 * ph / k } else { 0.5 + 0.5 * (ph - k) / (1.0 - k) }
+        }
     }
 }
 

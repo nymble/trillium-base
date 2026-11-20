@@ -53,12 +53,21 @@ fn process_midi_and_apply_do_not_allocate() {
         vec![sampler::Sample { data: smp, channels: 1, frames: 4800, rate: 44_100.0 }],
         vec![z, z2],
     ));
+    let saw: Vec<f32> = (0..600).map(|i| i as f32 / 300.0 - 1.0).collect();
+    let set = std::sync::Arc::new(TableSet {
+        name: "set".into(),
+        frames: vec![Wavetable::from_cycle("a", &cycle).unwrap(), Wavetable::from_cycle("b", &saw).unwrap()],
+    });
+    rt.push(CompiledRoute { port_mask: u32::MAX, slot: 3, ..Default::default() });
+    let slot_set = SlotParams { wave: Waveform::Table, position: 0.3, pos_lfo: 0.5, pos_env: 0.4, pos_mod: 0.2, warp: Warp::Bend, warp_amount: 0.4, unison: 3, drive: 0.5, ..Default::default() };
     let slot_sampler = SlotParams { wave: Waveform::Sampler, ..Default::default() };
     let slot_table = SlotParams { wave: Waveform::Table, ..Default::default() };
     let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
     let cmds = vec![
         Cmd::SetSlot(1, slot_table),
         Cmd::SetTable(1, Some(table)),
+        Cmd::SetSlot(3, slot_set),
+        Cmd::SetTableSet(3, Some(set)),
         Cmd::SetSlot(2, slot_sampler),
         Cmd::SetInstrument(2, Some(inst)),
         Cmd::SetRoutes(rt),

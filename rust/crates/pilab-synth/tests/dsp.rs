@@ -279,3 +279,58 @@ fn wav_parser_reads_16bit_mono() {
     assert_eq!(x.len(), 600);
     assert!((x[150] - 0.9155).abs() < 0.01);
 }
+
+fn set_engine(p: SlotParams) -> Engine {
+    let sine: Vec<f32> = (0..600).map(|i| (i as f32 / 600.0 * std::f32::consts::TAU).sin()).collect();
+    let saw: Vec<f32> = (0..600).map(|i| i as f32 / 300.0 - 1.0).collect();
+    let set = std::sync::Arc::new(TableSet {
+        name: "s".into(),
+        frames: vec![Wavetable::from_cycle("sine", &sine).unwrap(), Wavetable::from_cycle("saw", &saw).unwrap()],
+    });
+    let mut e = Engine::new(SR);
+    e.apply(Cmd::SetSlot(0, SlotParams { wave: Waveform::Table, filter: FilterParams { enabled: false, ..Default::default() }, amp_env: Env { a: 0.001, d: 0.1, s: 1.0, r: 0.1 }, ..p }));
+    e.apply(Cmd::SetTableSet(0, Some(set)));
+    let mut rt = RouteTable::new();
+    rt.push(CompiledRoute { port_mask: u32::MAX, slot: 0, ..Default::default() });
+    e.apply(Cmd::SetRoutes(Box::new(rt)));
+    e.apply(Cmd::Run(true));
+    e
+}
+
+/// Energy above the fundamental (harmonics 2..20) relative to the fundamental, in dB.
+fn harmonics_db(x: &[f32], f0: usize) -> f64 {
+    let sp = spectrum(x);
+    let fund = sp[f0];
+    let rest: f64 = (2..20).map(|k| sp[f0 * k]).sum();
+    10.0 * (rest / fund).log10()
+}
+
+#[test]
+fn wavetable_position_morphs_between_frames() {
+    let n = 1 << 14;
+    let f0 = 64usize; // bin index
+    let note_hz = f0 as f32 * SR / n as f32;
+    let note = 69.0 + 12.0 * (note_hz / 440.0).log2();
+    let mut out = vec![];
+    for pos in [0.0f32, 1.0] {
+        let mut e = set_engine(SlotParams { position: pos, detune_cents: (note - note.round()) * 100.0, ..Default::default() });
+        e.midi(0, &[0x90, note.round() as u8, 100]);
+        let (l, _) = run(&mut e, 0.6);
+        out.push(harmonics_db(&l[l.len() - n..], f0));
+    }
+    assert!(out[0] < -30.0, "position 0 is the sine frame: {out:?}");
+    assert!(out[1] > -10.0, "position 1 is the saw frame: {out:?}");
+}
+
+#[test]
+fn warp_unison_and_drive_stay_bounded() {
+    for w in Warp::ALL {
+        let mut e = set_engine(SlotParams { warp: w, warp_amount: 0.8, unison: 3, drive: 1.0, position: 0.5, pos_lfo: 1.0, lfo_hz: 5.0, ..Default::default() });
+        for n in [36u8, 60, 84] {
+            e.midi(0, &[0x90, n, 127]);
+        }
+        let (l, r) = run(&mut e, 0.5);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite() && v.abs() <= 1.0), "{w:?}");
+        assert!(l.iter().map(|v| v.abs()).fold(0.0, f32::max) > 0.01, "{w:?} silent");
+    }
+}

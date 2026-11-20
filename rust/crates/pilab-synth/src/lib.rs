@@ -20,10 +20,10 @@ pub mod wavetable;
 
 pub use engine::{Cmd, Engine, Garbage, Stats};
 pub use osc::{OscMode, Waveform};
-pub use params::{Env, FilterParams, SlotParams};
+pub use params::{Env, FilterParams, SlotParams, Warp};
 pub use routing::{CompiledRoute, Hit, RouteTable};
 pub use sampler::Instrument;
-pub use wavetable::{Bands, Wavetable};
+pub use wavetable::{Bands, TableSet, Wavetable};
 
 /// Maximum simultaneous voices.
 pub const MAX_VOICES: usize = 32;
