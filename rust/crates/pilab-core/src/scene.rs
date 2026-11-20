@@ -162,6 +162,33 @@ impl Scene {
         }
     }
 
+    /// Sample scene for Trillium (matched by `[[midi.devices]]` id "trillium"):
+    /// pad below C4 an octave down, lead from C4 up, a soft triangle layered across the
+    /// middle, and the web keyboard on Warm Saw.
+    pub fn trillium_sample() -> Scene {
+        let dev = |label: &str, lo: u8, hi: u8, transpose: i8, vel: f32, slot: u8| Route {
+            label: label.into(),
+            input: "device:trillium".into(),
+            note_lo: lo,
+            note_hi: hi,
+            transpose,
+            velocity_scale: vel,
+            slot,
+            ..Route::default()
+        };
+        Scene {
+            name: "trillium split".into(),
+            description: "Trillium: pad below C4, lead above, triangle layer; web keys on Warm Saw".into(),
+            routes: vec![
+                dev("Trillium low", 0, 59, -12, 1.0, 3),
+                dev("Trillium high", 60, 127, 0, 1.0, 2),
+                dev("Triangle layer", 36, 96, 0, 0.5, 4),
+                Route { label: "Web keyboard".into(), input: "console".into(), slot: 1, ..Route::default() },
+            ],
+            ..Scene::factory()
+        }
+    }
+
     pub fn slot(&self, id: u8) -> Option<&Slot> {
         self.slots.iter().find(|s| s.id == id)
     }

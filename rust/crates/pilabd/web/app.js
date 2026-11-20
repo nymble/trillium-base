@@ -144,7 +144,11 @@ function onSys() {
   const dac = s.dac;
   $("#st-dac").className = "dot" + (dac ? (dac.state === "RUNNING" ? " ok" : dac.state === "SUSPENDED" || dac.state === "IDLE" ? "" : " warn") : "");
   $("#st-dac-v").textContent = dac ? dac.state.toLowerCase() : "none";
-  if (S.view === "overview") renderOverview();
+  if (S.view === "overview") {
+    S.sysTick = (S.sysTick || 0) + 1;
+    if (S.sysTick % 2 === 0) get("/midi/inputs").then((v) => { S.inputs = v; }).catch(() => {});
+    renderOverview();
+  }
 }
 
 $("#master").addEventListener("input", (e) => { $("#master-v").textContent = fmtDb(+e.target.value); debounce("master", () => post("/master", { db: +e.target.value }).catch(fail), 60); });
@@ -171,7 +175,7 @@ function render() {
 function norm(sc) { sc.slots = sc.slot || []; sc.routes = sc.route || []; return sc; }
 
 async function refreshScene() {
-  try { const r = await get("/scene"); S.scene = norm(r.scene); S.dirty = r.dirty; S.inputs = r.midi_inputs; } catch (e) { fail(e); }
+  try { const r = await get("/scene"); S.scene = norm(r.scene); S.dirty = r.dirty; S.inputs = r.midi_inputs; S.devices = r.devices || []; } catch (e) { fail(e); }
 }
 
 function head(title, sub, right = "") {
@@ -196,7 +200,12 @@ function renderOverview() {
     </tr>`).join("");
   const ports = (s.listening || []).map((p) => `<tr><td class="mono">${p.proto}</td><td class="num">${p.port}</td><td>${p.scope}</td><td>${p.service === "undeclared" ? `<span class="badge caution">undeclared</span>` : esc(p.service)}</td></tr>`).join("");
   const usb = (s.usb || []).map((u) => `<tr><td>${esc(u.product || u.id)}</td><td class="muted">${esc(u.vendor)}</td><td class="mono small">${u.id}</td><td>${u.midi ? `<span class="badge ok">MIDI</span>` : u.audio ? `<span class="badge">audio</span>` : ""}</td></tr>`).join("") || `<tr><td class="muted">No USB devices</td></tr>`;
-  const inputs = (S.inputs || []).filter((i) => i.slot !== 9).map((i) => `<tr><td><span class="act" data-port="${i.slot}"></span>${esc(i.label)}</td><td class="mono small muted">${i.slot === 0 ? "pilab-synth:midi_in" : i.slot === 8 ? "web keyboard" : "in " + i.slot}</td><td class="num">${i.events}</td></tr>`).join("");
+  const inputs = (S.inputs || []).filter((i) => i.slot !== 9).map((i) => {
+    const who = i.device ? `<span class="badge ok">${esc(i.device)}</span> ` : "";
+    const ident = i.identity ? `<div class="mono small muted">${esc(i.identity)}${i.rule ? " · matched by " + esc(i.rule) : ""}</div>` : "";
+    if (i.slot == null) return `<tr class="muted"><td><span class="act"></span>${who}${esc(i.label)}${ident}<div class="small">${esc(i.skipped)}</div></td><td class="mono small">not connected</td><td class="num">—</td></tr>`;
+    return `<tr><td><span class="act" data-port="${i.slot}"></span>${who}${esc(i.label)}${ident}</td><td class="mono small muted">${i.slot === 0 ? "pilab-synth:midi_in" : i.slot === 8 ? "web keyboard" : "in " + i.slot}</td><td class="num">${i.events}</td></tr>`;
+  }).join("");
   const ev = (s.events || []).map((e) => `<div><span class="t">${e.time}</span><span>${e.level}</span><span></span><span>${esc(e.text)}</span></div>`).join("");
   const rec = s.recording;
   $("#main").innerHTML = head("Overview", `${esc(s.hostname)}.local · ${esc((s.addresses || []).join(" · "))} · port ${s.port}`) + `
@@ -416,7 +425,8 @@ async function drawPreviews() {
 
 // ------------------------------------------------------------------ MIDI map
 function inputChoices() {
-  const fixed = [{ v: "*", l: "Any input" }, { v: "console", l: "Web keyboard" }, { v: "virtual", l: "Virtual port (apps)" }];
+  const fixed = [{ v: "*", l: "Any input" }, { v: "console", l: "Web keyboard" }, { v: "virtual", l: "Virtual port (apps)" }]
+    .concat((S.devices || []).map((d) => ({ v: "device:" + d.id, l: d.label + " (device)" })));
   const hw = (S.inputs || []).filter((i) => i.slot >= 1 && i.slot <= 7).map((i) => ({ v: `*${i.label}*`, l: i.label }));
   return fixed.concat(hw);
 }
@@ -426,7 +436,7 @@ function renderMidiMap() {
   const sc = S.scene, slots = sc.slots;
   const rows = inputChoices();
   for (const r of sc.routes) if (!rows.some((x) => x.v === r.input)) rows.push({ v: r.input, l: r.input });
-  const portOf = (v) => v === "console" ? 8 : v === "virtual" ? 0 : v === "*" ? null : ((S.inputs || []).find((i) => `*${i.label}*` === v) || {}).slot;
+  const portOf = (v) => v === "console" ? 8 : v === "virtual" ? 0 : v === "*" ? null : v.startsWith("device:") ? ((S.inputs || []).find((i) => i.slot != null && i.device_id === v.slice(7)) || {}).slot : ((S.inputs || []).find((i) => `*${i.label}*` === v) || {}).slot;
   const matrix = `<table class="matrix"><thead><tr><th></th>${slots.map((s) => `<th class="col">${s.id} · ${esc(s.name)}</th>`).join("")}</tr></thead><tbody>
     ${rows.map((r) => `<tr><td class="src">${portOf(r.v) != null ? `<span class="act" data-port="${portOf(r.v)}"></span>` : `<span class="act"></span>`}${esc(r.l)}</td>
       ${slots.map((s) => {
@@ -460,7 +470,7 @@ function renderMidiMap() {
   <div class="grid g3">
     <div class="card span2"><div class="card-head"><h3>Routing matrix</h3><span class="spacer"></span><span class="muted small">● full-range route · ◍ split or channel-specific · click to toggle a full-range route</span></div>${matrix}</div>
     <div class="card"><div class="card-head"><h3>MIDI monitor</h3><span class="spacer"></span><button class="btn ghost small" id="mon-clear">Clear</button></div><div class="monitor" id="monitor"></div></div>
-    <div class="card span4"><div class="card-head"><h3>Routes</h3><span class="spacer"></span><span class="muted small">Input globs match source names, e.g. <code>*Trillium*</code></span></div>
+    <div class="card span4"><div class="card-head"><h3>Routes</h3><span class="spacer"></span><span class="muted small">Inputs: a known device (<code>device:trillium</code>, from Settings), <code>console</code>, <code>virtual</code>, or a glob on the source name</span></div>
       <div style="overflow-x:auto"><table class="routes"><thead><tr><th>On</th><th>Label</th><th>Input</th><th>Channel</th><th>Low</th><th>High</th><th>Transpose</th><th>Vel ×</th><th>Sound</th><th>Range</th><th></th></tr></thead><tbody>${routes || `<tr><td colspan="11" class="muted">No routes. Add one, or click a matrix cell.</td></tr>`}</tbody></table></div></div>
     <div class="card span4"><div class="card-head"><h3>Keyboard lanes</h3><span class="spacer"></span><span class="muted small">Which notes reach each sound</span></div>
       <div class="keys-axis"><span></span><div class="ax">${axis}</div></div><div class="lanes">${lanes}</div></div>
@@ -498,12 +508,12 @@ function parseNote(s) {
 }
 
 async function pushRoutes(routes) {
-  try { const r = await put("/scene/routes", routes); S.scene = norm(r.scene); S.dirty = r.dirty; S.inputs = r.midi_inputs; renderMidiMap(); } catch (e) { fail(e); }
+  try { const r = await put("/scene/routes", routes); S.scene = norm(r.scene); S.dirty = r.dirty; S.inputs = r.midi_inputs; if (r.devices) S.devices = r.devices; renderMidiMap(); } catch (e) { fail(e); }
 }
 
 function updateMonitor() {
   const el = $("#monitor"); if (!el) return;
-  el.innerHTML = S.midiLog.slice(0, 120).map((m) => `<div><span class="t">${m.t.toFixed(2)}</span><span>${esc(m.source || "port " + m.port)}</span><span>ch${m.ch}</span><span>${esc(m.text)}</span></div>`).join("") || `<div class="muted">Play a controller or the keyboard below.</div>`;
+  el.innerHTML = S.midiLog.slice(0, 120).map((m) => `<div><span class="t">${m.t.toFixed(2)}</span><span>${esc(m.source || "port " + m.port)}</span><span>ch${m.ch}</span><span>${esc(m.text)}</span></div>`).join("") || `<div class="muted" style="display:block">Play a controller or the keyboard below.</div>`;
 }
 
 // ------------------------------------------------------------------ scenes
@@ -658,6 +668,15 @@ async function renderSettings() {
       <div class="card-head"><h3>MIDI</h3></div>
       <div class="row"><label class="switch"><input type="checkbox" id="midi-auto" ${st.midi.autoconnect ? "checked" : ""}><span></span></label><span>Connect new MIDI sources automatically (Trillium and other USB MIDI devices, ALSA apps)</span></div>
       <div class="field" style="margin-top:8px"><label>Never connect (globs, comma separated)</label><input class="input mono" id="midi-ignore" value="${esc(st.midi.ignore.join(", "))}" placeholder="*Midi Through*"></div>
+      <div class="lbl" style="margin:14px 0 6px">Known devices (matched in order)</div>
+      ${st.midi.devices.map((d) => `<div class="kv" style="margin-bottom:8px">
+        <span class="k">${esc(d.label)}</span><span class="v">device:${esc(d.id)}</span>
+        <span class="k">USB ids</span><span class="v">${esc(d.usb_ids.join(", ") || "—")}</span>
+        <span class="k">Name starts with</span><span class="v">${esc(d.name_prefixes.join(", ") || "—")}</span>
+        <span class="k">BLE alias</span><span class="v">${esc(d.ble_aliases.join(", ") || "—")}</span>
+        <span class="k">Routed cables</span><span class="v">${d.route_cables.length ? d.route_cables.join(", ") : "all"}</span>
+      </div>${d.note ? `<div class="muted small" style="margin-bottom:8px">${esc(d.note)}</div>` : ""}`).join("")}
+      <div class="muted small">Edit <code>[[midi.devices]]</code> in <code>~/.config/pilab/settings.toml</code> on the Pi, then restart pilabd.</div>
       <div class="lbl" style="margin:14px 0 6px">Network and pairing</div>
       <div class="kv">
         <span class="k">Console</span><span class="v">${urls.map(esc).join("<br>")}</span>

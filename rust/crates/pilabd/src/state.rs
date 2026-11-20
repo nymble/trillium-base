@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use pilab_core::scene::Slot;
-use pilab_core::{compile_routes, glob, PortNames, Route, Scene, SceneStore, Settings};
+use crate::identity;
+use pilab_core::{classify, compile_routes_with, glob, PortDevices, PortNames, Route, Scene, SceneStore, Settings, SourceIdentity};
 use pilab_synth::osc::Osc;
 use pilab_synth::tuning::gain_to_db;
 use pilab_synth::{Bands, Cmd, CompiledRoute, Garbage, RouteTable, SlotParams, Stats, Waveform, MAX_PORTS, MAX_SLOTS, PORT_AUDITION, PORT_CONSOLE, PORT_VIRTUAL};
@@ -55,6 +56,13 @@ struct Inner {
     dirty: bool,
     settings: Settings,
     ports: PortNames,
+    /// Device class id matched per input slot (routes `device:<id>`).
+    devices: PortDevices,
+    /// Identity, matched class label and rule for each source port seen.
+    idents: std::collections::HashMap<String, (SourceIdentity, Option<(String, &'static str)>)>,
+    /// Sources left unconnected by a device class (port, reason).
+    skipped: Vec<(String, String)>,
+    ble_cache: Option<(std::time::Instant, Vec<String>)>,
     events: VecDeque<Event>,
     midi_pending: Vec<MidiLog>,
     midi_counts: [u64; MAX_PORTS],
@@ -126,8 +134,8 @@ pub fn describe_midi(b: &[u8]) -> (&'static str, u8, String) {
     }
 }
 
-fn compile_all(routes: &[Route], ports: &PortNames, audition: u8) -> RouteTable {
-    let mut t = compile_routes(routes, ports);
+fn compile_all(routes: &[Route], ports: &PortNames, devices: &PortDevices, audition: u8) -> RouteTable {
+    let mut t = compile_routes_with(routes, ports, devices);
     if audition >= 1 {
         t.push(CompiledRoute { port_mask: 1 << PORT_AUDITION, slot: audition - 1, ..Default::default() });
     }
@@ -141,6 +149,9 @@ impl App {
         let store = SceneStore::new(paths.scenes()).map_err(|e| e.to_string())?;
         if !store.exists("default") {
             store.save(&Scene::factory(), "default")?;
+        }
+        if !store.exists("trillium split") {
+            store.save(&Scene::trillium_sample(), "trillium split")?;
         }
         let settings = match std::fs::read_to_string(paths.settings()) {
             Ok(s) => Settings::from_toml(&s).unwrap_or_else(|e| {
@@ -203,6 +214,10 @@ impl App {
                 xr_prev: 0,
                 xr_rate: 0.0,
                 audition: 0,
+                devices: Default::default(),
+                idents: Default::default(),
+                skipped: vec![],
+                ble_cache: None,
             }),
         });
         Ok(app)
@@ -242,9 +257,9 @@ impl App {
     /// Pushes a whole scene into the engine. `startup` caps the master at -18 dBFS.
     pub fn apply_scene(&self, sc: &Scene, startup: bool) -> Result<(), String> {
         sc.validate()?;
-        let (ports, audition) = {
+        let (ports, devices, audition) = {
             let g = self.inner.lock().unwrap();
-            (g.ports.clone(), g.audition)
+            (g.ports.clone(), g.devices.clone(), g.audition)
         };
         for i in 0..MAX_SLOTS {
             let id = (i + 1) as u8;
@@ -267,7 +282,7 @@ impl App {
                 None => self.send(Cmd::SetSlot(i as u8, SlotParams { enabled: false, ..SlotParams::default() }))?,
             }
         }
-        self.send(Cmd::SetRoutes(Box::new(compile_all(&sc.routes, &ports, audition))))?;
+        self.send(Cmd::SetRoutes(Box::new(compile_all(&sc.routes, &ports, &devices, audition))))?;
         self.send(Cmd::SetTuning { a4_hz: sc.a4_hz, bend_range: sc.bend_range })?;
         let db = if startup { sc.master_db.min(pilab_synth::engine::START_MASTER_DB) } else { sc.master_db };
         self.send(Cmd::SetMaster { db })?;
@@ -386,11 +401,11 @@ impl App {
     }
 
     fn recompile(&self) {
-        let (routes, ports, audition) = {
+        let (routes, ports, devices, audition) = {
             let g = self.inner.lock().unwrap();
-            (g.scene.routes.clone(), g.ports.clone(), g.audition)
+            (g.scene.routes.clone(), g.ports.clone(), g.devices.clone(), g.audition)
         };
-        let _ = self.send(Cmd::SetRoutes(Box::new(compile_all(&routes, &ports, audition))));
+        let _ = self.send(Cmd::SetRoutes(Box::new(compile_all(&routes, &ports, &devices, audition))));
     }
 
     /// Selects the slot the "Selected sound" keyboard mode plays (0 = none).
@@ -478,12 +493,74 @@ impl App {
     /// recompiles routes when the assignment changes.
     pub fn refresh_midi_inputs(&self, force: bool) {
         let settings = self.settings();
-        let sources: Vec<String> = self
+        let raw: Vec<String> = self
             .backend
             .midi_sources()
             .into_iter()
             .filter(|s| !settings.midi.ignore.iter().any(|g| glob::matches(g, s)))
             .collect();
+        // BLE peers can connect without the graph changing, so poll BlueZ (at most every 6 s).
+        let aliases = if raw.iter().any(|s| identity::is_ble(s)) {
+            let mut g = self.inner.lock().unwrap();
+            match &g.ble_cache {
+                Some((t, v)) if t.elapsed().as_secs() < 6 => v.clone(),
+                _ => {
+                    drop(g);
+                    let v = identity::ble_connected_aliases();
+                    g = self.inner.lock().unwrap();
+                    g.ble_cache = Some((std::time::Instant::now(), v.clone()));
+                    v
+                }
+            }
+        } else {
+            vec![]
+        };
+        let alsa = identity::read_alsa();
+        let classes = &settings.midi.devices;
+        let mut sources = vec![];
+        let mut skipped = vec![];
+        let mut idents = std::collections::HashMap::new();
+        let mut class_of = std::collections::HashMap::new();
+        for id in identity::resolve(&raw, &alsa, &aliases) {
+            let m = classify(classes, &id);
+            let tag = m.as_ref().map(|m| (classes[m.class].label.clone(), m.rule));
+            match &m {
+                Some(m) if !m.routable => skipped.push((id.port.clone(), m.reason.clone())),
+                _ => {
+                    sources.push(id.port.clone());
+                    class_of.insert(id.port.clone(), m.as_ref().map(|m| classes[m.class].id.clone()));
+                }
+            }
+            idents.insert(id.port.clone(), (id, tag));
+        }
+        let mut disconnects = vec![];
+        let mut notes = vec![];
+        {
+            let mut g = self.inner.lock().unwrap();
+            for (p, why) in &skipped {
+                if !g.skipped.iter().any(|(q, _)| q == p) {
+                    notes.push(format!("MIDI source not connected: {} ({why})", short_source(p)));
+                }
+            }
+            g.skipped = skipped.clone();
+            g.idents = idents;
+            // Drop slots whose source is still present but no longer routable.
+            for k in 1..8 {
+                if let Some(n) = g.ports[k].clone() {
+                    if skipped.iter().any(|(p, _)| *p == n) {
+                        disconnects.push((n, k));
+                    }
+                }
+            }
+        }
+        for m in notes {
+            self.event("info", m);
+        }
+        for (n, k) in &disconnects {
+            if let Some(dst) = self.backend.input_port(*k) {
+                let _ = self.backend.disconnect(n, &dst);
+            }
+        }
         let mut changed = force;
         let mut connects = vec![];
         let mut msgs = vec![];
@@ -507,9 +584,24 @@ impl App {
                         g.ports[k] = Some(s.clone());
                         changed = true;
                         connects.push((s.clone(), k));
-                        msgs.push(format!("MIDI source connected: {} -> input {k}", short_source(s)));
+                        let dev = match class_of.get(s).cloned().flatten() {
+                            Some(d) => format!(" [device:{d}]"),
+                            None => String::new(),
+                        };
+                        msgs.push(format!("MIDI source connected: {} -> input {k}{dev}", short_source(s)));
                     }
                 }
+            }
+        }
+        {
+            let mut g = self.inner.lock().unwrap();
+            let mut devs: PortDevices = Default::default();
+            for k in 1..8 {
+                devs[k] = g.ports[k].as_ref().and_then(|n| class_of.get(n).cloned().flatten());
+            }
+            if devs != g.devices {
+                g.devices = devs;
+                changed = true;
             }
         }
         for (s, k) in connects {
@@ -541,19 +633,39 @@ impl App {
         }
     }
 
+    pub fn device_classes_json(&self) -> Value {
+        let g = self.inner.lock().unwrap();
+        Value::Array(g.settings.midi.devices.iter().map(|c| json!({ "id": c.id, "label": c.label, "note": c.note })).collect())
+    }
+
     pub fn midi_inputs_json(&self) -> Value {
         let g = self.inner.lock().unwrap();
         let mut v = vec![];
         for k in 0..MAX_PORTS {
             if let Some(n) = &g.ports[k] {
+                let (identity, device, rule) = match g.idents.get(n) {
+                    Some((id, tag)) => (id.describe(), tag.as_ref().map(|t| t.0.clone()), tag.as_ref().map(|t| t.1)),
+                    None => (String::new(), None, None),
+                };
                 v.push(json!({
                     "slot": k,
                     "source": n,
                     "label": short_source(n),
                     "port": self.backend.input_port(k),
                     "events": g.midi_counts[k],
+                    "identity": identity,
+                    "device": device,
+                    "device_id": g.devices[k],
+                    "rule": rule,
                 }));
             }
+        }
+        for (p, why) in &g.skipped {
+            let (identity, device) = match g.idents.get(p) {
+                Some((id, tag)) => (id.describe(), tag.as_ref().map(|t| t.0.clone())),
+                None => (String::new(), None),
+            };
+            v.push(json!({ "slot": null, "source": p, "label": short_source(p), "identity": identity, "device": device, "skipped": why, "events": 0 }));
         }
         Value::Array(v)
     }

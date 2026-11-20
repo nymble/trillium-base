@@ -213,7 +213,7 @@ async fn service_toggle(State(app): S, Path(id): Path<String>, Json(b): Json<On>
 
 async fn scene_get(State(app): S) -> R {
     let (sc, dirty) = app.scene();
-    ok(json!({ "scene": sc, "dirty": dirty, "midi_inputs": app.midi_inputs_json() }))
+    ok(json!({ "scene": sc, "dirty": dirty, "midi_inputs": app.midi_inputs_json(), "devices": app.device_classes_json() }))
 }
 
 async fn scene_put(State(app): S, Json(sc): Json<Scene>) -> R {

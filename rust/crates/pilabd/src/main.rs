@@ -11,6 +11,7 @@ mod api;
 mod assets;
 mod audio;
 mod brand;
+mod identity;
 mod library;
 mod paths;
 mod record;

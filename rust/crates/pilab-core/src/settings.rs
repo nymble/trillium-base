@@ -42,11 +42,13 @@ pub struct Midi {
     pub autoconnect: bool,
     /// Sources never auto-connected (globs).
     pub ignore: Vec<String>,
+    /// Known controllers, matched in order. Routes use `input = "device:<id>"`.
+    pub devices: Vec<crate::devices::DeviceClass>,
 }
 
 impl Default for Midi {
     fn default() -> Self {
-        Midi { autoconnect: true, ignore: vec!["*Midi Through*".into()] }
+        Midi { autoconnect: true, ignore: vec!["*Midi Through*".into()], devices: crate::devices::default_classes() }
     }
 }
 

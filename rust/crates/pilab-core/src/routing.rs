@@ -10,8 +10,24 @@ use crate::scene::Route;
 /// Source name per input port slot (`None` = unassigned).
 pub type PortNames = [Option<String>; MAX_PORTS];
 
+/// Device class id matched for the source on each input port slot.
+pub type PortDevices = [Option<String>; MAX_PORTS];
+
 pub fn port_mask(input: &str, ports: &PortNames) -> u32 {
+    port_mask_with(input, ports, &Default::default())
+}
+
+pub fn port_mask_with(input: &str, ports: &PortNames, devices: &PortDevices) -> u32 {
     let input = input.trim();
+    if let Some(id) = input.strip_prefix("device:") {
+        let mut m = 0u32;
+        for (i, d) in devices.iter().enumerate() {
+            if i != PORT_AUDITION as usize && d.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(id.trim())) {
+                m |= 1 << i;
+            }
+        }
+        return m;
+    }
     match input {
         // The audition port only ever plays the slot picked in the editor.
         "" | "*" | "any" => ((1u32 << MAX_PORTS) - 1) & !(1 << PORT_AUDITION),
@@ -36,9 +52,14 @@ pub fn port_mask(input: &str, ports: &PortNames) -> u32 {
 
 /// Slot ids are 1-based in scenes and 0-based in the engine.
 pub fn compile_routes(routes: &[Route], ports: &PortNames) -> RouteTable {
+    compile_routes_with(routes, ports, &Default::default())
+}
+
+/// As [`compile_routes`], resolving `device:<id>` inputs with the matched devices.
+pub fn compile_routes_with(routes: &[Route], ports: &PortNames, devices: &PortDevices) -> RouteTable {
     let mut t = RouteTable::new();
     for r in routes.iter().filter(|r| r.enabled && r.slot >= 1) {
-        let mask = port_mask(&r.input, ports);
+        let mask = port_mask_with(&r.input, ports, devices);
         if mask == 0 {
             continue;
         }
