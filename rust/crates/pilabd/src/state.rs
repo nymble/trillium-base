@@ -84,6 +84,8 @@ struct Inner {
     audition: u8,
     /// Bank id last sent to the engine per slot (sampler instruments).
     sent_inst: [String; MAX_SLOTS + 1],
+    /// Wavetable group last sent per slot.
+    sent_set: [String; MAX_SLOTS + 1],
 }
 
 /// What an audition plays: a scene slot, or a library item in the hidden preview slot.
@@ -94,6 +96,15 @@ pub enum AuditionSrc {
     Bank(String),
     Table(String),
     Preset(String),
+}
+
+struct AudSound {
+    label: String,
+    sound: SlotParams,
+    table: Option<Arc<pilab_synth::Wavetable>>,
+    set: Option<Arc<pilab_synth::TableSet>>,
+    inst: Option<Arc<pilab_synth::Instrument>>,
+    drum: bool,
 }
 
 pub struct App {
@@ -285,6 +296,7 @@ impl App {
                 skipped: vec![],
                 ble_cache: None,
                 sent_inst: Default::default(),
+                sent_set: Default::default(),
             }),
         });
         Ok(app)
@@ -345,12 +357,15 @@ impl App {
                         None
                     };
                     self.send(Cmd::SetTable(i as u8, table))?;
+                    let wt = if s.sound.wave == Waveform::Table { s.wavetable.clone() } else { String::new() };
+                    self.set_tableset(i as u8, &wt, id, &s.name)?;
                     let want = if s.sound.wave == Waveform::Sampler { s.sample.clone() } else { String::new() };
                     self.set_instrument(i as u8, &want, id, &s.name)?;
                 }
                 None => {
                     self.send(Cmd::SetSlot(i as u8, SlotParams { enabled: false, ..SlotParams::default() }))?;
                     self.set_instrument(i as u8, "", id, "")?;
+                    self.set_tableset(i as u8, "", id, "")?;
                 }
             }
         }
@@ -358,6 +373,28 @@ impl App {
         self.send(Cmd::SetTuning { a4_hz: sc.a4_hz, bend_range: sc.bend_range })?;
         let db = if startup { sc.master_db.min(pilab_synth::engine::START_MASTER_DB) } else { sc.master_db };
         self.send(Cmd::SetMaster { db })?;
+        Ok(())
+    }
+
+    /// Sends a wavetable frame set to engine slot `i` when the group changed.
+    fn set_tableset(&self, i: u8, group: &str, id: u8, name: &str) -> Result<(), String> {
+        if self.inner.lock().unwrap().sent_set[i as usize] == group {
+            return Ok(());
+        }
+        let set = if group.is_empty() {
+            None
+        } else {
+            match self.library.load_group(group) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    self.event("warn", format!("slot {id} \"{name}\": wavetable not loaded ({e})"));
+                    None
+                }
+            }
+        };
+        let key = if set.is_some() { group.to_string() } else { String::new() };
+        self.send(Cmd::SetTableSet(i, set))?;
+        self.inner.lock().unwrap().sent_set[i as usize] = key;
         Ok(())
     }
 
@@ -384,7 +421,7 @@ impl App {
     }
 
     /// Resolves an audition source to slot params plus its table or instrument.
-    fn audition_sound(&self, src: &AuditionSrc) -> Result<(String, SlotParams, Option<Arc<pilab_synth::Wavetable>>, Option<Arc<pilab_synth::Instrument>>, bool), String> {
+    fn audition_sound(&self, src: &AuditionSrc) -> Result<AudSound, String> {
         match src {
             AuditionSrc::Slot(id) => {
                 let sc = self.scene().0;
@@ -395,22 +432,23 @@ impl App {
                 } else {
                     (None, false)
                 };
-                Ok((format!("slot {id} \"{}\"", s.name), s.sound, table, inst, drum))
+                let set = if s.sound.wave == Waveform::Table && !s.wavetable.is_empty() { self.library.load_group(&s.wavetable).ok() } else { None };
+                Ok(AudSound { label: format!("slot {id} \"{}\"", s.name), sound: s.sound, table, set, inst, drum })
             }
             AuditionSrc::Bank(b) => {
                 let bank = self.samples.bank(b).ok_or("bank not installed")?;
                 let p = pilab_core::presets::for_bank(&bank.category);
-                Ok((bank.title.clone(), p, None, Some(self.samples.load(b)?), bank.drum))
+                Ok(AudSound { label: bank.title.clone(), sound: p, table: None, set: None, inst: Some(self.samples.load(b)?), drum: bank.drum })
             }
             AuditionSrc::Preset(id) => {
                 let p = pilab_core::presets::find(id).ok_or("no such preset")?;
                 let inst = if p.bank.is_empty() { None } else { Some(self.samples.load(p.bank)?) };
-                Ok((p.name.to_string(), p.sound, None, inst, p.drum))
+                Ok(AudSound { label: p.name.to_string(), sound: p.sound, table: None, set: None, inst, drum: p.drum })
             }
             AuditionSrc::Table(path) => {
                 let t = self.library.load(path)?;
                 let p = SlotParams { wave: Waveform::Table, ..SlotParams::default() };
-                Ok((path.rsplit('/').next().unwrap_or(path).to_string(), p, Some(t), None, false))
+                Ok(AudSound { label: path.rsplit('/').next().unwrap_or(path).to_string(), sound: p, table: Some(t), set: None, inst: None, drum: false })
             }
         }
     }
@@ -437,7 +475,7 @@ impl App {
                     sound.amp_env.a = a.clamp(0.001, 4.0);
                 }
             }
-            (Slot { id, name: bk.title.clone(), table: String::new(), sample: b.to_string(), sound }, bk.drum)
+            (Slot { id, name: bk.title.clone(), table: String::new(), sample: b.to_string(), wavetable: String::new(), sound }, bk.drum)
         } else {
             return Err("preset or bank required".into());
         };
@@ -467,13 +505,14 @@ impl App {
     /// Plays a short phrase of `src` on the DAC through the audition port, at the current
     /// master level (never louder) and through the same output stage.
     pub fn audition_play(self: &Arc<Self>, src: AuditionSrc) -> Result<Value, String> {
-        let (label, sound, table, inst, drum) = self.audition_sound(&src)?;
+        let AudSound { label, sound, table, set, inst, drum } = self.audition_sound(&src)?;
         match &src {
             AuditionSrc::Slot(id) => self.set_audition(*id),
             _ => {
                 let p = PREVIEW_SLOT;
                 self.send(Cmd::SetSlot(p, SlotParams { enabled: true, ..sound }))?;
                 self.send(Cmd::SetTable(p, table))?;
+                self.send(Cmd::SetTableSet(p, set))?;
                 self.send(Cmd::SetInstrument(p, inst))?;
                 self.inner.lock().unwrap().audition = p + 1;
                 self.recompile();
@@ -514,11 +553,12 @@ impl App {
 
     /// Renders the audition phrase offline to a mono 16-bit WAV at the live master level.
     pub fn audition_render(&self, src: AuditionSrc) -> Result<Vec<u8>, String> {
-        let (_, sound, table, inst, drum) = self.audition_sound(&src)?;
+        let AudSound { sound, table, set, inst, drum, .. } = self.audition_sound(&src)?;
         let sr = 48_000u32;
         let mut e = Engine::new(sr as f32);
         e.apply(Cmd::SetSlot(0, SlotParams { enabled: true, ..sound }));
         e.apply(Cmd::SetTable(0, table));
+        e.apply(Cmd::SetTableSet(0, set));
         e.apply(Cmd::SetInstrument(0, inst));
         let mut rt = RouteTable::new();
         rt.push(CompiledRoute { port_mask: u32::MAX, slot: 0, ..Default::default() });
@@ -748,6 +788,12 @@ impl App {
         let bands = Bands::shared();
         let dt = 110.0 / self.backend.sample_rate();
         let bl = bands.saw.level_for_dt(dt);
+        if slot.sound.wave == Waveform::Table && !slot.wavetable.is_empty() {
+            if let Ok(set) = self.library.load_group(&slot.wavetable) {
+                let lv = set.level_for_dt(dt);
+                return (0..points).map(|i| set.sample(slot.sound.position, lv, i as f32 / points as f32)).collect();
+            }
+        }
         let table = if slot.sound.wave == Waveform::Table && !slot.table.is_empty() { self.library.load(&slot.table).ok() } else { None };
         let lv = table.as_ref().map(|t| t.level_for_dt(dt)).unwrap_or(0);
         (0..points)

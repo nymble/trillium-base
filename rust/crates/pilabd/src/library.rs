@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use pilab_synth::Wavetable;
+use pilab_synth::{TableSet, Wavetable};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -19,6 +19,7 @@ pub struct Group {
 pub struct Library {
     pub root: PathBuf,
     cache: Mutex<HashMap<String, Arc<Wavetable>>>,
+    sets: Mutex<HashMap<String, Arc<TableSet>>>,
 }
 
 fn safe_rel(rel: &str) -> bool {
@@ -27,7 +28,7 @@ fn safe_rel(rel: &str) -> bool {
 
 impl Library {
     pub fn new(root: PathBuf) -> Library {
-        Library { root, cache: Mutex::new(HashMap::new()) }
+        Library { root, cache: Mutex::new(HashMap::new()), sets: Mutex::new(HashMap::new()) }
     }
 
     pub fn available(&self) -> bool {
@@ -80,6 +81,42 @@ impl Library {
         }
         c.insert(rel.to_string(), t.clone());
         Ok(t)
+    }
+
+    /// All cycles of a group as one frame set, in file order (slow the first time; cached).
+    pub fn load_group(&self, group: &str) -> Result<Arc<TableSet>, String> {
+        if let Some(t) = self.sets.lock().unwrap().get(group) {
+            return Ok(t.clone());
+        }
+        let files = self.files(group)?;
+        if files.is_empty() {
+            return Err(format!("{group}: no waveforms"));
+        }
+        let mut frames = Vec::with_capacity(files.len());
+        for f in &files {
+            let bytes = fs::read(self.root.join(f)).map_err(|e| format!("{f}: {e}"))?;
+            frames.push(Wavetable::from_wav(f, &bytes)?);
+        }
+        let set = Arc::new(TableSet { name: group.to_string(), frames });
+        let mut c = self.sets.lock().unwrap();
+        if c.len() > 24 {
+            c.clear();
+        }
+        c.insert(group.to_string(), set.clone());
+        Ok(set)
+    }
+
+    /// Decimated raw cycles of every file in a group, for thumbnails and the stacked view.
+    pub fn group_frames(&self, group: &str, points: usize) -> Result<Vec<(String, Vec<f32>)>, String> {
+        let mut out = vec![];
+        for f in self.files(group)? {
+            let bytes = fs::read(self.root.join(&f)).map_err(|e| e.to_string())?;
+            let s = pilab_synth::wavetable::parse_wav(&bytes).unwrap_or_default();
+            let n = s.len().max(1);
+            let pts = if s.is_empty() { vec![0.0; points] } else { (0..points).map(|i| s[i * n / points.max(1)]).collect() };
+            out.push((f, pts));
+        }
+        Ok(out)
     }
 
     /// Raw cycle (decimated) for drawing.

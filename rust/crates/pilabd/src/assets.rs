@@ -17,6 +17,7 @@ files! {
     "/app.js" => "text/javascript; charset=utf-8",
     "/app.css" => "text/css; charset=utf-8",
     "/theme.css" => "text/css; charset=utf-8",
+    "/data/akwf-catalog.json" => "application/json",
     "/brand/tokens.css" => "text/css; charset=utf-8",
     "/brand/rhodonea-glyph.svg" => "image/svg+xml",
     "/brand/rhodonea-app-dark.svg" => "image/svg+xml",

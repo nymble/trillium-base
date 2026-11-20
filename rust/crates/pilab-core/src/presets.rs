@@ -22,7 +22,7 @@ pub struct Preset {
 
 impl Preset {
     pub fn slot(&self, id: u8) -> Slot {
-        Slot { id, name: self.name.into(), table: String::new(), sample: self.bank.into(), sound: self.sound }
+        Slot { id, name: self.name.into(), table: String::new(), sample: self.bank.into(), wavetable: String::new(), sound: self.sound }
     }
 }
 

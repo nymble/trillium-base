@@ -70,6 +70,7 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/midi/inputs", "MIDI input slots and their sources"),
     ("GET", "/api/v1/library/akwf", "AKWF groups"),
     ("GET", "/api/v1/library/akwf/{group}", "Files in a group"),
+    ("GET", "/api/v1/library/akwf/{group}/frames?points=", "Every cycle in a group, decimated, for thumbnails and the table view"),
     ("GET", "/api/v1/library/preview?path=&points=", "Raw single cycle for drawing"),
     ("GET", "/api/v1/graph", "Audio/MIDI ports and links (PipeWire via the JACK API)"),
     ("POST", "/api/v1/graph/connect", "{from,to} link two ports"),
@@ -114,6 +115,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/master", post(master))
         .route("/library/akwf", get(akwf_groups))
         .route("/library/akwf/{group}", get(akwf_files))
+        .route("/library/akwf/{group}/frames", get(akwf_frames))
         .route("/library/preview", get(akwf_preview))
         .route("/graph", get(graph))
         .route("/graph/connect", post(graph_connect))
@@ -515,6 +517,13 @@ async fn slot_preset(State(app): S, Path(id): Path<u8>, Json(b): Json<PresetBody
         .map_err(|e| bad(e.to_string()))?
         .map_err(bad)?;
     scene_get(State(app)).await
+}
+
+async fn akwf_frames(State(app): S, Path(group): Path<String>, Query(q): Query<Points>) -> R {
+    let pts = q.points.unwrap_or(48).clamp(8, 256);
+    let a = app.clone();
+    let v = tokio::task::spawn_blocking(move || a.library.group_frames(&group, pts)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    ok(json!({ "frames": v.into_iter().map(|(f, p)| json!({ "file": f, "points": p })).collect::<Vec<_>>() }))
 }
 
 async fn midi_inputs(State(app): S) -> R {
