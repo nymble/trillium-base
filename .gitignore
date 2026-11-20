@@ -48,3 +48,7 @@ wifi.local.env
 # Python
 __pycache__/
 *.pyc
+
+# Rust
+rust/target/
+rust/.cargo/config.toml
