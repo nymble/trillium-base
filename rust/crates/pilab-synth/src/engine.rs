@@ -12,7 +12,10 @@ use crate::params::SlotParams;
 use crate::routing::{Hit, RouteTable};
 use crate::tuning::{db_to_gain, note_to_hz};
 use crate::wavetable::{Bands, Wavetable};
-use crate::{BLOCK, MAX_LAYERS, MAX_PORTS, MAX_SLOTS, MAX_VOICES};
+use crate::sampler::{self, Instrument, LoopMode};
+use crate::{BLOCK, ENGINE_SLOTS, MAX_LAYERS, MAX_PORTS, MAX_VOICES, MAX_ZONE_LAYERS};
+
+const NO_ZONE: u16 = u16::MAX;
 
 /// Hard ceiling for the master level unless the host was built to allow more.
 pub const MAX_MASTER_DB: f32 = -6.0;
@@ -29,6 +32,8 @@ const XFADE_S: f32 = 0.005;
 pub enum Cmd {
     SetSlot(u8, SlotParams),
     SetTable(u8, Option<Arc<Wavetable>>),
+    /// Sampler instrument for a slot. Voices of that slot stop at once.
+    SetInstrument(u8, Option<Arc<Instrument>>),
     SetRoutes(Box<RouteTable>),
     SetMaster { db: f32 },
     SetTuning { a4_hz: f32, bend_range: f32 },
@@ -41,6 +46,7 @@ pub enum Cmd {
 /// Owned data the audio thread hands back to be freed elsewhere.
 pub enum Garbage {
     Table(Arc<Wavetable>),
+    Instrument(Arc<Instrument>),
     Routes(Box<RouteTable>),
 }
 
@@ -109,6 +115,11 @@ struct Voice {
     gain_r: f32,
     ctl: u32,
     fe: f32,
+    /// Sampler zone index, or NO_ZONE for oscillator voices.
+    zone: u16,
+    spos: f64,
+    sstep: f64,
+    svf_r: Svf,
 }
 
 impl Default for Voice {
@@ -140,6 +151,10 @@ impl Default for Voice {
             gain_r: 0.0,
             ctl: 0,
             fe: 0.0,
+            zone: NO_ZONE,
+            spos: 0.0,
+            sstep: 0.0,
+            svf_r: Svf::default(),
         }
     }
 }
@@ -147,8 +162,11 @@ impl Default for Voice {
 pub struct Engine {
     sr: f32,
     voices: [Voice; MAX_VOICES],
-    slots: [SlotParams; MAX_SLOTS],
-    tables: [Option<Arc<Wavetable>>; MAX_SLOTS],
+    slots: [SlotParams; ENGINE_SLOTS],
+    tables: [Option<Arc<Wavetable>>; ENGINE_SLOTS],
+    instruments: [Option<Arc<Instrument>>; ENGINE_SLOTS],
+    rr: [[u8; 128]; ENGINE_SLOTS],
+    rng: u32,
     routes: Box<RouteTable>,
     bands: Arc<Bands>,
     osc_mode: OscMode,
@@ -181,8 +199,11 @@ impl Engine {
         Engine {
             sr,
             voices: [Voice::default(); MAX_VOICES],
-            slots: [SlotParams::default(); MAX_SLOTS],
+            slots: [SlotParams::default(); ENGINE_SLOTS],
             tables: Default::default(),
+            instruments: Default::default(),
+            rr: [[0; 128]; ENGINE_SLOTS],
+            rng: 0x9E37_79B9,
             routes: Box::new(RouteTable::new()),
             bands: Bands::shared(),
             osc_mode: OscMode::Table,
@@ -229,7 +250,7 @@ impl Engine {
     pub fn apply(&mut self, c: Cmd) -> Option<Garbage> {
         match c {
             Cmd::SetSlot(i, p) => {
-                if (i as usize) < MAX_SLOTS {
+                if (i as usize) < ENGINE_SLOTS {
                     let mut p = p;
                     p.amp_env = p.amp_env.clamped();
                     p.filter_env = p.filter_env.clamped();
@@ -241,11 +262,23 @@ impl Engine {
                 None
             }
             Cmd::SetTable(i, t) => {
-                if (i as usize) < MAX_SLOTS {
+                if (i as usize) < ENGINE_SLOTS {
                     let old = core::mem::replace(&mut self.tables[i as usize], t);
                     return old.map(Garbage::Table);
                 }
                 t.map(Garbage::Table)
+            }
+            Cmd::SetInstrument(i, t) => {
+                if (i as usize) < ENGINE_SLOTS {
+                    for v in self.voices.iter_mut().filter(|v| v.active && v.slot == i && v.zone != NO_ZONE) {
+                        v.active = false;
+                        v.held = false;
+                        v.sustained = false;
+                    }
+                    let old = core::mem::replace(&mut self.instruments[i as usize], t);
+                    return old.map(Garbage::Instrument);
+                }
+                t.map(Garbage::Instrument)
             }
             Cmd::SetRoutes(r) => Some(Garbage::Routes(core::mem::replace(&mut self.routes, r))),
             Cmd::SetMaster { db } => {
@@ -365,22 +398,61 @@ impl Engine {
         let n = self.routes.resolve(port, ch, note, &mut hits);
         for h in &hits[..n] {
             let s = h.slot as usize;
-            if s >= MAX_SLOTS || !self.slots[s].enabled {
+            if s >= ENGINE_SLOTS || !self.slots[s].enabled {
                 continue;
             }
             let vel = (vel * h.vel_scale).clamp(0.0, 1.0);
-            self.start_voice(port, ch, note, h.note, h.slot, vel);
+            if self.slots[s].wave == Waveform::Sampler {
+                self.start_sampler(port, ch, note, h.note, h.slot, vel);
+            } else {
+                self.start_voice(port, ch, note, h.note, h.slot, vel, NO_ZONE);
+            }
         }
     }
 
-    fn start_voice(&mut self, port: u8, ch: u8, src: u8, key: u8, slot: u8, vel: f32) {
+    fn start_sampler(&mut self, port: u8, ch: u8, src: u8, key: u8, slot: u8, vel: f32) {
+        let Some(inst) = self.instruments[slot as usize].clone() else { return };
+        let rr = self.rr[slot as usize][key as usize] as u32;
+        self.rr[slot as usize][key as usize] = self.rr[slot as usize][key as usize].wrapping_add(1);
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 17;
+        self.rng ^= self.rng << 5;
+        let rand = (self.rng >> 8) as f32 / (1u32 << 24) as f32;
+        let mut zs = [0u16; MAX_ZONE_LAYERS];
+        let n = inst.select(key, (vel * 127.0).round().clamp(1.0, 127.0) as u8, rr, rand, &mut zs);
+        for &zi in &zs[..n] {
+            let z = inst.zones[zi as usize];
+            if z.group != 0 {
+                // Choke: voices whose off_by names this group stop quickly (open hi-hat).
+                let sr = self.sr;
+                for v in self.voices.iter_mut() {
+                    if v.active && v.slot == slot && v.zone != NO_ZONE {
+                        if inst.zones.get(v.zone as usize).is_some_and(|o| o.off_by == z.group) {
+                            v.amp.set(0.001, 0.001, 0.0, 0.02, sr);
+                            v.amp.gate_off();
+                            v.held = false;
+                            v.sustained = false;
+                        }
+                    }
+                }
+            }
+            self.start_voice(port, ch, src, key, slot, vel, zi);
+            // Start position for the new voice.
+            if let Some(v) = self.voices.iter_mut().find(|v| v.active && v.age == self.age) {
+                v.spos = z.offset as f64;
+            }
+        }
+        drop(inst); // the slot still holds a reference; nothing is freed here
+    }
+
+    fn start_voice(&mut self, port: u8, ch: u8, src: u8, key: u8, slot: u8, vel: f32, zone: u16) {
         self.age += 1;
         let age = self.age;
         // Retrigger the same note on the same slot, else a free voice, else steal.
         let idx = self
             .voices
             .iter()
-            .position(|v| v.active && v.port == port && v.ch == ch && v.src_note == src && v.slot == slot)
+            .position(|v| v.active && v.port == port && v.ch == ch && v.src_note == src && v.slot == slot && v.zone == zone)
             .or_else(|| self.voices.iter().position(|v| !v.active))
             .unwrap_or_else(|| {
                 let mut best = 0;
@@ -398,9 +470,10 @@ impl Engine {
         let sr = self.sr;
         let bend = self.chans[port as usize][ch as usize].bend;
         let v = &mut self.voices[idx];
-        if !v.active {
+        if !v.active || v.zone != zone {
             v.osc.reset();
             v.svf.reset();
+            v.svf_r.reset();
             v.amp.level = 0.0;
             v.fenv.level = 0.0;
             v.bend_s = bend;
@@ -418,6 +491,8 @@ impl Engine {
         v.slot = slot;
         v.vel = vel;
         v.age = age;
+        v.zone = zone;
+        v.spos = 0.0;
         v.ctl = 0;
         v.amp.set(p.amp_env.a, p.amp_env.d, p.amp_env.s, p.amp_env.r, sr);
         v.fenv.set(p.filter_env.a, p.filter_env.d, p.filter_env.s, p.filter_env.r, sr);
@@ -430,6 +505,15 @@ impl Engine {
         for v in self.voices.iter_mut() {
             if v.active && v.held && v.port == port && v.ch == ch && v.src_note == note {
                 v.held = false;
+                if v.zone != NO_ZONE {
+                    let one_shot = self.instruments[v.slot as usize]
+                        .as_deref()
+                        .and_then(|i| i.zones.get(v.zone as usize))
+                        .is_some_and(|z| z.loop_mode == LoopMode::OneShot);
+                    if one_shot {
+                        continue;
+                    }
+                }
                 if sus {
                     v.sustained = true;
                 } else {
@@ -470,6 +554,18 @@ impl Engine {
             let p = &self.slots[v.slot as usize];
             let table = self.tables[v.slot as usize].as_deref();
             let chan = self.chans[v.port as usize][v.ch as usize];
+            if v.zone != NO_ZONE {
+                let inst = self.instruments[v.slot as usize].as_deref();
+                let zs = inst.and_then(|i| i.zones.get(v.zone as usize).map(|z| (i, z)));
+                let Some((inst, z)) = zs else {
+                    v.active = false;
+                    v.held = false;
+                    v.sustained = false;
+                    continue;
+                };
+                render_sample_voice(v, p, chan, inst, z, sr, a4, br, len, &mut self.buf_l, &mut self.buf_r);
+                continue;
+            }
             for i in 0..len {
                 if v.ctl == 0 {
                     v.ctl = CTL;
@@ -580,6 +676,80 @@ impl Engine {
         Stats::hold_peak(&self.stats.peak_r, pr);
         let db = crate::tuning::gain_to_db(min_gain);
         self.stats.limiter_db.store(db.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// Renders one sampler voice into the mix buffers. Allocation-free.
+#[allow(clippy::too_many_arguments)]
+fn render_sample_voice(
+    v: &mut Voice,
+    p: &SlotParams,
+    chan: Chan,
+    inst: &Instrument,
+    z: &sampler::Zone,
+    sr: f32,
+    a4: f32,
+    br: f32,
+    len: usize,
+    out_l: &mut [f32],
+    out_r: &mut [f32],
+) {
+    let smp = &inst.samples[z.sample as usize];
+    let stereo = smp.channels > 1;
+    let last = (z.end as f64 - 1.0).max(0.0);
+    let looping = |v: &Voice| match z.loop_mode {
+        LoopMode::Continuous => true,
+        LoopMode::Sustain => v.held || v.sustained,
+        _ => false,
+    };
+    let span = (z.loop_end as f64 - z.loop_start as f64 + 1.0).max(1.0);
+    for i in 0..len {
+        if v.ctl == 0 {
+            v.ctl = CTL;
+            v.bend_s += (chan.bend - v.bend_s) * 0.35;
+            let semis = (v.key as f32 - z.keycenter) * z.keytrack
+                + p.octave as f32 * 12.0
+                + p.detune_cents * 0.01
+                + v.bend_s * br;
+            v.sstep = (smp.rate / sr) as f64 * (semis / 12.0).exp2() as f64 * (a4 / 440.0) as f64;
+            if p.filter.enabled {
+                let oct = v.fe * p.filter.env_amount
+                    + v.vel * p.filter.vel_amount
+                    + p.filter.key_track * (v.key as f32 - 60.0) / 12.0;
+                let fc = (p.filter.cutoff_hz * oct.clamp(-10.0, 10.0).exp2()).clamp(20.0, sr * 0.45);
+                v.svf.set(fc, p.filter.resonance, sr);
+                v.svf_r.set(fc, p.filter.resonance, sr);
+            }
+            let vg = (1.0 - p.vel_to_amp) + p.vel_to_amp * v.vel * v.vel;
+            let g = db_to_gain(p.level_db.clamp(-60.0, 6.0)) * vg * z.gain;
+            let ang = ((p.pan + z.pan).clamp(-1.0, 1.0) + 1.0) * core::f32::consts::FRAC_PI_4;
+            // Equal-power pan, normalised so centre is unity per side for stereo samples.
+            v.gain_l = g * ang.cos() * core::f32::consts::SQRT_2;
+            v.gain_r = g * ang.sin() * core::f32::consts::SQRT_2;
+        }
+        v.ctl -= 1;
+        let lp = looping(v);
+        if v.spos > last && !lp {
+            v.amp.level = 0.0;
+            v.active = false;
+            break;
+        }
+        let sl = sampler::read(smp, z, 0, v.spos, lp);
+        let sr_ = if stereo { sampler::read(smp, z, 1, v.spos, lp) } else { sl };
+        v.spos += v.sstep;
+        if lp && v.spos > z.loop_end as f64 {
+            v.spos -= span;
+        }
+        v.fe = v.fenv.next();
+        let env = v.amp.next();
+        let (yl, yr) = if p.filter.enabled { (v.svf.run(sl).0, v.svf_r.run(sr_).0) } else { (sl, sr_) };
+        out_l[i] += yl * env * v.gain_l;
+        out_r[i] += yr * env * v.gain_r;
+    }
+    if !v.amp.active() || !v.active {
+        v.active = false;
+        v.held = false;
+        v.sustained = false;
     }
 }
 

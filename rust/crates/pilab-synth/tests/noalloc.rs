@@ -37,11 +37,30 @@ fn process_midi_and_apply_do_not_allocate() {
     let mut rt = Box::new(RouteTable::new());
     rt.push(CompiledRoute { port_mask: u32::MAX, slot: 0, ..Default::default() });
     rt.push(CompiledRoute { port_mask: u32::MAX, slot: 1, ..Default::default() });
+    rt.push(CompiledRoute { port_mask: u32::MAX, slot: 2, ..Default::default() });
+    let smp: Vec<f32> = (0..4800).map(|i| (i as f32 * 0.0575).sin()).collect();
+    let mut z = sampler::Zone::full(0, 4800, 60.0);
+    z.loop_mode = sampler::LoopMode::Sustain;
+    z.loop_start = 1000;
+    z.loop_end = 3000;
+    let mut z2 = sampler::Zone::full(0, 4800, 48.0);
+    z2.seq_length = 2;
+    z2.seq_position = 2;
+    z2.group = 1;
+    z2.off_by = 1;
+    let inst = std::sync::Arc::new(sampler::instrument(
+        "t",
+        vec![sampler::Sample { data: smp, channels: 1, frames: 4800, rate: 44_100.0 }],
+        vec![z, z2],
+    ));
+    let slot_sampler = SlotParams { wave: Waveform::Sampler, ..Default::default() };
     let slot_table = SlotParams { wave: Waveform::Table, ..Default::default() };
     let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
     let cmds = vec![
         Cmd::SetSlot(1, slot_table),
         Cmd::SetTable(1, Some(table)),
+        Cmd::SetSlot(2, slot_sampler),
+        Cmd::SetInstrument(2, Some(inst)),
         Cmd::SetRoutes(rt),
         Cmd::Run(true),
         Cmd::SetMaster { db: -12.0 },

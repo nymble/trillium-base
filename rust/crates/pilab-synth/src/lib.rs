@@ -14,6 +14,7 @@ pub mod engine;
 pub mod osc;
 pub mod params;
 pub mod routing;
+pub mod sampler;
 pub mod tuning;
 pub mod wavetable;
 
@@ -21,12 +22,19 @@ pub use engine::{Cmd, Engine, Garbage, Stats};
 pub use osc::{OscMode, Waveform};
 pub use params::{Env, FilterParams, SlotParams};
 pub use routing::{CompiledRoute, Hit, RouteTable};
+pub use sampler::Instrument;
 pub use wavetable::{Bands, Wavetable};
 
 /// Maximum simultaneous voices.
 pub const MAX_VOICES: usize = 32;
 /// Maximum sound slots (instrument presets) in a scene.
 pub const MAX_SLOTS: usize = 16;
+/// Engine slot arrays hold one extra hidden slot for library previews.
+pub const ENGINE_SLOTS: usize = MAX_SLOTS + 1;
+/// 0-based index of the hidden preview slot.
+pub const PREVIEW_SLOT: u8 = MAX_SLOTS as u8;
+/// Sample zones one note may start (velocity crossfades, stereo pairs).
+pub const MAX_ZONE_LAYERS: usize = 4;
 /// MIDI input port slots: 0 = virtual, 1..=7 = auto-assigned sources, 8 = console, 9 = audition.
 pub const MAX_PORTS: usize = 10;
 pub const PORT_VIRTUAL: u8 = 0;

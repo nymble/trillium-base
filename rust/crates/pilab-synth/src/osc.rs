@@ -30,16 +30,19 @@ pub enum Waveform {
     Pulse,
     Triangle,
     Table,
+    /// Multisample instrument (SFZ); rendered by the engine's sampler path.
+    Sampler,
 }
 
 impl Waveform {
-    pub const ALL: [Waveform; 6] = [
+    pub const ALL: [Waveform; 7] = [
         Waveform::Sine,
         Waveform::Saw,
         Waveform::Square,
         Waveform::Pulse,
         Waveform::Triangle,
         Waveform::Table,
+        Waveform::Sampler,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -49,6 +52,7 @@ impl Waveform {
             Waveform::Pulse => "pulse",
             Waveform::Triangle => "triangle",
             Waveform::Table => "table",
+            Waveform::Sampler => "sampler",
         }
     }
 }
@@ -88,7 +92,7 @@ pub fn naive(w: Waveform, ph: f32, pw: f32) -> f32 {
             (if ph < pw { 1.0 } else { -1.0 }) - (2.0 * pw - 1.0)
         }
         Waveform::Triangle => 4.0 * (ph - 0.5).abs() - 1.0,
-        Waveform::Table => 0.0,
+        Waveform::Table | Waveform::Sampler => 0.0,
     }
 }
 
@@ -145,6 +149,7 @@ impl Osc {
                 Some(t) => t.sample(level, ph),
                 None => 0.0,
             },
+            Waveform::Sampler => 0.0,
         }
     }
 
@@ -171,6 +176,7 @@ impl Osc {
                 Some(t) => t.sample(level, ph),
                 None => 0.0,
             },
+            Waveform::Sampler => 0.0,
         }
     }
 }

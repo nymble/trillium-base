@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 zpod-voices.workspace = true
 serde.workspace = true
+claxon.workspace = true
 
 [dev-dependencies]
 rustfft = "6"
