@@ -1,0 +1,15 @@
+[package]
+name = "pilab-synth"
+description = "Waveform module v0: band-limited and wavetable polysynth engine, allocation-free render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+zpod-voices.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+rustfft = "6"

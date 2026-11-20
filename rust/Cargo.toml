@@ -1,0 +1,33 @@
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dual licensed: GPL-3.0-or-later, or a commercial licence (see ../LICENSE-COMMERCIAL.md).
+
+[workspace]
+resolver = "2"
+members = ["crates/pilab-synth", "crates/pilab-core", "crates/pilabd"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/nymble/pilab"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# ZPOD shared crates, MIT, pinned read-only to branch pipit-seq at 525bc84. Not forked.
+zpod-voices = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
+zpod-midi = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
+zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
+pilab-synth = { path = "crates/pilab-synth" }
+pilab-core = { path = "crates/pilab-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+rtrb = "0.3"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = false
