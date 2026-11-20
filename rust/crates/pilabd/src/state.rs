@@ -475,7 +475,8 @@ impl App {
                     sound.amp_env.a = a.clamp(0.001, 4.0);
                 }
             }
-            (Slot { id, name: bk.title.clone(), table: String::new(), sample: b.to_string(), wavetable: String::new(), sound }, bk.drum)
+            let name = pilab_core::presets::all().into_iter().find(|p| p.bank == b).map(|p| p.name.to_string()).unwrap_or_else(|| bk.title.clone());
+            (Slot { id, name, table: String::new(), sample: b.to_string(), wavetable: String::new(), name_locked: false, sound }, bk.drum)
         } else {
             return Err("preset or bank required".into());
         };
@@ -486,6 +487,10 @@ impl App {
         if let Some(old) = sc.slot(id) {
             slot.sound.octave = 0;
             slot.sound.pan = old.sound.pan;
+            if old.name_locked {
+                slot.name = old.name.clone();
+                slot.name_locked = true;
+            }
         }
         self.edit_scene(|sc| {
             match sc.slots.iter_mut().find(|s| s.id == id) {
@@ -607,7 +612,9 @@ impl App {
         Ok(sc)
     }
 
-    pub fn upsert_slot(&self, slot: Slot) -> Result<Scene, String> {
+    pub fn upsert_slot(&self, mut slot: Slot) -> Result<Scene, String> {
+        let old = self.scene().0.slot(slot.id).cloned();
+        self.resolve_slot(&mut slot, old.as_ref())?;
         self.edit_scene(|sc| {
             match sc.slots.iter_mut().find(|s| s.id == slot.id) {
                 Some(s) => *s = slot,
@@ -618,6 +625,84 @@ impl App {
             }
             Ok(())
         })
+    }
+
+    /// Makes a slot playable and names it. A wavetable slot without a group or file gets a
+    /// group (the previous one, else a default) and its first audible wave, with `position`
+    /// on that wave; a sampler slot without a bank gets one. The bank is loaded here, so
+    /// the slot sounds as soon as the request returns. Unless the name is locked, a change
+    /// of source (oscillator type, group, wave file, bank) or an empty name renames it.
+    pub fn resolve_slot(&self, slot: &mut Slot, old: Option<&Slot>) -> Result<(), String> {
+        match slot.sound.wave {
+            Waveform::Table => {
+                if slot.wavetable.is_empty() && slot.table.is_empty() {
+                    let prev = old.map(|o| o.wavetable.clone()).filter(|g| !g.is_empty());
+                    slot.wavetable = prev.or_else(|| self.default_group()).ok_or("no AKWF wavetables installed (scripts/fetch-akwf.sh)")?;
+                }
+                if !slot.wavetable.is_empty() && !slot.table.starts_with(&format!("{}/", slot.wavetable)) {
+                    let frames = self.library.group_frames(&slot.wavetable, 64)?;
+                    let i = first_audible(&frames).ok_or("that group has no audible waves")?;
+                    slot.table = frames[i].0.clone();
+                    slot.sound.position = if frames.len() > 1 { i as f32 / (frames.len() - 1) as f32 } else { 0.0 };
+                }
+                if !slot.wavetable.is_empty() {
+                    self.library.load_group(&slot.wavetable)?;
+                }
+            }
+            Waveform::Sampler => {
+                if slot.sample.is_empty() {
+                    let prev = old.map(|o| o.sample.clone()).filter(|b| !b.is_empty());
+                    slot.sample = prev.or_else(|| self.default_bank()).ok_or("no sample banks installed (scripts/fetch-samples.sh)")?;
+                }
+                self.samples.load(&slot.sample)?;
+            }
+            _ => {}
+        }
+        let key = |s: &Slot| (s.sound.wave, s.wavetable.clone(), s.table.clone(), s.sample.clone());
+        let changed = old.is_none_or(|o| key(o) != key(slot));
+        if !slot.name_locked && (changed || slot.name.trim().is_empty()) {
+            slot.name = self.auto_name(slot);
+        }
+        Ok(())
+    }
+
+    /// Readable name of a slot's source: "Saw", "FM synth #41", "Upright Piano".
+    pub fn auto_name(&self, slot: &Slot) -> String {
+        match slot.sound.wave {
+            Waveform::Table if !slot.wavetable.is_empty() => format!("{} {}", crate::assets::akwf_name(&slot.wavetable), wave_num(&slot.table)).trim().to_string(),
+            Waveform::Table if !slot.table.is_empty() => {
+                let g = slot.table.split('/').next().unwrap_or("");
+                format!("{} {}", crate::assets::akwf_name(g), wave_num(&slot.table)).trim().to_string()
+            }
+            Waveform::Table => "Wavetable".into(),
+            Waveform::Sampler => {
+                let preset = pilab_core::presets::all().into_iter().find(|p| p.bank == slot.sample);
+                match (preset, self.samples.bank(&slot.sample)) {
+                    (Some(p), _) => p.name.to_string(),
+                    (None, Some(b)) => b.title,
+                    (None, None) => "Sampler".into(),
+                }
+            }
+            w => format!("{w:?}"),
+        }
+    }
+
+    fn default_group(&self) -> Option<String> {
+        let groups = self.library.groups();
+        ["AKWF_bw_saw", "AKWF_fmsynth", "AKWF_bw_sin"]
+            .iter()
+            .find(|g| groups.iter().any(|x| x.name == **g))
+            .map(|g| g.to_string())
+            .or_else(|| groups.first().map(|g| g.name.clone()))
+    }
+
+    fn default_bank(&self) -> Option<String> {
+        let banks = self.samples.banks();
+        pilab_core::presets::all()
+            .into_iter()
+            .map(|p| p.bank.to_string())
+            .find(|b| banks.iter().any(|x| &x.id == b))
+            .or_else(|| banks.first().map(|b| b.id.clone()))
     }
 
     pub fn delete_slot(&self, id: u8) -> Result<Scene, String> {
@@ -1191,4 +1276,166 @@ pub fn spawn_loops(app: Arc<App>) {
             }
         })
         .expect("spawn system loop");
+}
+
+/// Index of the first wave whose cycle is not silent or flat (peak-to-peak above 0.1).
+pub fn first_audible(frames: &[(String, Vec<f32>)]) -> Option<usize> {
+    let pp = |p: &Vec<f32>| {
+        let (lo, hi) = p.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+        if p.is_empty() { 0.0 } else { hi - lo }
+    };
+    frames.iter().position(|(_, p)| pp(p) > 0.1).or(if frames.is_empty() { None } else { Some(0) })
+}
+
+/// "#41" from "AKWF_fmsynth/AKWF_fmsynth_0041.wav"; empty when the file has no number.
+pub fn wave_num(file: &str) -> String {
+    let stem = file.rsplit('/').next().unwrap_or("").trim_end_matches(".wav").trim_end_matches(".WAV");
+    let digits: String = stem.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<Vec<_>>().into_iter().rev().collect();
+    digits.parse::<u32>().map(|n| format!("#{n}")).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod select_tests {
+    //! Select -> slot state -> engine: every selection must leave a playable slot, named
+    //! after its source unless the name was typed, and audible when rendered.
+    use super::*;
+    use crate::audio::{NullBackend, RtShared};
+    use crate::paths::Paths;
+
+    fn wav16(samples: &[f32], sr: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        let data = samples.len() as u32 * 2;
+        v.extend(b"RIFF");
+        v.extend((36 + data).to_le_bytes());
+        v.extend(b"WAVEfmt ");
+        v.extend(16u32.to_le_bytes());
+        v.extend(1u16.to_le_bytes());
+        v.extend(1u16.to_le_bytes());
+        v.extend(sr.to_le_bytes());
+        v.extend((sr * 2).to_le_bytes());
+        v.extend(2u16.to_le_bytes());
+        v.extend(16u16.to_le_bytes());
+        v.extend(b"data");
+        v.extend(data.to_le_bytes());
+        for s in samples {
+            v.extend(((s.clamp(-1.0, 1.0) * 32000.0) as i16).to_le_bytes());
+        }
+        v
+    }
+
+    fn rms_db(wav: &[u8]) -> f32 {
+        let s: Vec<f32> = wav[44..].chunks(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0).collect();
+        let e = s.iter().map(|x| x * x).sum::<f32>() / s.len().max(1) as f32;
+        10.0 * e.max(1e-18).log10()
+    }
+
+    fn app() -> (Arc<App>, PathBuf) {
+        let root = std::env::temp_dir().join(format!("pilab-select-{}-{}", std::process::id(), rand_tag()));
+        let akwf = root.join("data/library/akwf/AKWF_fmsynth");
+        std::fs::create_dir_all(&akwf).unwrap();
+        let tau = std::f32::consts::TAU;
+        // wave 1 is silent: a fresh pick must skip it
+        std::fs::write(akwf.join("AKWF_fmsynth_0001.wav"), wav16(&[0.0; 600], 44_100)).unwrap();
+        let sine: Vec<f32> = (0..600).map(|i| (tau * i as f32 / 600.0).sin()).collect();
+        let fm: Vec<f32> = (0..600).map(|i| (tau * i as f32 / 600.0 + 2.0 * (3.0 * tau * i as f32 / 600.0).sin()).sin()).collect();
+        std::fs::write(akwf.join("AKWF_fmsynth_0002.wav"), wav16(&sine, 44_100)).unwrap();
+        std::fs::write(akwf.join("AKWF_fmsynth_0041.wav"), wav16(&fm, 44_100)).unwrap();
+        let sm = root.join("data/library/samples/test");
+        std::fs::create_dir_all(&sm).unwrap();
+        let tone: Vec<f32> = (0..48_000).map(|i| 0.5 * (tau * 261.63 * i as f32 / 48_000.0).sin()).collect();
+        std::fs::write(sm.join("c4.wav"), wav16(&tone, 48_000)).unwrap();
+        std::fs::write(sm.join("test.sfz"), "<region> sample=c4.wav lokey=0 hikey=127 pitch_keycenter=60\n").unwrap();
+        std::fs::write(
+            root.join("data/library/samples/index.json"),
+            r#"{"items":[{"id":"test-bank","title":"Test Bank","category":"keys","sfz":"samples/test/test.sfz","license":"CC0"}]}"#,
+        )
+        .unwrap();
+        let paths = Paths { config: root.join("config"), data: root.join("data") };
+        let shared = Arc::new(RtShared::default());
+        let (b, l, s) = NullBackend::start(shared.clone(), 48_000.0);
+        (App::new(paths, 0, Arc::new(b), l, s, shared).unwrap(), root)
+    }
+
+    fn rand_tag() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64
+    }
+
+    fn slot(a: &App, id: u8) -> Slot {
+        a.scene().0.slot(id).cloned().unwrap()
+    }
+
+    fn loud(a: &App, id: u8) -> f32 {
+        rms_db(&a.audition_render(AuditionSrc::Slot(id)).unwrap())
+    }
+
+    #[test]
+    fn select_sets_state_engine_and_name() {
+        let (a, root) = app();
+        let mut s = Slot { id: 1, name: "Warm Saw".into(), ..Slot::default() };
+        a.upsert_slot(s.clone()).unwrap();
+        assert_eq!(slot(&a, 1).name, "Warm Saw", "unchanged source keeps the name");
+        // oscillator type change renames (name not locked)
+        s.sound.wave = Waveform::Sine;
+        a.upsert_slot(s.clone()).unwrap();
+        assert_eq!(slot(&a, 1).name, "Sine");
+
+        // wavetable type with no group: a group and its first audible wave are picked
+        let mut s = slot(&a, 1);
+        s.sound.wave = Waveform::Table;
+        a.upsert_slot(s).unwrap();
+        let r = slot(&a, 1);
+        assert_eq!(r.wavetable, "AKWF_fmsynth");
+        assert_eq!(r.table, "AKWF_fmsynth/AKWF_fmsynth_0002.wav", "skips the silent first wave");
+        assert!((r.sound.position - 0.5).abs() < 1e-6);
+        assert_eq!(r.name, "FM synth #2");
+        assert_eq!(a.inner.lock().unwrap().sent_set[0], "AKWF_fmsynth", "engine got the frame set");
+        assert!(loud(&a, 1) > -50.0, "wavetable slot is audible");
+
+        // clicking a wave
+        let mut s = slot(&a, 1);
+        s.table = "AKWF_fmsynth/AKWF_fmsynth_0041.wav".into();
+        s.sound.position = 1.0;
+        a.upsert_slot(s).unwrap();
+        assert_eq!(slot(&a, 1).name, "FM synth #41");
+        assert_eq!(slot(&a, 1).sound.position, 1.0);
+
+        // a parameter change does not rename
+        let mut s = slot(&a, 1);
+        s.sound.position = 0.7;
+        a.upsert_slot(s).unwrap();
+        assert_eq!(slot(&a, 1).name, "FM synth #41");
+
+        // sampler with no bank: the bank is chosen and loaded
+        let mut s = slot(&a, 1);
+        s.sound.wave = Waveform::Sampler;
+        a.upsert_slot(s).unwrap();
+        let r = slot(&a, 1);
+        assert_eq!(r.sample, "test-bank");
+        assert_eq!(r.name, "Test Bank");
+        assert!(a.samples.is_loaded("test-bank"));
+        assert_eq!(a.inner.lock().unwrap().sent_inst[0], "test-bank", "engine got the instrument");
+        assert!(loud(&a, 1) > -50.0, "sampler slot is audible");
+
+        // typed names stick; reset to auto names it again
+        let mut s = slot(&a, 1);
+        s.name = "My keys".into();
+        s.name_locked = true;
+        a.upsert_slot(s).unwrap();
+        let mut s = slot(&a, 1);
+        s.sound.wave = Waveform::Saw;
+        a.upsert_slot(s).unwrap();
+        assert_eq!(slot(&a, 1).name, "My keys");
+        assert!(a.apply_preset(1, None, Some("test-bank"), false).is_ok());
+        assert_eq!(slot(&a, 1).name, "My keys", "presets respect a typed name");
+        let mut s = slot(&a, 1);
+        s.name = String::new();
+        s.name_locked = false;
+        a.upsert_slot(s).unwrap();
+        assert_eq!(slot(&a, 1).name, "Test Bank");
+
+        // back-compat: scenes without name_locked read as unlocked and do not write it
+        let t = toml::to_string(&slot(&a, 1)).unwrap();
+        assert!(!t.contains("name_locked"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

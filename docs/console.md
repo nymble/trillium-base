@@ -137,6 +137,20 @@ warp transforms, unison, then the usual filter / envelope / FX chain. pilab foll
 - Not yet: a second oscillator with mix, chorus/delay/reverb FX, spectral warps. Each is a
   contained engine change if wanted.
 
+### Selecting sounds and slot names
+
+Every selection in Sounds (oscillator type, wavetable group, wave, sample bank, preset) is
+sent to pilabd, which makes the slot playable before replying: a wavetable slot without a
+group gets the previous or a default group and its first audible wave (silent or flat
+cycles are skipped), with `position` on that wave; a sampler slot without a bank gets one,
+and the bank is loaded before the reply (the editor shows a loading state meanwhile). The
+console reads the slot back from the reply, and "Preview on select" plays only after that.
+Updates go out one at a time, in order.
+
+Slots are named after their source ("Saw", "FM synth #41", "Kalimba") until a name is
+typed. Typing sets `name_locked = true` in the scene; "Auto name" clears it. Older scenes
+without the field read as unlocked.
+
 ### Sampler
 
 `wave = "sampler"` plays a multisample instrument loaded from SFZ (a practical subset:

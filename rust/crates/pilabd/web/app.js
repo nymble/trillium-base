@@ -463,8 +463,8 @@ function renderSounds() {
   } else {
     const snd = s.sound;
     const used = S.scene.routes.filter((r) => r.slot === s.id && r.enabled).length;
-    editor = `<div class="card">
-      <div class="card-head"><input class="input" id="slot-name" value="${esc(s.name)}" style="font-family:var(--font-display);font-size:18px;width:260px">
+    editor = `<div class="card" id="slot-editor">
+      <div class="card-head"><input class="input" id="slot-name" value="${esc(s.name)}" title="${s.name_locked ? "Name set by hand" : "Named after its sound; type to set your own"}" style="font-family:var(--font-display);font-size:18px;width:260px">${s.name_locked ? `<button class="btn ghost small" id="slot-autoname" title="Name it after its sound again">Auto name</button>` : ""}
         <span class="spacer"></span>
         <label class="row tight muted small"><span>Enabled</span><label class="switch"><input type="checkbox" id="slot-en" ${snd.enabled ? "checked" : ""}><span></span></label></label>
         <button class="btn ghost small" data-play="slot:${s.id}" title="Play a short phrase">▶ Play</button>
@@ -545,12 +545,26 @@ function renderSounds() {
 function bankTitle(id) { const b = S.samples && S.samples.banks.find((x) => x.id === id); return b ? b.title : id; }
 
 async function applyPreset(body) {
-  try {
-    const r = await post(`/scene/slots/${S.selSlot}/preset`, body);
-    S.scene = norm(r.scene); S.dirty = r.dirty;
-    renderSounds();
-    if (S.prevSel) audition({ slot: S.selSlot });
-  } catch (e) { fail(e); }
+  if (!S.selSlot) return toast("Select a sound slot first.");
+  const id = S.selSlot;
+  clearTimeout(timers.slot);
+  setLoading(true, "Loading " + (body.preset ? body.preset : bankTitle(body.bank)) + "…");
+  const job = pushChain.then(async () => {
+    try {
+      const r = await post(`/scene/slots/${id}/preset`, body);
+      S.scene = norm(r.scene); S.dirty = r.dirty;
+      setLoading(false);
+      renderSounds();
+      const s = slotById(id);
+      if (s && s.sound.wave === "sampler") { if (S.prevSel) audition({ slot: id }); else toast(`${s.name} ready`); }
+    } catch (e) { setLoading(false); fail(e); }
+  });
+  pushChain = job.catch(() => {});
+  return job;
+}
+function setLoading(on, msg) {
+  const ed = $("#slot-editor"); if (ed) ed.classList.toggle("loading", on);
+  if (on && msg) toast(msg);
 }
 
 function bindSounds() {
@@ -568,11 +582,18 @@ function bindSounds() {
   if (nw) nw.addEventListener("click", () => pushSlot(defaultSlot(S.selSlot), true));
   const s = slotById(S.selSlot);
   if (!s) return bindAkwf(null);
-  $("#slot-name").addEventListener("change", (e) => { s.name = e.target.value; pushSlot(s, true); });
+  $("#slot-name").addEventListener("change", (e) => { s.name = e.target.value.trim(); s.name_locked = s.name !== ""; pushSlot(s, true); });
+  const an = $("#slot-autoname"); if (an) an.addEventListener("click", () => { s.name = ""; s.name_locked = false; pushSlot(s, true); });
   $("#slot-en").addEventListener("change", (e) => { s.sound.enabled = e.target.checked; pushSlot(s); });
   $("#flt-en").addEventListener("change", (e) => { s.sound.filter.enabled = e.target.checked; pushSlot(s); });
   $("#slot-del").addEventListener("click", async () => { try { const r = await api("DELETE", `/scene/slots/${s.id}`); S.scene = norm(r.scene); renderSounds(); } catch (e) { fail(e); } });
-  $$("#wave-seg button").forEach((b) => b.addEventListener("click", () => { s.sound.wave = b.dataset.w; if (b.dataset.w === "table") { S.browserTab = "akwf"; } pushSlot(s, true); }));
+  $$("#wave-seg button").forEach((b) => b.addEventListener("click", () => {
+    const w = b.dataset.w;
+    s.sound.wave = w;
+    if (w === "table") { S.browserTab = "akwf"; if (!s.wavetable && S.akwfGroup) { s.wavetable = S.akwfGroup; s.table = ""; } }
+    if (w === "sampler") S.browserTab = "samples";
+    selectApply(s, w === "sampler" ? "Loading samples…" : "");
+  }));
   $$("#warp-seg button").forEach((b) => b.addEventListener("click", () => { s.sound.warp = b.dataset.warp; if (s.sound.warp !== "none" && !s.sound.warp_amount) s.sound.warp_amount = 0.3; pushSlot(s, true); }));
   $$("input[data-p]").forEach((inp) => inp.addEventListener("input", () => {
     const [g, k] = inp.dataset.p.split(".");
@@ -638,27 +659,64 @@ function bindAkwf(s) {
   if (q) q.addEventListener("input", () => { S.wtQuery = q.value; debounce("wtq", () => { renderSounds(); const e = $("#wt-q"); if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); } }, 200); });
   $$("[data-tag]").forEach((b) => b.addEventListener("click", () => { S.wtTag = S.wtTag === b.dataset.tag ? "" : b.dataset.tag; renderSounds(); }));
   $$("[data-fav]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); toggleFav(el.dataset.fav); renderSounds(); }));
-  $$(".akwf-groups [data-g]").forEach((el) => el.addEventListener("click", () => { S.akwfGroup = el.dataset.g; S.hoverWave = null; renderSounds(); }));
+  // Picking a group plays it: the slot becomes a wavetable on that group, at its first
+  // audible wave (pilabd picks the wave and position when table is empty).
+  $$(".akwf-groups [data-g]").forEach((el) => el.addEventListener("click", () => {
+    S.akwfGroup = el.dataset.g; S.hoverWave = null;
+    if (!s) { if (!S.selSlot) return renderSounds(); s = defaultSlot(S.selSlot); }
+    if (s.sound.wave === "table" && s.wavetable === S.akwfGroup) return renderSounds();
+    s.sound.wave = "table"; s.wavetable = S.akwfGroup; s.table = "";
+    selectApply(s);
+  }));
   $$(".wt-grid [data-wi]").forEach((el) => {
     el.addEventListener("mouseenter", () => { S.hoverWave = +el.dataset.wi; drawWtViews(s); });
     el.addEventListener("mouseleave", () => { S.hoverWave = null; drawWtViews(s); });
     el.addEventListener("click", () => {
-      if (!s) return toast("Select or create a sound slot first.");
+      if (!s) { if (!S.selSlot) return toast("Select a sound slot first."); s = defaultSlot(S.selSlot); }
       const n = S.akwfFrames.frames.length;
       s.sound.wave = "table"; s.wavetable = S.akwfGroup; s.table = el.dataset.f;
       s.sound.position = n > 1 ? +el.dataset.wi / (n - 1) : 0;
-      if (/^Init /.test(s.name) || s.name === "Init") s.name = wtInfo(S.akwfGroup).name;
-      pushSlot(s, true).then(() => { if (S.prevSel) audition({ slot: s.id }); });
+      selectApply(s);
     });
   });
 }
 
-async function pushSlot(s, rerender = false) {
-  try {
-    const r = await put(`/scene/slots/${s.id}`, s);
-    S.scene = norm(r.scene); S.dirty = r.dirty;
-    if (rerender) renderSounds(); else if (s.sound.wave === "table") drawWave();
-  } catch (e) { fail(e); }
+// Slot updates go out one at a time, in order (a slider's debounced update can never land
+// after a later selection). The body is taken when it is sent, and the fields pilabd
+// resolves (name, source, and position when it picked the wave) are copied back into the
+// object the editor is bound to, so later edits build on the server's state.
+let pushChain = Promise.resolve();
+function pushSlot(s, rerender = false) {
+  clearTimeout(timers.slot);
+  const job = pushChain.then(async () => {
+    const sentTable = s.table;
+    try {
+      const r = await put(`/scene/slots/${s.id}`, s);
+      S.scene = norm(r.scene); S.dirty = r.dirty;
+      const f = slotById(s.id);
+      if (f) {
+        Object.assign(s, { name: f.name, name_locked: !!f.name_locked, table: f.table, wavetable: f.wavetable, sample: f.sample });
+        s.sound.wave = f.sound.wave;
+        if (f.table !== sentTable) s.sound.position = f.sound.position;
+        if (f.sound.wave === "table" && f.wavetable) S.akwfGroup = f.wavetable;
+      }
+      if (rerender) renderSounds(); else if (s.sound.wave === "table") drawWave();
+      return f;
+    } catch (e) { fail(e); return null; }
+  });
+  pushChain = job.catch(() => {});
+  return job;
+}
+// A selection (type, group, wave, bank): apply it, read the slot back, then preview.
+async function selectApply(s, loadingMsg = "") {
+  const want = s.sound.wave;
+  if (loadingMsg) setLoading(true, loadingMsg);
+  const f = await pushSlot(s, true);
+  setLoading(false);
+  if (!f) return;
+  if (f.sound.wave !== want) return toast(`Not applied: slot is ${f.sound.wave}`, true);
+  if (S.prevSel) audition({ slot: f.id });
+  else if (loadingMsg) toast(`${f.name} ready`);
 }
 
 function cvCtx(cv) { const c = cv.getContext("2d"); c.clearRect(0, 0, cv.width, cv.height); return c; }

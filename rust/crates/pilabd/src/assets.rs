@@ -73,3 +73,11 @@ pub fn index_html() -> String {
         .replace("{{COMMIT}}", COMMIT)
         .replace("{{BUILD}}", build_id())
 }
+
+/// Readable AKWF group name from the catalog ("AKWF_fmsynth" -> "FM synth"); unknown groups
+/// fall back to the folder name without the prefix.
+pub fn akwf_name(group: &str) -> String {
+    static CAT: OnceLock<serde_json::Value> = OnceLock::new();
+    let cat = CAT.get_or_init(|| get("/data/akwf-catalog.json").and_then(|(_, b)| serde_json::from_slice(b).ok()).unwrap_or_default());
+    cat["groups"][group]["name"].as_str().map(str::to_string).unwrap_or_else(|| group.trim_start_matches("AKWF_").replace('_', " "))
+}

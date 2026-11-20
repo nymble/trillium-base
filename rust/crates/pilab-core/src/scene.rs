@@ -21,12 +21,21 @@ pub struct Slot {
     pub wavetable: String,
     /// Sample bank id from the library index (wave = "sampler" only), e.g. "freepats-kalimba".
     pub sample: String,
+    /// True once the name was typed by hand. While false, picking a new source (oscillator
+    /// type, wavetable group or wave, sample bank, preset) renames the slot automatically.
+    /// Absent in older scenes, which reads as false.
+    #[serde(skip_serializing_if = "is_false")]
+    pub name_locked: bool,
     pub sound: SlotParams,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Default for Slot {
     fn default() -> Self {
-        Slot { id: 1, name: "Init".into(), table: String::new(), sample: String::new(), wavetable: String::new(), sound: SlotParams::default() }
+        Slot { id: 1, name: "Init".into(), table: String::new(), sample: String::new(), wavetable: String::new(), name_locked: false, sound: SlotParams::default() }
     }
 }
 
@@ -111,11 +120,11 @@ pub fn valid_name(n: &str) -> bool {
 impl Scene {
     /// The factory scene: four slots and one route from every input to slot 1.
     pub fn factory() -> Scene {
-        let saw = Slot { id: 1, name: "Warm Saw".into(), table: String::new(), sample: String::new(), wavetable: String::new(), sound: SlotParams::default() };
+        let saw = Slot { id: 1, name: "Warm Saw".into(), table: String::new(), sample: String::new(), wavetable: String::new(), name_locked: false, sound: SlotParams::default() };
         let pwm = Slot {
             id: 2,
             name: "PWM Lead".into(),
-            table: String::new(), sample: String::new(), wavetable: String::new(),
+            table: String::new(), sample: String::new(), wavetable: String::new(), name_locked: false,
             sound: SlotParams {
                 wave: Waveform::Pulse,
                 pulse_width: 0.35,
@@ -128,7 +137,7 @@ impl Scene {
         let pad = Slot {
             id: 3,
             name: "Sine Pad".into(),
-            table: String::new(), sample: String::new(), wavetable: String::new(),
+            table: String::new(), sample: String::new(), wavetable: String::new(), name_locked: false,
             sound: SlotParams {
                 wave: Waveform::Sine,
                 amp_env: Env { a: 0.6, d: 1.0, s: 0.8, r: 1.8 },
@@ -140,7 +149,7 @@ impl Scene {
         let tri = Slot {
             id: 4,
             name: "Soft Triangle".into(),
-            table: String::new(), sample: String::new(), wavetable: String::new(),
+            table: String::new(), sample: String::new(), wavetable: String::new(), name_locked: false,
             sound: SlotParams {
                 wave: Waveform::Triangle,
                 amp_env: Env { a: 0.01, d: 0.5, s: 0.6, r: 0.6 },
@@ -151,7 +160,7 @@ impl Scene {
         let wt = Slot {
             id: 5,
             name: "AKWF Table".into(),
-            table: "AKWF_bw_saw/AKWF_saw_0001.wav".into(), sample: String::new(), wavetable: String::new(),
+            table: "AKWF_bw_saw/AKWF_saw_0001.wav".into(), sample: String::new(), wavetable: String::new(), name_locked: false,
             sound: SlotParams {
                 wave: Waveform::Table,
                 amp_env: Env { a: 0.02, d: 0.6, s: 0.7, r: 0.8 },

@@ -303,7 +303,8 @@ async fn scene_patch(State(app): S, Json(p): Json<ScenePatch>) -> R {
 
 async fn slot_put(State(app): S, Path(id): Path<u8>, Json(mut slot): Json<Slot>) -> R {
     slot.id = id;
-    app.upsert_slot(slot).map_err(bad)?;
+    let a = app.clone();
+    tokio::task::spawn_blocking(move || a.upsert_slot(slot)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     scene_get(State(app)).await
 }
 

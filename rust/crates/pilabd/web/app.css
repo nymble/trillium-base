@@ -304,3 +304,6 @@ canvas.stack { width: 100%; height: 150px; background: var(--panel-deep); border
 .newver { position: fixed; left: 50%; top: 54px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 10px; background: var(--panel-raised); color: var(--text); padding: 8px 10px 8px 14px; border-radius: var(--r-ctl); box-shadow: 0 6px 24px rgba(0,0,0,0.5); font-size: 12.5px; }
 .newver.hidden { display: none; }
 .newver .mono { margin-left: 8px; font-size: 11px; }
+
+/* slot editor while a bank or table loads on the Pi */
+#slot-editor.loading { opacity: 0.55; pointer-events: none; transition: opacity 120ms; }
