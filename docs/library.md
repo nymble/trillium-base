@@ -308,7 +308,7 @@ samples onto a unit, never into git:
 - 28 FreePats banks from `library/samples-base.tsv`: pinned URL, archive sha256 and size.
   SFZ variants only (the small SFZ+FLAC variant where one exists), so no SF2 conversion.
   Each bank must contain a CC0 / public-domain statement or it is skipped.
-- The VCSL starter kit from `library/vcsl-starter.tsv`: 114 files pinned by upstream commit
+- The VCSL starter kit from `library/vcsl-starter.tsv`: 116 files pinned by upstream commit
   and git blob id, plus a generated `starter-kit.sfz` General MIDI drum map (kick 35/36,
   snares 37/38/40, clap 39, toms 41-50 from one stick tom pitched, hi-hats 42/44/46 with an
   open-hat choke, crashes 49/57, tambourine 54, cowbell 56, bongos 60/61, congas 62-64,
