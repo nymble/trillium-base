@@ -5,16 +5,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
+<meta name="pilab-build" content="{{BUILD}}">
+<meta name="pilab-commit" content="{{COMMIT}}">
 <title>{{PRODUCT_NAME}}</title>
-<link rel="icon" type="image/svg+xml" href="/brand/rhodonea-app-dark.svg">
-<link rel="stylesheet" href="/brand/tokens.css">
-<link rel="stylesheet" href="/theme.css">
-<link rel="stylesheet" href="/app.css">
+<link rel="icon" type="image/svg+xml" href="/brand/rhodonea-app-dark.svg?v={{BUILD}}">
+<link rel="stylesheet" href="/brand/tokens.css?v={{BUILD}}">
+<link rel="stylesheet" href="/theme.css?v={{BUILD}}">
+<link rel="stylesheet" href="/app.css?v={{BUILD}}">
 </head>
 <body data-product="{{PRODUCT_NAME}}" data-version="{{VERSION}}">
 <div id="pair" class="pair hidden">
   <div class="pair-card">
-    <img src="/brand/rhodonea-glyph.svg" alt="" class="pair-mark">
+    <img src="/brand/rhodonea-glyph.svg?v={{BUILD}}" alt="" class="pair-mark">
     <h1>{{PRODUCT_NAME}}</h1>
     <p class="muted">Enter the pairing token for this device. On the Pi, run <code>pilabctl pair</code> and copy the token it prints.</p>
     <form id="pair-form">
@@ -29,7 +31,7 @@
 <div id="app" class="app hidden">
   <header class="top">
     <div class="brand">
-      <img src="/brand/rhodonea-glyph.svg" alt="" class="mark">
+      <img src="/brand/rhodonea-glyph.svg?v={{BUILD}}" alt="" class="mark">
       <div class="brand-text">
         <span class="product">{{PRODUCT_NAME}}</span>
         <span class="host mono" id="hostline">—</span>
@@ -60,12 +62,12 @@
   </header>
 
   <nav class="side" id="nav">
-    <a data-view="overview"><img src="/brand/ui-icons/live-monitor.svg" alt="">Overview</a>
-    <a data-view="sounds"><img src="/brand/ui-icons/instrument.svg" alt="">Sounds</a>
-    <a data-view="midimap"><img src="/brand/ui-icons/midi.svg" alt="">MIDI Map</a>
-    <a data-view="scenes"><img src="/brand/ui-icons/presets.svg" alt="">Scenes</a>
-    <a data-view="signals"><img src="/brand/ui-icons/wireless.svg" alt="">Signals</a>
-    <a data-view="settings"><img src="/brand/ui-icons/firmware-update.svg" alt="">Settings</a>
+    <a data-view="overview"><img src="/brand/ui-icons/live-monitor.svg?v={{BUILD}}" alt="">Overview</a>
+    <a data-view="sounds"><img src="/brand/ui-icons/instrument.svg?v={{BUILD}}" alt="">Sounds</a>
+    <a data-view="midimap"><img src="/brand/ui-icons/midi.svg?v={{BUILD}}" alt="">MIDI Map</a>
+    <a data-view="scenes"><img src="/brand/ui-icons/presets.svg?v={{BUILD}}" alt="">Scenes</a>
+    <a data-view="signals"><img src="/brand/ui-icons/wireless.svg?v={{BUILD}}" alt="">Signals</a>
+    <a data-view="settings"><img src="/brand/ui-icons/firmware-update.svg?v={{BUILD}}" alt="">Settings</a>
     <div class="side-foot">
       <button class="btn ghost small" id="btn-kbd">Keyboard</button>
     </div>
@@ -91,8 +93,13 @@
     <span>Trillium, an Ambient Lab project</span>
     <span class="mono" id="foot-ver"></span>
   </footer>
+  <div id="newver" class="newver hidden" role="status">
+    <span>New version available<span id="newver-detail" class="mono muted"></span></span>
+    <button class="btn" id="newver-reload" type="button">Reload</button>
+    <button class="btn ghost" id="newver-close" type="button" aria-label="Dismiss">×</button>
+  </div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/app.js"></script>
+<script src="/app.js?v={{BUILD}}"></script>
 </body>
 </html>

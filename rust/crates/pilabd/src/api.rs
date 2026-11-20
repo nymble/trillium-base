@@ -157,6 +157,8 @@ async fn info(State(app): S) -> Json<Value> {
         "product": PRODUCT_NAME,
         "tagline": PRODUCT_TAGLINE,
         "version": VERSION,
+        "commit": crate::brand::COMMIT,
+        "build": assets::build_id(),
         "device_id": app.device_id,
         "hostname": app.hostname,
         "api": API_PREFIX,
@@ -615,15 +617,31 @@ async fn recordings(State(app): S) -> R {
     ok(json!({ "location": app.recordings_dir().display().to_string(), "recordings": record::list(&app.recordings_dir()) }))
 }
 
-async fn static_file(uri: Uri) -> Response {
+/// Caching: index.html and unversioned URLs are `no-cache` with an ETag (the build id), so
+/// browsers revalidate and get a 304 when nothing changed. URLs carrying `?v=<current
+/// build>` (as written into index.html) are immutable for a year. A `?v=` naming another
+/// build gets the current file with `no-cache`.
+async fn static_file(uri: Uri, headers: axum::http::HeaderMap) -> Response {
     let path = uri.path();
     let p = if path == "/" { "/index.html" } else { path };
-    match assets::get(p) {
-        Some((mime, body)) => {
-            let cache = if p == "/index.html" { "no-cache" } else { "public, max-age=3600" };
-            let body = if p == "/index.html" { Body::from(assets::index_html()) } else { Body::from(body) };
-            ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, cache)], body).into_response()
-        }
-        None => (StatusCode::NOT_FOUND, "not found").into_response(),
+    let Some((mime, body)) = assets::get(p) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let build = assets::build_id();
+    let versioned = p != "/index.html"
+        && uri.query().is_some_and(|q| q.split('&').any(|kv| kv.strip_prefix("v=") == Some(build)));
+    let etag = format!("\"{build}\"");
+    if versioned {
+        return ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=31536000, immutable")], Body::from(body)).into_response();
     }
+    let hdrs = [(header::CONTENT_TYPE, mime.to_string()), (header::CACHE_CONTROL, "no-cache".to_string()), (header::ETAG, etag.clone())];
+    let matched = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim().trim_start_matches("W/") == etag));
+    if matched {
+        return (StatusCode::NOT_MODIFIED, hdrs).into_response();
+    }
+    let body = if p == "/index.html" { Body::from(assets::index_html()) } else { Body::from(body) };
+    (hdrs, body).into_response()
 }

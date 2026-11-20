@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Web console files, embedded at build time (no build server on the Pi).
 
-use crate::brand::{PRODUCT_NAME, PRODUCT_TAGLINE, VERSION};
+use std::sync::OnceLock;
+
+use crate::brand::{COMMIT, PRODUCT_NAME, PRODUCT_TAGLINE, VERSION};
 
 macro_rules! files {
     ($($path:literal => $mime:literal),* $(,)?) => {
@@ -44,8 +46,30 @@ pub fn get(path: &str) -> Option<(&'static str, &'static [u8])> {
     FILES.iter().find(|(p, _, _)| *p == path).map(|(_, m, b)| (*m, *b))
 }
 
-/// index.html with the product name filled in (the single naming point is `brand.rs`).
+/// Build id used to version asset URLs: the deployed commit plus a hash of every embedded
+/// file, so a rebuild with changed assets always gets new URLs (also for "dev" builds).
+pub fn build_id() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(|| {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a
+        for (p, _, b) in FILES {
+            for &x in p.as_bytes().iter().chain(b.iter()) {
+                h ^= x as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        let c: String = COMMIT.chars().take(12).collect();
+        format!("{c}-{:08x}", (h ^ (h >> 32)) as u32)
+    })
+}
+
+/// index.html with the product name and build id filled in (the single naming point is
+/// `brand.rs`). Asset URLs carry `?v={{BUILD}}`.
 pub fn index_html() -> String {
     let raw = get("/index.html").map(|(_, b)| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    raw.replace("{{PRODUCT_NAME}}", PRODUCT_NAME).replace("{{TAGLINE}}", PRODUCT_TAGLINE).replace("{{VERSION}}", VERSION)
+    raw.replace("{{PRODUCT_NAME}}", PRODUCT_NAME)
+        .replace("{{TAGLINE}}", PRODUCT_TAGLINE)
+        .replace("{{VERSION}}", VERSION)
+        .replace("{{COMMIT}}", COMMIT)
+        .replace("{{BUILD}}", build_id())
 }

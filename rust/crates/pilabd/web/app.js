@@ -107,9 +107,29 @@ $("#pair-form").addEventListener("submit", async (ev) => {
   } catch (e) { $("#pair-msg").textContent = "Not accepted. Check the token and try again."; }
 });
 
+// ------------------------------------------------------------------ new version check
+// The page knows the build it was served with; if the server reports a different build
+// (redeployed while this tab was open), offer a reload.
+const PAGE_BUILD = (document.querySelector('meta[name="pilab-build"]') || {}).content || "";
+function checkBuild(info) {
+  if (!info || !info.build || !PAGE_BUILD || PAGE_BUILD.includes("{{")) return;
+  if (info.build === PAGE_BUILD || S.newverDismissed === info.build) return;
+  $("#newver-detail").textContent = `${PAGE_BUILD.split("-")[0]} → ${(info.commit || info.build).slice(0, 7)}`;
+  $("#newver").classList.remove("hidden");
+  S.newverBuild = info.build;
+}
+async function pollBuild() {
+  try { checkBuild(await (await fetch(API + "/info", { cache: "no-store" })).json()); } catch (e) { /* offline */ }
+}
+$("#newver-reload").addEventListener("click", () => location.reload());
+$("#newver-close").addEventListener("click", () => { S.newverDismissed = S.newverBuild; $("#newver").classList.add("hidden"); });
+setInterval(pollBuild, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollBuild(); });
+
 // ------------------------------------------------------------------ boot
 async function boot() {
-  try { S.info = await (await fetch(API + "/info")).json(); } catch (e) { S.info = null; }
+  try { S.info = await (await fetch(API + "/info", { cache: "no-store" })).json(); } catch (e) { S.info = null; }
+  checkBuild(S.info);
   if (S.info) {
     $("#pair-device").textContent = `${S.info.hostname} · device ${S.info.device_id} · v${S.info.version}`;
     $("#foot-ver").textContent = `${S.info.product} v${S.info.version} · ${S.info.device_id}`;
@@ -149,7 +169,7 @@ function connectWs() {
     if (d.t === "status") onStatus(d);
     else if (d.t === "sys") { S.sys = d; onSys(); }
   };
-  ws.onclose = () => { S.ws = null; setTimeout(() => { if (!$("#app").classList.contains("hidden")) connectWs(); }, 1500); };
+  ws.onclose = () => { S.ws = null; setTimeout(pollBuild, 3000); setTimeout(() => { if (!$("#app").classList.contains("hidden")) connectWs(); }, 1500); };
 }
 
 // ------------------------------------------------------------------ live header

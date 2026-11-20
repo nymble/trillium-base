@@ -303,7 +303,7 @@ downloads are TOML.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/info` | Product, version, device id, pairing requirement (no token needed) |
+| GET | `/info` | Product, version, commit, build id, device id, pairing requirement (no token needed) |
 | POST | `/pair/check` | 200 if the bearer token is valid |
 | GET | `/ws?token=` | WebSocket: status frames at 15 Hz, sys frames every 2 s; send {t:'midi',bytes:[..]} |
 | GET | `/status` | Voices, peaks, limiter, master, xruns, recording |
@@ -353,6 +353,16 @@ WebSocket frames: `{"t":"status", voices, peak_db[2], limiter_db, master_db, run
 xruns, xrun_rate, dsp_load, rec, midi[], dirty, scene}` at 15 Hz and `{"t":"sys", ...}`
 (the `/system` body) every 2 s. Send `{"t":"midi", "note":60, "vel":90}` (or `bytes`,
 `bend`, `cc`, plus `target`) to play.
+
+### Caching and updates
+
+index.html is served `no-cache` and writes the build id (deployed commit plus a hash of the
+embedded files) into every asset URL (`/app.js?v=<build>`). Those versioned URLs are
+`public, max-age=31536000, immutable`; anything unversioned (fonts referenced from CSS,
+icons set by script, old `?v=` values) is `no-cache` with the build id as ETag, so a
+revalidation is a 304. An open tab polls `/info` every minute, on focus and after the
+WebSocket reconnects; if the server's build differs from the page's, a "New version
+available · Reload" banner appears.
 
 ## Files on the Pi
 
