@@ -53,9 +53,52 @@ console stays reachable.
 
 MIDI input: port 0 `midi_in` is left for apps. Hardware and ALSA sources are assigned to
 `in_1`..`in_7` as they appear and connected automatically (Settings → MIDI; an ignore
-list of globs is honoured), so routes can match a **source by name**, for example
-`*Trillium*`. Port 8 is the web keyboard; port 9 is audition (the sound open in the
-editor, bypassing the map).
+list of globs is honoured). Port 8 is the web keyboard; port 9 is audition (the sound
+open in the editor, bypassing the map).
+
+### Known devices (device classes)
+
+Routes can name a **device class** instead of a port name: `input = "device:trillium"`.
+Classes live in `~/.config/pilab/settings.toml` under `[[midi.devices]]`, are matched in
+order, and the first match wins. Within a class the USB rule is tried before the BLE rule.
+For each MIDI source pilabd works out an identity, read-only, from:
+
+- **USB/ALSA**: the ALSA sequencer client and port (`/proc/asound/seq/clients`), the
+  sound card behind it and its `VID:PID` (`/proc/asound/cardN/usbid`). The ALSA port
+  number is the USB MIDI cable (0-based).
+- **BLE**: PipeWire names BLE MIDI ports `BLE MIDI 1`, which is not the device's name. The
+  Pi's BLE MIDI node runs in server role and does not name its peer, so pilabd asks BlueZ
+  for the aliases of connected devices (`bluetoothctl devices Connected` and `info`, polled
+  at most every 6 s while a BLE MIDI port exists) and matches those against the class globs.
+
+Default (development ids; they will change, for example to a "Trillium Zero" product
+string, so edit settings rather than code):
+
+```toml
+[[midi.devices]]
+id = "trillium"
+label = "Trillium"
+usb_ids = ["1209:0003", "1209:0002"]           # VID:PID, either matches
+name_prefixes = ["Trill XIAO MIDI", "Trillium Zero"]   # USB/ALSA product, client or port name
+ble_aliases = ["Trillium *"]                   # BlueZ alias globs ("Trillium XXXX")
+route_cables = [0]                             # only cable 0 (the instrument) is connected and routed
+note = "USB cable 0 is the instrument; cable 1 is configuration SysEx and is never connected; ..."
+```
+
+Rules that follow from it:
+
+- A matched USB port whose cable is not in `route_cables` (Trillium cable 1, config SysEx)
+  is **not auto-connected** and never reaches the synth. If it was connected earlier it is
+  disconnected. A matched port whose cable number cannot be read is also left alone.
+- Trillium's two CDC ACM serial ports are not MIDI ports; the console never opens them.
+- Other USB devices (for example the Nordic `1915:1025` composite device) do not match.
+- `*` (any input) still means every connected source, so a skipped port stays out of it.
+- Overview → MIDI inputs shows each source's identity (`USB · 1209:0003 · Trill XIAO MIDI ·
+  cable 0`, or `BLE · Trillium 7F2A`), the class it matched and by which rule, and lists
+  skipped ports with the reason.
+
+Route inputs, in short: `device:<id>`, `console`, `virtual`, `*`, or a glob on the graph
+port name (e.g. `*Keystation*`).
 
 ### Engine (Waveform module v0)
 
@@ -132,7 +175,7 @@ r = 0.4
 [[route]]
 enabled = true
 label = "Trillium high"
-input = "*Trillium*"         # "*" any, "virtual", "console", or a glob on the source name
+input = "device:trillium"    # a [[midi.devices]] class, "*" any, "virtual", "console", or a name glob
 channel = 0                  # 0 = omni, 1..16
 note_lo = 60
 note_hi = 127
@@ -145,8 +188,11 @@ Routing rules: every enabled route whose input, channel and note range match a n
 plays its slot, so overlapping routes **layer** and adjacent ranges **split**. Transposed
 notes outside 0..127 are dropped. Up to 64 routes, 8 layers per note.
 
+Two scenes are created on first start: `default` (every input plays Warm Saw) and
+`trillium split` (Trillium: pad below C4, lead above, triangle layer; web keys on Warm Saw).
+
 Settings live in `~/.config/pilab/settings.toml` (audio ports, DAC sink name, MIDI
-autoconnect and ignore list, recording, archive, watchdog). The active scene name is kept
+autoconnect, ignore list and device classes, recording, archive, watchdog). The active scene name is kept
 in `~/.config/pilab/state.toml`.
 
 ## Recording and archival

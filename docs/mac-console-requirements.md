@@ -37,11 +37,12 @@ API and must not need anything the web console does not.
 ## 4. Screens (parity with the web console)
 
 - R4.1 Overview: machine, audio backend and thread placement, services with risk notes,
-  MIDI inputs with activity, recording state, listening ports, USB devices, events.
+  MIDI inputs with activity and matched device identity (and skipped ports with reasons), recording state, listening ports, USB devices, events.
 - R4.2 Sounds: 16 slots; editor for wave, octave, detune, level, pan, velocity, pulse width,
   mod depth, amp ADSR, filter and filter ADSR; live preview from
   `/scene/slots/{id}/wave`; AKWF browser with previews.
-- R4.3 MIDI Map: matrix of inputs × sounds, route table (input glob, channel, note range,
+- R4.3 MIDI Map: matrix of inputs × sounds, route table (input: device class, console,
+  virtual, any, or name glob; channel, note range,
   transpose, velocity scale, sound), keyboard lanes showing splits and layers, monitor.
 - R4.4 Scenes: list, load (with unsaved-changes warning), save, save as, duplicate, delete,
   export TOML.

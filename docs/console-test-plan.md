@@ -31,14 +31,17 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
 
 ## 4. Trillium as MIDI input
 
-- Connect Trillium over USB (class-compliant MIDI) or pair it over BLE MIDI.
-- Overview → MIDI inputs lists it on `in_N` within 3 s and its activity dot flickers when
-  played. Signals shows the link to `pilab-synth:in_N`.
+- USB: connect Trillium (dev ids `1209:0003` / `1209:0002`, product "Trill XIAO MIDI ...").
+  Overview → MIDI inputs shows cable 0 on `in_N` with the **Trillium** badge and
+  `USB · 1209:000x · Trill XIAO MIDI · cable 0`. Cable 1 (config SysEx) is listed as
+  **not connected** with the reason; Signals shows no link from it. The two CDC ACM serial
+  ports do not appear at all.
+- BLE: connect Trillium (advertised as `Trillium XXXX`) to the Pi's BLE MIDI server.
+  Within about 6 s the `BLE MIDI 1` input shows the Trillium badge and
+  `BLE · Trillium XXXX`. With no Trillium connected, `BLE MIDI 1` shows no badge.
 - MIDI Map monitor shows note on/off, velocity, bend and CC1 from Trillium.
-- Note the source name the console shows. Over BLE the PipeWire bridge names it
-  `BLE MIDI 1`, not Trillium; use that name (or `*BLE MIDI*`) in routes below if so.
 - Pass: notes play through the default route; bend covers ±2 semitones; mod wheel moves
-  PWM on the PWM Lead sound.
+  PWM on the PWM Lead sound; no SysEx from cable 1 reaches the synth.
 
 ## 5. Sound editing
 
@@ -49,8 +52,8 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
 
 ## 6. Routing: split and layer
 
-- Add routes: `*Trillium*` notes C-1..B3 → Sine Pad transposed −12; C4..G9 → PWM Lead;
-  a second full-range route from `*Trillium*` to Soft Triangle at velocity × 0.5.
+- Load the `trillium split` sample scene, or build it: `device:trillium` notes C-1..B3 →
+  Sine Pad transposed −12; C4..G9 → PWM Lead; C2..C7 → Soft Triangle at velocity × 0.5.
 - Pass: low and high halves play different sounds; the layer sounds on every note; the
   keyboard lanes show the split and the layer; the web keyboard ("console") still plays
   only the routes that match it.
