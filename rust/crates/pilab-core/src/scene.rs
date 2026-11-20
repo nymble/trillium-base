@@ -16,12 +16,14 @@ pub struct Slot {
     pub name: String,
     /// Wavetable path relative to the AKWF library root (wave = "table" only).
     pub table: String,
+    /// Sample bank id from the library index (wave = "sampler" only), e.g. "freepats-kalimba".
+    pub sample: String,
     pub sound: SlotParams,
 }
 
 impl Default for Slot {
     fn default() -> Self {
-        Slot { id: 1, name: "Init".into(), table: String::new(), sound: SlotParams::default() }
+        Slot { id: 1, name: "Init".into(), table: String::new(), sample: String::new(), sound: SlotParams::default() }
     }
 }
 
@@ -106,11 +108,11 @@ pub fn valid_name(n: &str) -> bool {
 impl Scene {
     /// The factory scene: four slots and one route from every input to slot 1.
     pub fn factory() -> Scene {
-        let saw = Slot { id: 1, name: "Warm Saw".into(), table: String::new(), sound: SlotParams::default() };
+        let saw = Slot { id: 1, name: "Warm Saw".into(), table: String::new(), sample: String::new(), sound: SlotParams::default() };
         let pwm = Slot {
             id: 2,
             name: "PWM Lead".into(),
-            table: String::new(),
+            table: String::new(), sample: String::new(),
             sound: SlotParams {
                 wave: Waveform::Pulse,
                 pulse_width: 0.35,
@@ -123,7 +125,7 @@ impl Scene {
         let pad = Slot {
             id: 3,
             name: "Sine Pad".into(),
-            table: String::new(),
+            table: String::new(), sample: String::new(),
             sound: SlotParams {
                 wave: Waveform::Sine,
                 amp_env: Env { a: 0.6, d: 1.0, s: 0.8, r: 1.8 },
@@ -135,7 +137,7 @@ impl Scene {
         let tri = Slot {
             id: 4,
             name: "Soft Triangle".into(),
-            table: String::new(),
+            table: String::new(), sample: String::new(),
             sound: SlotParams {
                 wave: Waveform::Triangle,
                 amp_env: Env { a: 0.01, d: 0.5, s: 0.6, r: 0.6 },
@@ -146,7 +148,7 @@ impl Scene {
         let wt = Slot {
             id: 5,
             name: "AKWF Table".into(),
-            table: "AKWF_bw_saw/AKWF_saw_0001.wav".into(),
+            table: "AKWF_bw_saw/AKWF_saw_0001.wav".into(), sample: String::new(),
             sound: SlotParams {
                 wave: Waveform::Table,
                 amp_env: Env { a: 0.02, d: 0.6, s: 0.7, r: 0.8 },
@@ -189,6 +191,31 @@ impl Scene {
         }
     }
 
+    /// Sample-instrument demo: piano, GM kit on channel 10, bass, kalimba and pad, one
+    /// MIDI channel each; the web keyboard plays the piano.
+    pub fn samples_demo() -> Scene {
+        let slots: Vec<Slot> = ["upright-piano", "starter-kit", "picked-bass", "kalimba", "choir-pad"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| crate::presets::find(id).unwrap().slot((i + 1) as u8))
+            .collect();
+        let ch = |label: &str, channel: u8, slot: u8| Route { label: label.into(), input: "*".into(), channel, slot, ..Route::default() };
+        Scene {
+            name: "samples".into(),
+            description: "Sample instruments: piano ch 1, GM kit ch 10, bass ch 2, kalimba ch 3, pad ch 4; web keys play the piano".into(),
+            slots,
+            routes: vec![
+                ch("Piano", 1, 1),
+                ch("Drums (GM)", 10, 2),
+                ch("Bass", 2, 3),
+                ch("Kalimba", 3, 4),
+                ch("Pad", 4, 5),
+                Route { label: "Web keyboard".into(), input: "console".into(), slot: 1, ..Route::default() },
+            ],
+            ..Scene::factory()
+        }
+    }
+
     pub fn slot(&self, id: u8) -> Option<&Slot> {
         self.slots.iter().find(|s| s.id == id)
     }
@@ -218,6 +245,9 @@ impl Scene {
                 return Err(format!("duplicate slot id {}", s.id));
             }
             seen[s.id as usize] = true;
+            if !s.sample.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err(format!("slot {}: sample must be a library bank id", s.id));
+            }
             if s.table.contains("..") || s.table.starts_with('/') {
                 return Err(format!("slot {}: table path must be relative to the library", s.id));
             }

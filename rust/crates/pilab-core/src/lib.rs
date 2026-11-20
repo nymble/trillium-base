@@ -4,6 +4,7 @@
 
 pub mod devices;
 pub mod glob;
+pub mod presets;
 pub mod routing;
 pub mod scene;
 pub mod settings;
