@@ -1,0 +1,148 @@
+// Copyright (C) 2026 Nymble
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! pilabctl: local command line for the pilab console service.
+//!
+//! ```text
+//! pilabctl pair [--rotate]      show (or replace) the pairing token and console URLs
+//! pilabctl status               engine and machine status
+//! pilabctl note NOTE [VEL] [SECONDS]   play a test note through the console port
+//! pilabctl gain DB              set the master level (capped at -6 dBFS)
+//! pilabctl run on|off           fade the synth in or out
+//! pilabctl panic                all sound off
+//! pilabctl scenes | load NAME | save NAME
+//! pilabctl record on|off
+//! ```
+
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
+use std::time::Duration;
+
+const PORT: u16 = 8410;
+
+fn config_dir() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".config"))
+        .join("pilab")
+}
+
+fn token() -> String {
+    std::fs::read_to_string(config_dir().join("console-token")).map(|s| s.trim().to_string()).unwrap_or_else(|_| {
+        eprintln!("no pairing token yet: start the service first (systemctl --user start pilabd)");
+        std::process::exit(1)
+    })
+}
+
+fn port() -> u16 {
+    std::env::var("PILAB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(PORT)
+}
+
+fn http(method: &str, path: &str, body: Option<String>) -> Result<String, String> {
+    let mut s = TcpStream::connect(("127.0.0.1", port())).map_err(|e| format!("cannot reach pilabd on port {}: {e}", port()))?;
+    s.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    let body = body.unwrap_or_default();
+    let req = format!(
+        "{method} /api/v1{path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        token(),
+        body.len()
+    );
+    s.write_all(req.as_bytes()).map_err(|e| e.to_string())?;
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).map_err(|e| e.to_string())?;
+    let (head, rest) = resp.split_once("\r\n\r\n").unwrap_or((&resp, ""));
+    let code: u16 = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") { dechunk(rest) } else { rest.to_string() };
+    if (200..300).contains(&code) {
+        Ok(body)
+    } else {
+        Err(format!("HTTP {code}: {body}"))
+    }
+}
+
+fn dechunk(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some((len, tail)) = rest.split_once("\r\n") {
+        let n = usize::from_str_radix(len.trim(), 16).unwrap_or(0);
+        if n == 0 || tail.len() < n {
+            break;
+        }
+        out.push_str(&tail[..n]);
+        rest = tail[n..].trim_start_matches("\r\n");
+    }
+    out
+}
+
+fn addrs() -> Vec<String> {
+    std::process::Command::new("hostname")
+        .arg("-I")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().filter(|a| !a.contains(':')).map(|s| s.to_string()).collect())
+        .unwrap_or_default()
+}
+
+fn hostname() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname").map(|s| s.trim().to_string()).unwrap_or_else(|_| "pilab".into())
+}
+
+fn out(r: Result<String, String>) {
+    match r {
+        Ok(b) => println!("{b}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let a: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    match a.as_slice() {
+        ["pair", rest @ ..] => {
+            let path = config_dir().join("console-token");
+            if rest.contains(&"--rotate") {
+                let mut buf = [0u8; 24];
+                std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).expect("urandom");
+                let t: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+                let tmp = path.with_extension("tmp");
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).expect("write token");
+                    writeln!(f, "{t}").unwrap();
+                }
+                std::fs::rename(&tmp, &path).expect("rename token");
+                println!("New token written; paired browsers must re-enter it (pilabd picks it up within 2 s).");
+            }
+            let t = token();
+            println!("Pairing token (keep it private; type it into the console once per browser):\n\n    {t}\n");
+            println!("Console:");
+            println!("    http://{}.local:{}/", hostname(), port());
+            for ip in addrs() {
+                println!("    http://{ip}:{}/", port());
+            }
+        }
+        ["status"] => out(http("GET", "/status", None)),
+        ["system"] => out(http("GET", "/system", None)),
+        ["note", n, rest @ ..] => {
+            let note: u8 = n.parse().unwrap_or(69).min(127);
+            let vel: u8 = rest.first().and_then(|v| v.parse().ok()).unwrap_or(90).clamp(1, 127);
+            let secs: f32 = rest.get(1).and_then(|v| v.parse().ok()).unwrap_or(1.0f32).clamp(0.05, 30.0);
+            out(http("POST", "/midi", Some(format!("{{\"bytes\":[144,{note},{vel}]}}"))));
+            std::thread::sleep(Duration::from_secs_f32(secs));
+            out(http("POST", "/midi", Some(format!("{{\"bytes\":[128,{note},0]}}"))));
+        }
+        ["gain", db] => out(http("POST", "/master", Some(format!("{{\"db\":{}}}", db.parse::<f32>().unwrap_or(-18.0))))),
+        ["run", v] => out(http("POST", "/engine", Some(format!("{{\"run\":{}}}", *v == "on")))),
+        ["panic"] => out(http("POST", "/panic", Some("{}".into()))),
+        ["scenes"] => out(http("GET", "/scenes", None)),
+        ["load", name] => out(http("POST", &format!("/scenes/{}/load", name.replace(' ', "%20")), Some("{}".into()))),
+        ["save", name] => out(http("POST", &format!("/scenes/{}/save", name.replace(' ', "%20")), Some("{}".into()))),
+        ["record", v] => out(http("POST", "/record", Some(format!("{{\"on\":{}}}", *v == "on")))),
+        _ => {
+            eprintln!("usage: pilabctl pair [--rotate] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off");
+            std::process::exit(2);
+        }
+    }
+}

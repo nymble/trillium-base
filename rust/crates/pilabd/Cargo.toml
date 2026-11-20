@@ -1,0 +1,30 @@
+[package]
+name = "pilabd"
+description = "pilab console service: HTTP/WebSocket API, embedded web console, Waveform synth host (JACK API via PipeWire), discovery, recording"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "pilabd"
+path = "src/main.rs"
+
+[[bin]]
+name = "pilabctl"
+path = "src/bin/pilabctl.rs"
+
+[dependencies]
+pilab-synth.workspace = true
+pilab-core.workspace = true
+zpod-midi.workspace = true
+zpod-music-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+rtrb.workspace = true
+libc.workspace = true
+jack = "0.13"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net"] }
