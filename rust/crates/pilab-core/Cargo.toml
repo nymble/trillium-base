@@ -1,0 +1,13 @@
+[package]
+name = "pilab-core"
+description = "Scenes, sound slots, MIDI routing maps and settings for the pilab console (serde models, validation, storage)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pilab-synth.workspace = true
+serde.workspace = true
+toml.workspace = true
