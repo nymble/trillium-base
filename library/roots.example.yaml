@@ -27,31 +27,52 @@ roots:
 
   - id: drive
     kind: drive
-    device: LABEL=PILAB-LIB          # ext4; matched by label, then UUID pinned on first use
-    path: /srv/library
-    types: [waveforms, samples, soundfont, dataset, books, music, recordings]
+    device: UUID=0000-EXAMPLE        # existing, non-empty disk; UUID pinned when added in the console
+    mountpoint: /mnt/pilab-drive
+    path: /mnt/pilab-drive/pilab-library   # pilab works only inside this folder; bind-mounted at /srv/library
+    write_scope: pilab-library/      # nothing outside it is read, listed, moved or deleted
+    never_format: true               # no mkfs, repartition, relabel, fsck -y, chown of the disk root
+    types: [waveforms, samples, soundfont, dataset, books, recordings, presets]
     read_only: false
     trust: owned
     mount: at-boot
     options: [nofail, noexec, nodev, nosuid, noatime]
     network_profiles: [any]
-    cache_budget_gib: 200            # share of the drive the cache may fill before eviction
-    risk: "Local disk. Anyone with physical access can unplug and read it; encrypt if it holds unique recordings."
+    cache_budget_gib: 200            # capped by free space, not disk size
+    free_space_floor: "min(10%, 20GiB)"  # stop writing below this so other data keeps room
+    risk: "Shared disk with other data. pilab stays inside pilab-library/. Anyone with physical access can unplug and read it."
 
   - id: nas-media
     kind: smb
     host: NAS-4x12.local
     share: Media
-    subpaths: [Music, Books]
+    subpaths: [Sounds, Books]        # Music: browse only, no mirroring until the tagged FLAC tree exists
     path: /mnt/net/nas-media
-    types: [music, books]
+    types: [samples, soundfont, books, music]
     read_only: true
+    canonical: true                  # NAS is the master for anything mirrored from here
     trust: home
     mount: on-demand                 # systemd automount, unmounts after 10 min idle
     network_profiles: [home]
     smb: { version: "3.1.1", seal: true, signing: required }
-    credentials_ref: nas-media-ro    # a read-only NAS account, never the owner's main login
+    credentials_ref: nas-media-ro    # separate read-only NAS account, never the owner's own login
     risk: "Read-only home share. Never mounted on venue or unknown networks; credentials stay on this unit."
+
+  - id: nas-archive-recordings
+    kind: smb
+    host: NAS-4x12.local
+    share: Archive
+    subpaths: [topics/pilab/recordings]
+    path: /mnt/net/nas-archive-recordings
+    types: [recordings]
+    read_only: false                 # push only, into topics/pilab/recordings/{record-id}/
+    enabled: false                   # needs its own NAS account limited to that folder; not yet approved
+    trust: home
+    mount: on-demand
+    network_profiles: [home]
+    smb: { version: "3.1.1", seal: true, signing: required }
+    credentials_ref: nas-archive-pilab
+    risk: "Writes recordings to the NAS Archive. Scoped account; nothing else on Archive is visible."
 
   - id: mac-studio-share
     kind: ssh                        # rsync over SSH; no SMB or AFP to a laptop
