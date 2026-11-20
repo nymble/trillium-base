@@ -1,0 +1,90 @@
+# Example library roots registry. The console owns the real file at
+# /etc/pilab/library/roots.yaml (root-owned, 0644). Credentials never go here:
+# credentials_ref names a root-only file under /etc/pilab/secrets/ (mode 0600).
+#
+# kind:        base | drive | smb | nfs | ssh | http | pilab
+# trust:       image   built and signed with the image
+#              owned   a disk physically attached to this unit
+#              home    a host on the owner's home LAN, verified by host key or server id
+#              venue   a venue or guest network; read-only, no credentials, explicit OK each time
+#              public  internet; only through the pack installer (checksum + licence check)
+# network_profiles: which network profiles may activate this root (see docs/library.md)
+# mount:       never | on-demand | at-boot
+
+schema: pilab.roots/v1
+
+roots:
+
+  - id: base
+    kind: base
+    path: /usr/share/pilab/library
+    types: [waveforms, samples, presets, books]
+    read_only: true
+    trust: image
+    mount: at-boot
+    network_profiles: [any]
+    risk: "None. Part of the image; read-only."
+
+  - id: drive
+    kind: drive
+    device: LABEL=PILAB-LIB          # ext4; matched by label, then UUID pinned on first use
+    path: /srv/library
+    types: [waveforms, samples, soundfont, dataset, books, music, recordings]
+    read_only: false
+    trust: owned
+    mount: at-boot
+    options: [nofail, noexec, nodev, nosuid, noatime]
+    network_profiles: [any]
+    cache_budget_gib: 200            # share of the drive the cache may fill before eviction
+    risk: "Local disk. Anyone with physical access can unplug and read it; encrypt if it holds unique recordings."
+
+  - id: nas-media
+    kind: smb
+    host: NAS-4x12.local
+    share: Media
+    subpaths: [Music, Books]
+    path: /mnt/net/nas-media
+    types: [music, books]
+    read_only: true
+    trust: home
+    mount: on-demand                 # systemd automount, unmounts after 10 min idle
+    network_profiles: [home]
+    smb: { version: "3.1.1", seal: true, signing: required }
+    credentials_ref: nas-media-ro    # a read-only NAS account, never the owner's main login
+    risk: "Read-only home share. Never mounted on venue or unknown networks; credentials stay on this unit."
+
+  - id: mac-studio-share
+    kind: ssh                        # rsync over SSH; no SMB or AFP to a laptop
+    host: studio-mac.local
+    user: pilab-sync
+    path: ~/PilabShare
+    types: [samples, recordings]
+    read_only: true
+    trust: home
+    mount: never                     # fetch with rsync only; nothing is mounted
+    network_profiles: [home]
+    host_key_ref: studio-mac         # pinned host key; refuse on mismatch
+    credentials_ref: pilab-sync-key
+    risk: "Pulls files from a laptop on the home LAN. Pinned host key; refuses on a new key."
+
+  - id: pilab-peer
+    kind: pilab                      # another pilab or a ZPOD serving its manifests over HTTPS
+    host: pilab-2.local
+    url: https://pilab-2.local:8443/library/
+    types: [waveforms, samples, presets]
+    read_only: true
+    trust: home
+    mount: never
+    network_profiles: [home, venue]
+    pinned_cert_ref: pilab-2
+    risk: "Read-only manifests and files from a paired unit. Pairing pins its certificate; unpaired peers only show in discovery."
+
+  - id: packs-internet
+    kind: http
+    url: https://packs.example.invalid/pilab/
+    types: [samples, soundfont, waveforms, books, music, dataset]
+    read_only: true
+    trust: public
+    mount: never
+    network_profiles: [home]
+    risk: "Internet download. Only through the pack installer: signed index, sha256 per file, licence must be allowed in sources.yaml."

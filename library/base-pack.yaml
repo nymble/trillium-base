@@ -1,0 +1,117 @@
+# Base image library: what ships inside every pilab image.
+# Hard budget: 256 MiB (unpacked). The image build fails if the built
+# /usr/share/pilab/library tree is larger than budget_mib.
+# Sizes are upstream unpacked sizes checked on 2026-11-19; "est" means estimated.
+# Every item must come from a source with status: shippable in sources.yaml.
+
+schema: pilab.pack/v1
+id: base
+title: pilab base library
+version: 0.1.0
+budget_mib: 256
+license_policy: [CC0-1.0]          # base image stays CC0-only (plus our own repo content)
+install_path: /usr/share/pilab/library
+read_only: true
+
+groups:
+
+  - id: waveforms
+    source: akwf
+    path: waveforms/akwf
+    items:
+      - { name: "AKWF original set (4,358 single cycles)", mib: 6.1 }
+
+  - id: keys
+    source: freepats-cc0
+    path: samples/freepats
+    items:
+      - { name: Upright Piano KW (small), mib: 3.3 }
+      - { name: Old Piano FB (small), mib: 6.4 }
+      - { name: "FM Synthesized Piano #2", mib: 8.8 }
+      - { name: Drawbar organ emulation, mib: 5.8 }
+      - { name: Button Accordion HN, mib: 5.1 }
+
+  - id: strings-and-plucked
+    source: freepats-cc0
+    path: samples/freepats
+    items:
+      - { name: Spanish classical guitar, mib: 5.1 }
+      - { name: Bass Guitar YR (pick), mib: 2.8 }
+      - { name: "FSBS Electric Guitar Clean #1 (small, bridge)", mib: 3.1 }
+      - { name: Ukulele, mib: 2.4 }
+      - { name: Concert Harp, mib: 4.8 }
+      - { name: Kalimba, mib: 3.7 }
+
+  - id: winds
+    source: freepats-cc0
+    path: samples/freepats
+    items:
+      - { name: Clarinet, mib: 6.7 }
+      - { name: Tenor Saxophone (small), mib: 4.7 }
+      - { name: Ocarina, mib: 4.3 }
+
+  - id: mallets-and-bells
+    source: freepats-cc0
+    path: samples/freepats
+    items:
+      - { name: Xylophone (medium mallets), mib: 2.3 }
+      - { name: Tubular Bells (small), mib: 2.3 }
+      - { name: Timpani, mib: 9.2 }
+      - { name: World percussion, mib: 8.3 }
+      - { name: FreePats synthesizer percussion, mib: 2.0 }
+
+  - id: synths
+    source: freepats-cc0
+    path: samples/freepats
+    items:
+      - { name: "Synth Bass #1", mib: 1.0 }
+      - { name: Lately Bass, mib: 1.2 }
+      - { name: "Synth Brass #2", mib: 2.0 }
+      - { name: "Synth Strings #1", mib: 3.8 }
+      - { name: Synth Pad Choir, mib: 6.6 }
+      - { name: Sweep Pad, mib: 3.0 }
+      - { name: Synth Lead Square, mib: 7.1 }
+      - { name: Synth Lead Calliope, mib: 3.6 }
+      - { name: Synth Crystal, mib: 2.6 }
+
+  - id: drum-kit
+    source: vcsl
+    path: samples/vcsl-starter
+    convert: flac            # VCSL ships WAV; convert at build, keep sample rate and depth
+    items:                   # WAV sizes from the VCSL git tree; FLAC est. 55-65 %
+      - { name: Bass Drum 1, wav_mib: 4.6 }
+      - { name: "Snare Drum, Modern 2", wav_mib: 8.3 }
+      - { name: Tom 1, wav_mib: 14.2 }
+      - { name: Hi-Hat Cymbal, wav_mib: 5.8 }
+      - { name: Clash Cymbals 2, wav_mib: 11.2 }
+      - { name: Claps, wav_mib: 1.2 }
+      - { name: Cowbells, wav_mib: 2.7 }
+      - { name: Tambourine 1, wav_mib: 6.5 }
+      - { name: "Shaker, Small", wav_mib: 1.8 }
+      - { name: Claves, wav_mib: 1.9 }
+      - { name: Woodblock, wav_mib: 2.4 }
+      - { name: Cajon, wav_mib: 4.2 }
+      - { name: Conga, wav_mib: 4.9 }
+      - { name: Bongos, wav_mib: 6.8 }
+    est_mib: 45
+
+  - id: presets
+    source: pilab
+    path: presets
+    items:
+      - { name: "Named presets per synthesis family, scenes, demo patterns, wavetable mipmaps cache seed", est_mib: 4 }
+
+  - id: books
+    source: standard-ebooks
+    path: books
+    items:
+      - { name: "pilab manuals (EPUB/HTML) plus up to five public domain EPUBs", est_mib: 8 }
+
+totals:
+  freepats_mib: 122.0
+  akwf_mib: 6.1
+  vcsl_est_mib: 45
+  presets_est_mib: 4
+  books_est_mib: 8
+  total_est_mib: 185
+  headroom_mib: 71
