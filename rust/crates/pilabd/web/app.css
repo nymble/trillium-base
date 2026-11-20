@@ -279,3 +279,23 @@ table.storage tr.sub td:first-child { padding-left: 18px; }
 .meter-bar { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--panel-deep); vertical-align: middle; margin-right: 6px; overflow: hidden; }
 .meter-bar i { display: block; height: 100%; background: var(--text-2); }
 .meter-bar.hot i { background: var(--meter); }
+
+/* wavetable browser */
+.sounds.wide { grid-template-columns: 210px minmax(0, 1fr) 430px; }
+.tagrow { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.chip { font: 500 11px var(--font-ui); color: var(--text-2); background: var(--panel-deep); border: 0; border-radius: var(--r-pill); padding: 3px 9px; cursor: pointer; }
+.chip:hover { color: var(--text); }
+.chip.on { background: var(--panel-raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.fav { color: var(--text-3, var(--line)); cursor: pointer; margin-right: 6px; font-size: 12px; }
+.fav.on { color: var(--text); }
+.akwf-groups { max-height: 260px; }
+canvas.scope { width: 100%; height: 120px; background: var(--panel-deep); border-radius: 10px; display: block; margin-bottom: 8px; }
+canvas.stack { width: 100%; height: 150px; background: var(--panel-deep); border-radius: 10px; display: block; margin-bottom: 8px; }
+.wt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; max-height: 460px; overflow: auto; }
+.wt { position: relative; background: var(--panel-deep); border-radius: 8px; padding: 4px 4px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.wt canvas { width: 100%; height: 40px; }
+.wt:hover { background: var(--panel-raised); }
+.wt.sel { box-shadow: inset 0 0 0 1.5px var(--text); }
+.wt .fav { position: absolute; top: 2px; left: 4px; }
+.wt .play { position: absolute; top: 2px; right: 2px; opacity: 0; padding: 0 6px; }
+.wt:hover .play { opacity: 1; }

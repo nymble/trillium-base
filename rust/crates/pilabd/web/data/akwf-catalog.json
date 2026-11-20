@@ -1,0 +1,484 @@
+{
+ "schema": "pilab.akwf-catalog/v1",
+ "about": "Human-readable names and tags for AKWF (Adventure Kid Waveforms, CC0) folders. Edit freely; the console reads this file. Unknown folders fall back to their folder name.",
+ "tags": [
+  "Basic",
+  "Analog",
+  "Digital/FM",
+  "Instrument",
+  "Voice",
+  "Chip",
+  "Noise/Odd",
+  "Mixed"
+ ],
+ "groups": {
+  "AKWF_0001": {
+   "name": "Mixed set 01",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0002": {
+   "name": "Mixed set 02",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0003": {
+   "name": "Mixed set 03",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0004": {
+   "name": "Mixed set 04",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0005": {
+   "name": "Mixed set 05",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0006": {
+   "name": "Mixed set 06",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0007": {
+   "name": "Mixed set 07",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0008": {
+   "name": "Mixed set 08",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0009": {
+   "name": "Mixed set 09",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0010": {
+   "name": "Mixed set 10",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0011": {
+   "name": "Mixed set 11",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0012": {
+   "name": "Mixed set 12",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0013": {
+   "name": "Mixed set 13",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0014": {
+   "name": "Mixed set 14",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0015": {
+   "name": "Mixed set 15",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0016": {
+   "name": "Mixed set 16",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0017": {
+   "name": "Mixed set 17",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0018": {
+   "name": "Mixed set 18",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0019": {
+   "name": "Mixed set 19",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_0020": {
+   "name": "Mixed set 20",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Original AKWF mixed collection: analog, digital and sampled cycles in one table."
+  },
+  "AKWF_aguitar": {
+   "name": "Acoustic guitar",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles cut from acoustic guitar notes."
+  },
+  "AKWF_altosax": {
+   "name": "Alto sax",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from alto saxophone tones."
+  },
+  "AKWF_birds": {
+   "name": "Birds",
+   "tags": [
+    "Noise/Odd"
+   ],
+   "about": "Cycles cut from bird song: bright and unstable."
+  },
+  "AKWF_bitreduced": {
+   "name": "Bit-reduced",
+   "tags": [
+    "Digital/FM",
+    "Chip"
+   ],
+   "about": "Low bit-depth versions of basic shapes."
+  },
+  "AKWF_bw_blended": {
+   "name": "Blended (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Band-limited blends between basic shapes."
+  },
+  "AKWF_bw_perfectwaves": {
+   "name": "Perfect waves (band-limited)",
+   "tags": [
+    "Basic"
+   ],
+   "about": "Clean band-limited sine, saw, square and triangle."
+  },
+  "AKWF_bw_saw": {
+   "name": "Saw (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Band-limited sawtooth variations."
+  },
+  "AKWF_bw_sawbright": {
+   "name": "Bright saw (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Brighter band-limited saws."
+  },
+  "AKWF_bw_sawgap": {
+   "name": "Saw with gap (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Saws with a silent gap: hollow, PWM-like."
+  },
+  "AKWF_bw_sawrounded": {
+   "name": "Rounded saw (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Saws with softened edges: warmer."
+  },
+  "AKWF_bw_sin": {
+   "name": "Sine (band-limited)",
+   "tags": [
+    "Basic"
+   ],
+   "about": "Sine variations and near-sines."
+  },
+  "AKWF_bw_squ": {
+   "name": "Square (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Band-limited squares and pulses."
+  },
+  "AKWF_bw_squrounded": {
+   "name": "Rounded square (band-limited)",
+   "tags": [
+    "Basic",
+    "Analog"
+   ],
+   "about": "Squares with softened edges."
+  },
+  "AKWF_bw_tri": {
+   "name": "Triangle (band-limited)",
+   "tags": [
+    "Basic"
+   ],
+   "about": "Band-limited triangles."
+  },
+  "AKWF_c604": {
+   "name": "C604 synth",
+   "tags": [
+    "Analog"
+   ],
+   "about": "Cycles sampled from a vintage analog synth."
+  },
+  "AKWF_cello": {
+   "name": "Cello",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from cello tones."
+  },
+  "AKWF_clarinett": {
+   "name": "Clarinet",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from clarinet tones: hollow, odd harmonics."
+  },
+  "AKWF_clavinet": {
+   "name": "Clavinet",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from clavinet: bright and nasal."
+  },
+  "AKWF_dbass": {
+   "name": "Double bass",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from double bass."
+  },
+  "AKWF_distorted": {
+   "name": "Distorted",
+   "tags": [
+    "Noise/Odd"
+   ],
+   "about": "Clipped and distorted shapes."
+  },
+  "AKWF_ebass": {
+   "name": "Electric bass",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from electric bass."
+  },
+  "AKWF_eguitar": {
+   "name": "Electric guitar",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from electric guitar."
+  },
+  "AKWF_eorgan": {
+   "name": "Electric organ",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from electric organs: drawbar-like."
+  },
+  "AKWF_epiano": {
+   "name": "Electric piano",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from electric pianos."
+  },
+  "AKWF_flute": {
+   "name": "Flute",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from flute: breathy near-sines."
+  },
+  "AKWF_fmsynth": {
+   "name": "FM synth",
+   "tags": [
+    "Digital/FM"
+   ],
+   "about": "Frequency-modulation cycles: metallic and bell-like."
+  },
+  "AKWF_granular": {
+   "name": "Granular",
+   "tags": [
+    "Digital/FM",
+    "Noise/Odd"
+   ],
+   "about": "Cycles from granular textures."
+  },
+  "AKWF_hdrawn": {
+   "name": "Hand-drawn",
+   "tags": [
+    "Noise/Odd"
+   ],
+   "about": "Hand-drawn cycles: irregular and characterful."
+  },
+  "AKWF_hvoice": {
+   "name": "Human voice",
+   "tags": [
+    "Voice"
+   ],
+   "about": "Cycles from sung vowels: formant-rich."
+  },
+  "AKWF_linear": {
+   "name": "Linear",
+   "tags": [
+    "Digital/FM"
+   ],
+   "about": "Piecewise-linear shapes."
+  },
+  "AKWF_oboe": {
+   "name": "Oboe",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from oboe tones: nasal."
+  },
+  "AKWF_oscchip": {
+   "name": "Oscillator chip",
+   "tags": [
+    "Chip"
+   ],
+   "about": "Cycles from sound-chip oscillators."
+  },
+  "AKWF_overtone": {
+   "name": "Overtones",
+   "tags": [
+    "Digital/FM"
+   ],
+   "about": "Additive cycles built from chosen overtones."
+  },
+  "AKWF_piano": {
+   "name": "Piano",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from acoustic piano."
+  },
+  "AKWF_pluckalgo": {
+   "name": "Pluck algorithm",
+   "tags": [
+    "Digital/FM"
+   ],
+   "about": "Cycles from a plucked-string algorithm."
+  },
+  "AKWF_raw": {
+   "name": "Raw",
+   "tags": [
+    "Analog",
+    "Noise/Odd"
+   ],
+   "about": "Raw, unfiltered cycles: buzzy."
+  },
+  "AKWF_sinharm": {
+   "name": "Sine harmonics",
+   "tags": [
+    "Basic",
+    "Digital/FM"
+   ],
+   "about": "Sine plus single harmonics: organ-like steps."
+  },
+  "AKWF_snippets": {
+   "name": "Snippets",
+   "tags": [
+    "Noise/Odd"
+   ],
+   "about": "Short snippets of recordings as cycles."
+  },
+  "AKWF_stereo": {
+   "name": "Stereo set",
+   "tags": [
+    "Mixed"
+   ],
+   "about": "Cycles from the stereo collection (left channel used)."
+  },
+  "AKWF_stringbox": {
+   "name": "String box",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from a string box."
+  },
+  "AKWF_symetric": {
+   "name": "Symmetric",
+   "tags": [
+    "Digital/FM"
+   ],
+   "about": "Symmetric shapes: odd harmonics only, hollow."
+  },
+  "AKWF_theremin": {
+   "name": "Theremin",
+   "tags": [
+    "Instrument",
+    "Voice"
+   ],
+   "about": "Cycles from a theremin: vocal near-sines."
+  },
+  "AKWF_vgame": {
+   "name": "Video game",
+   "tags": [
+    "Chip"
+   ],
+   "about": "Video-game console cycles."
+  },
+  "AKWF_vgamebasic": {
+   "name": "Video game basic",
+   "tags": [
+    "Chip",
+    "Basic"
+   ],
+   "about": "Basic chip shapes: pulses and triangles."
+  },
+  "AKWF_violin": {
+   "name": "Violin",
+   "tags": [
+    "Instrument"
+   ],
+   "about": "Cycles from violin tones."
+  }
+ }
+}

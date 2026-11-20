@@ -17,7 +17,8 @@ const S = {
   token: localStorage.getItem("pilab.token") || "",
   view: (location.hash || "#overview").slice(1),
   info: null, sys: null, status: null, scene: null, dirty: false, inputs: [],
-  scenes: [], settings: null, graph: null, akwf: null, akwfGroup: null, akwfFiles: [],
+  scenes: [], settings: null, graph: null, akwf: null, akwfGroup: null, akwfFiles: [], akwfFrames: null, cat: null, wtQuery: "", wtTag: "",
+  fav: JSON.parse(localStorage.getItem("pilab.fav") || "[]"),
   selSlot: 1, midiLog: [], samples: null, presets: null, browserTab: localStorage.getItem("pilab.tab") || "samples",
   out: localStorage.getItem("pilab.out") || "dac", prevSel: localStorage.getItem("pilab.previewOnSelect") === "1", activity: {}, kbdOct: 4, kbdTarget: "route", ws: null,
 };
@@ -402,6 +403,22 @@ const OSC_PARAMS = [P("octave", "Octave", -3, 3, 1, (v) => (v > 0 ? "+" : "") + 
 const PW_PARAMS = [P("pulse_width", "Pulse width", 0.02, 0.98, 0.01, (v) => (v * 100).toFixed(0) + "%"), P("pwm_mod", "Mod wheel → PW", 0, 0.5, 0.01, (v) => (v * 100).toFixed(0) + "%")];
 const ENV_PARAMS = [P("a", "Attack", 0.0005, 10, 0, fmtSec, "log"), P("d", "Decay", 0.001, 10, 0, fmtSec, "log"), P("s", "Sustain", 0, 1, 0.01, (v) => (v * 100).toFixed(0) + "%"), P("r", "Release", 0.003, 15, 0, fmtSec, "log")];
 const FLT_PARAMS = [P("cutoff_hz", "Cutoff", 20, 20000, 0, (v) => v >= 1000 ? (v / 1000).toFixed(2) + " kHz" : v.toFixed(0) + " Hz", "log"), P("resonance", "Resonance", 0, 0.97, 0.01, (v) => v.toFixed(2)), P("env_amount", "Env → cutoff", -4, 6, 0.1, (v) => (v > 0 ? "+" : "") + v.toFixed(1) + " oct"), P("key_track", "Key track", 0, 1, 0.01, (v) => (v * 100).toFixed(0) + "%"), P("vel_amount", "Vel → cutoff", 0, 4, 0.1, (v) => v.toFixed(1) + " oct")];
+const pct = (v) => (v * 100).toFixed(0) + "%";
+const spct = (v) => (v > 0 ? "+" : "") + (v * 100).toFixed(0) + "%";
+const WT_PARAMS = [P("position", "Position", 0, 1, 0.001, pct)];
+const MOD_PARAMS = [P("pos_env", "Mod env → position", -1, 1, 0.01, spct), P("pos_lfo", "LFO → position", 0, 1, 0.01, pct), P("lfo_hz", "LFO rate", 0.05, 20, 0, (v) => v.toFixed(2) + " Hz", "log"), P("pos_mod", "Mod wheel → position", -1, 1, 0.01, spct)];
+const WARP_PARAMS = [P("warp_amount", "Warp amount", -1, 1, 0.01, spct)];
+const UNI_PARAMS = [P("unison", "Unison", 1, 3, 1, (v) => v === 1 ? "off" : v + " voices"), P("unison_detune", "Detune spread", 0, 50, 0.5, (v) => v.toFixed(1) + " ct"), P("drive", "Drive", 0, 1, 0.01, pct)];
+const WARPS = ["none", "bend", "sync", "mirror", "asym", "fold"];
+const ALL_SOUND_PARAMS = () => OSC_PARAMS.concat(PW_PARAMS, WT_PARAMS, MOD_PARAMS, WARP_PARAMS, UNI_PARAMS);
+// Human names for AKWF folders come from data/akwf-catalog.json (edit that file, not code).
+function wtInfo(group) {
+  const c = S.cat && S.cat.groups[group];
+  return c || { name: String(group || "").replace(/^AKWF_/, "").replace(/_/g, " "), tags: [], about: "" };
+}
+const waveNum = (f) => { const m = String(f).match(/(\d+)\.wav$/i); return m ? "#" + (+m[1]) : String(f).split("/").pop(); };
+function isFav(k) { return S.fav.includes(k); }
+function toggleFav(k) { S.fav = isFav(k) ? S.fav.filter((x) => x !== k) : S.fav.concat([k]); localStorage.setItem("pilab.fav", JSON.stringify(S.fav)); }
 function fmtSec(v) { return v < 1 ? (v * 1000).toFixed(v < 0.01 ? 1 : 0) + " ms" : v.toFixed(2) + " s"; }
 const toPos = (p, v) => p.scale === "log" ? Math.log(v / p.min) / Math.log(p.max / p.min) * 1000 : v;
 const fromPos = (p, x) => p.scale === "log" ? p.min * Math.pow(p.max / p.min, x / 1000) : +x;
@@ -417,7 +434,7 @@ function renderSounds() {
   const ids = Array.from({ length: 16 }, (_, i) => i + 1);
   const list = ids.map((id) => {
     const s = slotById(id);
-    return `<div class="slot ${id === S.selSlot ? "on" : ""} ${s ? "" : "empty"}" data-slot="${id}"><span class="num">${id}</span><span class="nm">${s ? esc(s.name) : "empty"}</span>${s ? `<span class="badge mono">${WAVE_LABEL[s.sound.wave] || s.sound.wave}</span>` : ""}</div>`;
+    return `<div class="slot ${id === S.selSlot ? "on" : ""} ${s ? "" : "empty"}" data-slot="${id}"><span class="num">${id}</span><span class="nm">${s ? esc(s.name) : "empty"}</span>${s ? `<span class="badge mono" title="${s.sound.wave === "table" && s.wavetable ? esc(wtInfo(s.wavetable).name) : ""}">${WAVE_LABEL[s.sound.wave] || s.sound.wave}</span>` : ""}</div>`;
   }).join("");
   const s = slotById(S.selSlot);
   let editor;
@@ -434,9 +451,15 @@ function renderSounds() {
         <button class="btn ghost small" id="slot-del">Remove</button>
       </div>
       <div class="row" style="margin-bottom:10px"><div class="seg" id="wave-seg">${WAVES.map((w) => `<button data-w="${w}" class="${snd.wave === w ? "on" : ""}">${WAVE_LABEL[w] || w}</button>`).join("")}</div>
-        <span class="muted small">${snd.wave === "table" ? (s.table ? "Table: <span class='mono'>" + esc(s.table) + "</span>" : "Pick a table from the AKWF browser →") : snd.wave === "sampler" ? (s.sample ? "Samples: <b>" + esc(bankTitle(s.sample)) + "</b>" : "Pick a sample bank or preset from the browser →") : ""}</span></div>
+        <span class="muted small">${snd.wave === "table" ? (s.wavetable ? `Wavetable: <b>${esc(wtInfo(s.wavetable).name)}</b> <span class="mono">${S.akwfFrames && S.akwfFrames.group === s.wavetable ? "· wave " + (Math.round(snd.position * (S.akwfFrames.frames.length - 1)) + 1) + " of " + S.akwfFrames.frames.length : ""}</span>` : s.table ? "Table: <span class='mono'>" + esc(s.table) + "</span>" : "Pick a wavetable from the browser →") : snd.wave === "sampler" ? (s.sample ? "Samples: <b>" + esc(bankTitle(s.sample)) + "</b>" : "Pick a sample bank or preset from the browser →") : ""}</span></div>
       <canvas class="wave" id="wave-cv" width="900" height="240"></canvas>
       <div class="params" style="margin-top:12px">${OSC_PARAMS.map((p) => paramHtml("sound", p, snd[p.key])).join("")}${snd.wave === "pulse" ? PW_PARAMS.map((p) => paramHtml("sound", p, snd[p.key])).join("") : ""}</div>
+      ${snd.wave !== "sampler" ? `<div class="card deep" style="margin-top:14px"><div class="card-head"><h3>${snd.wave === "table" ? "Wavetable" : "Shape"}</h3><span class="spacer"></span>
+          <div class="seg" id="warp-seg">${WARPS.map((w) => `<button data-warp="${w}" class="${(snd.warp || "none") === w ? "on" : ""}">${w}</button>`).join("")}</div></div>
+        ${snd.wave === "table" && s.wavetable ? `<canvas class="stack" id="wt-stack" width="900" height="150"></canvas>` : ""}
+        <div class="params">${snd.wave === "table" && s.wavetable ? WT_PARAMS.map((p) => paramHtml("sound", p, snd[p.key] ?? 0)).join("") : ""}${(snd.warp || "none") !== "none" ? WARP_PARAMS.map((p) => paramHtml("sound", p, snd[p.key] ?? 0)).join("") : ""}${UNI_PARAMS.map((p) => paramHtml("sound", p, snd[p.key] ?? (p.key === "unison" ? 1 : 0))).join("")}</div>
+        ${snd.wave === "table" && s.wavetable ? `<div class="lbl" style="margin:10px 0 4px">Position modulation</div><div class="params">${MOD_PARAMS.map((p) => paramHtml("sound", p, snd[p.key] ?? (p.key === "lfo_hz" ? 0.5 : 0))).join("")}</div><div class="muted small">The mod envelope is the filter envelope; the LFO is a free-running sine per voice; the mod wheel is CC 1.</div>` : ""}
+      </div>` : ""}
       <div class="grid g2" style="margin-top:14px">
         <div class="card deep"><div class="card-head"><h3>Amp envelope</h3></div><canvas class="env" id="env-amp" width="600" height="128"></canvas><div class="params" style="margin-top:8px">${ENV_PARAMS.map((p) => paramHtml("amp_env", p, snd.amp_env[p.key])).join("")}</div></div>
         <div class="card deep"><div class="card-head"><h3>Filter</h3><span class="spacer"></span><label class="switch"><input type="checkbox" id="flt-en" ${snd.filter.enabled ? "checked" : ""}><span></span></label></div>
@@ -447,9 +470,26 @@ function renderSounds() {
     </div>`;
   }
   const ak = S.akwf;
-  const akHtml = !ak ? `<div class="muted">Loading…</div>` : !ak.available ? `<div class="risk">AKWF library not found at <code>${esc(ak.root)}</code>. Run <code>scripts/fetch-akwf.sh</code> on the Pi.</div>` : `
-    <div class="akwf-groups">${ak.groups.map((g) => `<div data-g="${esc(g.name)}" class="${g.name === S.akwfGroup ? "sel" : ""}"><span>${esc(g.name.replace(/^AKWF_/, ""))}</span><span class="mono muted">${g.count}</span></div>`).join("")}</div>
-    <div class="akwf-files">${S.akwfFiles.map((f) => `<div data-f="${esc(f)}" class="${s && s.table === f ? "sel" : ""}"><span class="mono small">${esc(f.split("/").pop().replace(/^AKWF_/, "").replace(/\.wav$/i, ""))}</span><canvas data-prev="${esc(f)}" width="128" height="36"></canvas>${playBtn(`data-play="table:${esc(f)}"`)}</div>`).join("")}</div>`;
+  let akHtml;
+  if (!ak) akHtml = `<div class="muted">Loading…</div>`;
+  else if (!ak.available) akHtml = `<div class="risk">AKWF library not found at <code>${esc(ak.root)}</code>. Run <code>scripts/fetch-akwf.sh</code> on the Pi.</div>`;
+  else {
+    const q = S.wtQuery.toLowerCase();
+    const groups = ak.groups.map((g) => ({ ...g, info: wtInfo(g.name) }))
+      .filter((g) => (!S.wtTag || (S.wtTag === "★" ? isFav(g.name) || S.fav.some((f) => f.startsWith(g.name + "/")) : g.info.tags.includes(S.wtTag))) && (!q || (g.info.name + " " + g.name + " " + g.info.tags.join(" ")).toLowerCase().includes(q)))
+      .sort((x, y) => (isFav(y.name) - isFav(x.name)) || x.info.name.localeCompare(y.info.name));
+    const tags = ["★"].concat((S.cat && S.cat.tags) || []);
+    const fr = S.akwfFrames && S.akwfFrames.group === S.akwfGroup ? S.akwfFrames.frames : null;
+    const inSlot = s && s.sound.wave === "table" && s.wavetable === S.akwfGroup;
+    const cur = inSlot && fr ? Math.round((s.sound.position || 0) * (fr.length - 1)) : -1;
+    akHtml = `<input class="input" id="wt-q" placeholder="Search names or tags" value="${esc(S.wtQuery)}" style="width:100%;margin-bottom:6px">
+      <div class="tagrow">${tags.map((t) => `<button class="chip ${S.wtTag === t ? "on" : ""}" data-tag="${esc(t)}">${t === "★" ? "★ Favorites" : esc(t)}</button>`).join("")}</div>
+      <div class="akwf-groups">${groups.map((g) => `<div data-g="${esc(g.name)}" class="${g.name === S.akwfGroup ? "sel" : ""}" title="${esc(g.info.about)}"><span><span class="fav ${isFav(g.name) ? "on" : ""}" data-fav="${esc(g.name)}">★</span>${esc(g.info.name)}<span class="muted small"> · ${esc(g.info.tags.join(", "))}</span></span><span class="mono muted small">${g.count}</span></div>`).join("") || `<div class="muted small">No match</div>`}</div>
+      ${S.akwfGroup ? `<div class="card-head" style="margin-top:6px"><h3 style="text-transform:none">${esc(wtInfo(S.akwfGroup).name)}</h3><span class="spacer"></span><span class="mono muted small">${esc(S.akwfGroup)}</span></div>
+        <div class="muted small" style="margin-bottom:6px">${esc(wtInfo(S.akwfGroup).about)} Click a wave to use the whole group as a wavetable at that position.</div>
+        <canvas class="scope" id="wt-scope" width="560" height="120"></canvas>
+        <div class="wt-grid">${fr ? fr.map((f, i) => `<div class="wt ${i === cur ? "sel" : ""}" data-wi="${i}" data-f="${esc(f.file)}" title="${esc(f.file.split("/").pop())}"><canvas data-thumb="${i}" width="96" height="40"></canvas><span class="mono small">${waveNum(f.file)}</span><span class="fav ${isFav(f.file) ? "on" : ""}" data-fav="${esc(f.file)}">★</span>${playBtn(`data-play="table:${esc(f.file)}"`)}</div>`).join("") : `<div class="muted small">Loading waves…</div>`}</div>` : `<div class="muted small">Pick a group to see its waves.</div>`}`;
+  }
   const sm = S.samples, pr = S.presets;
   let smHtml;
   if (!sm || !pr) smHtml = `<div class="muted">Loading…</div>`;
@@ -465,17 +505,20 @@ function renderSounds() {
   }
   const tab = S.browserTab;
   $("#main").innerHTML = head("Sounds", `Sound slots for scene <b>${esc(S.scene.name)}</b>. Edits play live; save the scene in Scenes.`, `${outputSeg()}<button class="btn primary" id="save-now">Save scene</button>`) + `
-  <div class="sounds">
+  <div class="sounds ${tab === "akwf" ? "wide" : ""}">
     <div class="card"><div class="card-head"><h3>Slots</h3></div><div class="slotlist">${list}</div></div>
     ${editor}
-    <div class="card"><div class="card-head"><div class="seg" id="tab-seg"><button data-t="samples" class="${tab === "samples" ? "on" : ""}">Samples</button><button data-t="akwf" class="${tab === "akwf" ? "on" : ""}">AKWF tables</button></div><span class="spacer"></span><span class="badge">CC0</span></div>
+    <div class="card"><div class="card-head"><div class="seg" id="tab-seg"><button data-t="samples" class="${tab === "samples" ? "on" : ""}">Samples</button><button data-t="akwf" class="${tab === "akwf" ? "on" : ""}">Wavetables</button></div><span class="spacer"></span><span class="badge">CC0</span></div>
       ${tab === "samples" ? smHtml : akHtml + `<div class="muted small" style="margin-top:8px">Adventure Kid Waveforms, single-cycle, CC0 1.0. Mipmapped on load.</div>`}</div>
   </div>`;
   bindSounds();
   if (s) { drawWave(); drawEnv("env-amp", s.sound.amp_env); }
   if (!S.akwf) get("/library/akwf").then((r) => { S.akwf = r; if (S.view === "sounds") renderSounds(); }).catch(fail);
   if (!S.samples) Promise.all([get("/library/samples"), get("/library/presets")]).then(([a, b]) => { S.samples = a; S.presets = b; if (S.view === "sounds") renderSounds(); }).catch(fail);
-  if (tab === "akwf") drawPreviews();
+  if (!S.cat) fetch("/data/akwf-catalog.json").then((r) => r.json()).then((c) => { S.cat = c; if (S.view === "sounds") renderSounds(); }).catch(() => { S.cat = { groups: {}, tags: [] }; });
+  if (!S.akwfGroup && s && s.wavetable) S.akwfGroup = s.wavetable;
+  if (S.akwfGroup && (!S.akwfFrames || S.akwfFrames.group !== S.akwfGroup)) loadFrames(S.akwfGroup);
+  drawWtViews(s);
   post("/audition", { slot: s ? s.id : 0 }).catch(() => {});
 }
 
@@ -509,10 +552,11 @@ function bindSounds() {
   $("#slot-en").addEventListener("change", (e) => { s.sound.enabled = e.target.checked; pushSlot(s); });
   $("#flt-en").addEventListener("change", (e) => { s.sound.filter.enabled = e.target.checked; pushSlot(s); });
   $("#slot-del").addEventListener("click", async () => { try { const r = await api("DELETE", `/scene/slots/${s.id}`); S.scene = norm(r.scene); renderSounds(); } catch (e) { fail(e); } });
-  $$("#wave-seg button").forEach((b) => b.addEventListener("click", () => { s.sound.wave = b.dataset.w; pushSlot(s, true); }));
+  $$("#wave-seg button").forEach((b) => b.addEventListener("click", () => { s.sound.wave = b.dataset.w; if (b.dataset.w === "table") { S.browserTab = "akwf"; } pushSlot(s, true); }));
+  $$("#warp-seg button").forEach((b) => b.addEventListener("click", () => { s.sound.warp = b.dataset.warp; if (s.sound.warp !== "none" && !s.sound.warp_amount) s.sound.warp_amount = 0.3; pushSlot(s, true); }));
   $$("input[data-p]").forEach((inp) => inp.addEventListener("input", () => {
     const [g, k] = inp.dataset.p.split(".");
-    const list = g === "sound" ? OSC_PARAMS.concat(PW_PARAMS) : g === "filter" ? FLT_PARAMS : ENV_PARAMS;
+    const list = g === "sound" ? ALL_SOUND_PARAMS() : g === "filter" ? FLT_PARAMS : ENV_PARAMS;
     const p = list.find((x) => x.key === k);
     const v = fromPos(p, +inp.value);
     const obj = g === "sound" ? s.sound : s.sound[g];
@@ -520,21 +564,73 @@ function bindSounds() {
     $(`[data-val="${g}.${k}"]`).textContent = p.fmt(v);
     if (g === "amp_env") drawEnv("env-amp", s.sound.amp_env);
     if (g === "sound" && (k === "pulse_width")) drawWave();
+    if (g === "sound" && k === "unison") obj[k] = Math.round(v);
+    if (g === "sound" && k === "position") { drawWtViews(s); }
     debounce("slot", () => pushSlot(s), 80);
   }));
   bindAkwf(s);
 }
 
+async function loadFrames(group) {
+  if (S.framesBusy === group) return; S.framesBusy = group;
+  try { const r = await get(`/library/akwf/${encodeURIComponent(group)}/frames?points=64`); S.akwfFrames = { group, frames: r.frames }; } catch (e) { fail(e); }
+  S.framesBusy = null;
+  if (S.view === "sounds") renderSounds();
+}
+
+function drawTrace(cv, pts, color, lw = 1.5) {
+  const c = cvCtx(cv), w = cv.width, h = cv.height;
+  const peak = Math.max(0.001, ...pts.map(Math.abs));
+  c.strokeStyle = color; c.lineWidth = lw; c.lineJoin = "round"; c.beginPath();
+  pts.forEach((v, i) => { const x = i / (pts.length - 1) * w, y = h / 2 - v / peak * h * 0.42; i ? c.lineTo(x, y) : c.moveTo(x, y); });
+  c.stroke();
+}
+
+// Thumbnails, the large scope, and a stacked (pseudo-3D) view of the whole table.
+function drawWtViews(s) {
+  const fr = S.akwfFrames && S.akwfFrames.group === S.akwfGroup ? S.akwfFrames.frames : null;
+  if (fr) $$("canvas[data-thumb]").forEach((cv) => drawTrace(cv, fr[+cv.dataset.thumb].points, css("--text-2")));
+  const scope = $("#wt-scope");
+  if (scope && fr) {
+    const inSlot = s && s.wavetable === S.akwfGroup;
+    const i = S.hoverWave != null ? S.hoverWave : inSlot ? Math.round((s.sound.position || 0) * (fr.length - 1)) : 0;
+    drawTrace(scope, fr[Math.min(i, fr.length - 1)].points, css("--text"), 2.5);
+  }
+  const st = $("#wt-stack");
+  if (st && s && S.akwfFrames && S.akwfFrames.group === s.wavetable) {
+    const f2 = S.akwfFrames.frames, c = cvCtx(st), w = st.width, h = st.height, n = f2.length;
+    const cur = (s.sound.position || 0) * (n - 1);
+    const dx = Math.min(4, 160 / n), dy = Math.min(2.2, 70 / n), ww = w - 40 - dx * n, hh = h * 0.42;
+    const step = Math.max(1, Math.ceil(n / 40)), ci = Math.round(cur);
+    for (let k = n - 1; k >= 0; k--) {
+      if (k % step && k !== ci) continue;
+      const ox = 20 + k * dx, oy = h - 30 - k * dy, pts = f2[k].points, peak = Math.max(0.001, ...pts.map(Math.abs));
+      const on = Math.abs(k - cur) < 0.5;
+      c.strokeStyle = on ? css("--text") : css("--line"); c.lineWidth = on ? 2.5 : 1; c.beginPath();
+      pts.forEach((v, i) => { const x = ox + i / (pts.length - 1) * ww, y = oy - (v / peak) * hh * 0.5 - hh * 0.5; i ? c.lineTo(x, y) : c.moveTo(x, y); });
+      c.stroke();
+    }
+  }
+}
+
 function bindAkwf(s) {
-  $$(".akwf-groups [data-g]").forEach((el) => el.addEventListener("click", async () => {
-    S.akwfGroup = el.dataset.g;
-    try { S.akwfFiles = (await get(`/library/akwf/${encodeURIComponent(S.akwfGroup)}`)).files; } catch (e) { fail(e); }
-    renderSounds();
-  }));
-  $$(".akwf-files [data-f]").forEach((el) => el.addEventListener("click", () => {
-    if (!s) return toast("Select or create a sound slot first.");
-    s.table = el.dataset.f; s.sound.wave = "table"; pushSlot(s, true).then(() => { if (S.prevSel) audition({ slot: s.id }); });
-  }));
+  const q = $("#wt-q");
+  if (q) q.addEventListener("input", () => { S.wtQuery = q.value; debounce("wtq", () => { renderSounds(); const e = $("#wt-q"); if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); } }, 200); });
+  $$("[data-tag]").forEach((b) => b.addEventListener("click", () => { S.wtTag = S.wtTag === b.dataset.tag ? "" : b.dataset.tag; renderSounds(); }));
+  $$("[data-fav]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); toggleFav(el.dataset.fav); renderSounds(); }));
+  $$(".akwf-groups [data-g]").forEach((el) => el.addEventListener("click", () => { S.akwfGroup = el.dataset.g; S.hoverWave = null; renderSounds(); }));
+  $$(".wt-grid [data-wi]").forEach((el) => {
+    el.addEventListener("mouseenter", () => { S.hoverWave = +el.dataset.wi; drawWtViews(s); });
+    el.addEventListener("mouseleave", () => { S.hoverWave = null; drawWtViews(s); });
+    el.addEventListener("click", () => {
+      if (!s) return toast("Select or create a sound slot first.");
+      const n = S.akwfFrames.frames.length;
+      s.sound.wave = "table"; s.wavetable = S.akwfGroup; s.table = el.dataset.f;
+      s.sound.position = n > 1 ? +el.dataset.wi / (n - 1) : 0;
+      if (/^Init /.test(s.name) || s.name === "Init") s.name = wtInfo(S.akwfGroup).name;
+      pushSlot(s, true).then(() => { if (S.prevSel) audition({ slot: s.id }); });
+    });
+  });
 }
 
 async function pushSlot(s, rerender = false) {
