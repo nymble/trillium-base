@@ -1,0 +1,318 @@
+# Acknowledged sources for pilab libraries (sounds, waveforms, datasets, books, music).
+#
+# Every byte that pilab ships, fetches, or indexes from a third party must trace
+# back to one entry here. library/ATTRIBUTION.md is generated from this file:
+#   python3 scripts/library-attribution.py > library/ATTRIBUTION.md
+#
+# Fields
+#   id            stable kebab-case id, used by pack manifests (source: <id>)
+#   type          waveforms | samples | soundfont | dataset | books | music | code-reference
+#   license       SPDX id where one exists; LicenseRef-* otherwise
+#   attribution   required: true/false; credit: text we print; where a credit
+#                 names people, we point at the upstream credit instead and the
+#                 pack installer copies it into the pack's CREDITS at install time
+#   size          upstream size, and the size of any base-image subset
+#   tier          base | drive | network | external (see docs/library.md)
+#   status        shippable            may go in the base image or a pack we publish
+#                 allowed-not-shipped  fine to fetch for local use; not in the base image
+#                 reference-only       ideas/descriptors only; do not copy code or bytes
+#                 not-allowed          must not be packed or redistributed (reason given)
+#   verified      date the licence/size were checked against the source page, or
+#                 "unverified" with what is still missing
+#   dc            Dublin Core hints for the kb catalog crosswalk (docs/ontology.md in kb)
+
+schema: pilab.sources/v1
+updated: 2026-11-19
+
+sources:
+
+  - id: akwf
+    name: Adventure Kid Waveforms (AKWF-FREE)
+    type: waveforms
+    homepage: https://www.adventurekid.se/akrt/waveforms/adventure-kid-waveforms/
+    url: https://github.com/KristofferKarlAxelEkstrand/AKWF-FREE
+    license: CC0-1.0
+    license_url: https://creativecommons.org/publicdomain/zero/1.0/
+    attribution:
+      required: false
+      credit: "Single-cycle waveforms from Adventure Kid Waveforms (AKWF-FREE), CC0 1.0."
+    size:
+      upstream: "~863 MB git repo (GitHub metadata); 750 MB of it is the Alchemy conversion folder"
+      original_set: "4,358 WAV files, 6.1 MB (folder AKWF/, 600-sample 16-bit mono)"
+      base_subset: "6.1 MB: the whole original AKWF/ set"
+    tier: base
+    status: shippable
+    verified: "2026-11-19: LICENSE.md is CC0 1.0; sizes from the GitHub git tree API"
+    dc: { type: Collection, format: audio/wav, subject: [sound, waveforms] }
+    notes: >
+      The other AKWF-- folders are format conversions of the same CC0 set for other
+      synths. Ship only the original set; we build mipmapped wavetables at load.
+
+  - id: vcsl
+    name: Versilian Community Sample Library (VCSL)
+    type: samples
+    url: https://github.com/sgossner/VCSL
+    license: CC0-1.0
+    license_url: https://creativecommons.org/publicdomain/zero/1.0/
+    attribution:
+      required: false
+      credit: "Samples from the Versilian Community Sample Library (VCSL) by Versilian Studios LLC, CC0 1.0."
+    size:
+      upstream: "6.16 GB, 4,282 files (WAV, git tree API); the Page's 5 GB figure was low"
+      largest: "Chordophones/Zithers (pianos, harpsichords) 3.4 GB"
+      base_subset: "starter drum and hand-percussion kit, ~76 MB as WAV, est. 40-50 MB as FLAC"
+    tier: drive
+    status: shippable
+    verified: "2026-11-19: README and GitHub licence metadata say CC0 1.0; sizes from git tree API"
+    dc: { type: Collection, format: audio/wav, subject: [sound, samples] }
+    notes: >
+      Latest GitHub release (v1.2.2-RC, 2019) has no release assets, so the ready-made
+      SFZ mappings the README mentions are not there; plan to generate SFZ with our own
+      tool (unverified whether a newer SFZ build exists elsewhere).
+
+  - id: freepats-cc0
+    name: FreePats sound banks, CC0 banks only
+    type: samples
+    url: https://freepats.zenvoid.org/
+    license: CC0-1.0
+    license_url: https://freepats.zenvoid.org/licenses.html
+    attribution:
+      required: false
+      credit: "Instrument banks from the FreePats project (CC0 1.0 banks only)."
+    size:
+      upstream: "~45 CC0 banks; SFZ+FLAC from 0.7 MiB (Synth Bass #1) to 300 MiB (distorted electric guitar)"
+      base_subset: "~120 MiB, the small-size variants listed in library/base-pack.yaml"
+    tier: base
+    status: shippable
+    verified: "2026-11-19: licence stated on each bank page; sizes from each bank's download table"
+    dc: { type: Collection, format: audio/flac, subject: [sound, samples] }
+    notes: >
+      Licence is per bank. CC0 banks include Upright Piano KW, Old Piano FB, FM pianos,
+      Spanish classical guitar, Bass Guitar YR, FSBS electric guitars, ukulele, harp,
+      clarinet, tenor sax, recorder, ocarina, accordion, organs, xylophone, tubular bells,
+      glass, hang, kalimba, bagpipe, jaw harp, timpani, world and synth percussion, and all
+      synth bass/brass/lead/pad/strings/effects banks.
+
+  - id: freepats-cc-by
+    name: FreePats sound banks under CC-BY
+    type: samples
+    url: https://freepats.zenvoid.org/
+    license: "CC-BY-3.0 OR CC-BY-4.0 (per bank)"
+    license_url: https://freepats.zenvoid.org/licenses.html
+    attribution:
+      required: true
+      credit: "Copy the credit line from each bank page into the pack's CREDITS at install time."
+    banks:
+      - { name: Salamander Grand Piano, license: CC-BY-3.0, size: "707 MiB SFZ+FLAC (48 kHz 24-bit); smaller variants 296-394 MiB",
+          page: https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html }
+      - { name: YDP Grand Piano, license: CC-BY-3.0, size: "36 MiB SF2",
+          page: https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html }
+      - { name: MuldjordKit (acoustic drums), license: CC-BY-4.0, size: "157 MiB SFZ+FLAC",
+          page: https://freepats.zenvoid.org/Percussion/acoustic-drum-kit.html }
+    tier: drive
+    status: allowed-not-shipped
+    verified: "2026-11-19: licence stated on the bank pages"
+    dc: { type: Collection, format: audio/flac, subject: [sound, samples] }
+    notes: >
+      Allowed with attribution. Kept out of the base image so its credits stay CC0-only and
+      name-free. The only good free acoustic drum kit here is CC-BY; the base kit comes from VCSL.
+
+  - id: freepats-gpl
+    name: FreePats banks under GPL with the sound-sample exception
+    type: soundfont
+    url: https://freepats.zenvoid.org/
+    license: "GPL-3.0-or-later WITH LicenseRef-FreePats-sound-exception"
+    license_url: https://freepats.zenvoid.org/licenses.html
+    attribution:
+      required: true
+      credit: "FreePats General MIDI set, GPL-3.0-or-later with the FreePats sound-sample exception; licence text shipped with the pack."
+    banks:
+      - { name: FreePats General MIDI set, size: "127 MiB SFZ+FLAC, 227 MiB SF2",
+          page: https://freepats.zenvoid.org/SoundSets/general-midi.html }
+      - { name: FreePats General MIDI percussion set, size: "15 MiB",
+          page: https://freepats.zenvoid.org/SoundSets/general-midi.html }
+      - { name: FSS Steel-String Acoustic Guitar, size: "12-13 MiB",
+          page: https://freepats.zenvoid.org/Guitar/steel-acoustic-guitar.html }
+    tier: drive
+    status: allowed-not-shipped
+    verified: "2026-11-19: bank pages state GPL-3.0-or-later with exception; the GM page notes some samples inside may carry other GPL-compatible licences"
+    dc: { type: Collection, format: audio/x-sf2, subject: [sound, soundfont] }
+    notes: >
+      Surprise: the General MIDI set is GPL, not CC0. The exception keeps compositions free of
+      the GPL, but redistributing the set means shipping GPL terms. Offer as an optional pack.
+
+  - id: freesound-cc0
+    name: Freesound, CC0 sounds only
+    type: samples
+    url: https://freesound.org/
+    license: "CC0-1.0 (filter); per-sound licence recorded in the pack manifest"
+    license_url: https://freesound.org/help/faq/
+    attribution:
+      required: false
+      credit: "Sounds from Freesound (CC0 1.0); each sound's page URL is listed in the pack manifest."
+    size:
+      upstream: "varies; picked per sound"
+      base_subset: "none in v1"
+    tier: external
+    status: allowed-not-shipped
+    verified: "2026-11-19: FAQ lists CC0, CC-BY 4.0, CC-BY-NC 4.0 and legacy Sampling+. API key terms unverified."
+    dc: { type: Sound, format: "audio/wav, audio/flac", subject: [sound, samples] }
+    notes: >
+      Pack installer must read each sound's licence. CC0: allowed. CC-BY: allowed with credit,
+      not in the base image. CC-BY-NC and Sampling+: not allowed in packs (venue work is often paid).
+      Freesound asks bulk downloads to go through its Data Packs portal, not the API.
+
+  - id: nsynth
+    name: NSynth dataset
+    type: dataset
+    url: https://magenta.withgoogle.com/datasets/nsynth
+    license: CC-BY-4.0
+    license_url: https://creativecommons.org/licenses/by/4.0/
+    attribution:
+      required: true
+      credit: "NSynth dataset (Magenta), CC BY 4.0; cite the paper listed on the dataset page."
+    size:
+      upstream: "unverified: about 22 GB for the JSON/WAV training split (download links returned errors on 2026-11-19)"
+      base_subset: "none"
+    tier: external
+    status: reference-only
+    verified: "2026-11-19: licence CC BY 4.0 from the dataset page; size unverified"
+    dc: { type: Dataset, format: "audio/wav, application/json", subject: [sound, dataset] }
+    notes: >
+      305,979 four-second 16 kHz notes rendered from commercial sample libraries. Licence allows
+      reuse with credit, but 16 kHz and commercial origins make it a poor instrument. Use its
+      source/family/quality labels as a preset-search vocabulary and for research only.
+
+  - id: philharmonia
+    name: Philharmonia sound samples
+    type: samples
+    url: https://philharmonia.co.uk/resources/sound-samples/
+    license: LicenseRef-Philharmonia-samples
+    license_url: https://philharmonia.co.uk/resources/sound-samples/
+    attribution:
+      required: false
+      credit: ""
+    size:
+      upstream: "unverified"
+    tier: drive
+    status: not-allowed
+    reason: >
+      Free to use in music, including commercial works, but "must not be sold or made available
+      'as is' (i.e. as samples or as a sampler instrument)". So no packs, no base image, and never
+      on a share or pilab endpoint other devices can read. A private copy on an owner's own drive
+      for composing is fine.
+    verified: "2026-11-19: licence text on the sound-samples page"
+    dc: { type: Collection, format: audio/mpeg, subject: [sound, samples] }
+
+  - id: mutable-instruments-eurorack
+    name: Mutable Instruments Eurorack firmware (algorithm source)
+    type: code-reference
+    url: https://github.com/pichenettes/eurorack
+    license: "MIT (STM32 projects, e.g. Plaits, Braids, Rings, Clouds); GPL-3.0 (AVR projects); hardware CC-BY-SA-3.0"
+    attribution:
+      required: true
+      credit: "Ports keep the upstream MIT copyright notice in the ported files."
+    size:
+      upstream: "~57 MB repo"
+    tier: external
+    status: allowed-not-shipped
+    verified: "2026-11-19: README licence section"
+    dc: { type: Software, subject: [software, synthesis] }
+    notes: >
+      Surprise: the Page said "code MIT". Only the STM32 projects are MIT; the older AVR
+      projects are GPL-3.0. Port from STM32 modules only, and do not use the product names.
+
+  - id: tidalcycles
+    name: TidalCycles
+    type: code-reference
+    url: https://github.com/tidalcycles/Tidal
+    license: GPL-3.0
+    attribution: { required: false, credit: "" }
+    tier: external
+    status: reference-only
+    reason: "GPL-3.0, and the project treats ports based on its code as derivative works. Build our own pattern language from published papers."
+    verified: "2026-11-19: GitHub licence metadata"
+    dc: { type: Software, subject: [software, generative-music] }
+
+  - id: strudel
+    name: Strudel
+    type: code-reference
+    url: https://github.com/tidalcycles/strudel
+    license: AGPL-3.0
+    attribution: { required: false, credit: "" }
+    tier: external
+    status: reference-only
+    reason: "AGPL-3.0. Fine as a separate, unmodified service on the network; do not embed or copy code."
+    verified: "2026-11-19: GitHub licence metadata"
+    dc: { type: Software, subject: [software, generative-music] }
+
+  # ---- Books, music and datasets for the local archive (not in the Page; added for the library design)
+
+  - id: standard-ebooks
+    name: Standard Ebooks
+    type: books
+    url: https://standardebooks.org/
+    license: "CC0-1.0 (the project's own work); texts are U.S. public domain"
+    attribution:
+      required: false
+      credit: "Ebooks from Standard Ebooks; their work is dedicated to the public domain (CC0 1.0)."
+    size:
+      upstream: "unverified (roughly 1-2 MB per EPUB)"
+      base_subset: "up to 8 MiB: a handful of EPUBs plus pilab's own manuals"
+    tier: base
+    status: shippable
+    verified: "2026-11-19: About page states the texts are believed U.S. public domain and the project's work is dedicated to the public domain"
+    dc: { type: Text, format: application/epub+zip, subject: [text-document, books] }
+    notes: "Public domain status is U.S.-based. Check before shipping a unit that will live outside the U.S."
+
+  - id: project-gutenberg
+    name: Project Gutenberg
+    type: books
+    url: https://www.gutenberg.org/
+    license: LicenseRef-Project-Gutenberg (U.S. public domain texts plus a trademark licence)
+    attribution: { required: false, credit: "" }
+    size: { upstream: "unverified" }
+    tier: external
+    status: allowed-not-shipped
+    verified: "unverified: licence page returned 503 on 2026-11-19"
+    dc: { type: Text, format: "application/epub+zip, text/plain", subject: [text-document, books] }
+    notes: "Known pattern: redistributing with the Project Gutenberg name attached triggers its trademark terms. Prefer Standard Ebooks for anything shipped."
+
+  - id: kiwix-zim
+    name: Kiwix ZIM archives (offline Wikipedia and others)
+    type: dataset
+    url: https://library.kiwix.org/
+    license: "CC-BY-SA-4.0 for Wikipedia content (per archive)"
+    attribution:
+      required: true
+      credit: "Per archive; ZIM files carry their own source and licence metadata."
+    size: { upstream: "unverified; the kb catalog already has a 37.6 GB 2018 English no-pictures dump (record wikipedia-zim-2018)" }
+    tier: drive
+    status: allowed-not-shipped
+    verified: "unverified this run"
+    dc: { type: Dataset, format: application/x-zim, subject: [dataset] }
+
+  - id: musopen
+    name: Musopen recordings
+    type: music
+    url: https://musopen.org/
+    license: "per recording (public domain, CC0, CC-BY and others)"
+    attribution: { required: true, credit: "Per recording; recorded in the pack manifest." }
+    size: { upstream: "unverified" }
+    tier: external
+    status: allowed-not-shipped
+    verified: "unverified this run"
+    dc: { type: Sound, format: "audio/flac, audio/mpeg", subject: [sound, music] }
+
+  - id: free-music-archive
+    name: Free Music Archive
+    type: music
+    url: https://freemusicarchive.org/
+    license: "per track (Creative Commons, including NonCommercial variants)"
+    attribution: { required: true, credit: "Per track; recorded in the pack manifest." }
+    size: { upstream: "unverified" }
+    tier: external
+    status: allowed-not-shipped
+    verified: "2026-11-19 partial: FAQ confirms per-track Creative Commons licences including NonCommercial"
+    dc: { type: Sound, format: audio/mpeg, subject: [sound, music] }
+    notes: "NC tracks: personal listening only, never venue playback packs."
