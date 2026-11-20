@@ -268,3 +268,14 @@ canvas.env { width: 100%; height: 64px; display: block; border-radius: var(--r-c
 .btn.play { padding: 2px 8px; min-width: 28px; line-height: 1.4; }
 .akwf-files div { align-items: center; gap: 6px; }
 .nowrap { white-space: nowrap; }
+
+/* dialogs, storage */
+dialog.dlg { background: var(--panel-raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-card, 14px); padding: 20px 22px; max-width: 480px; font: 14px var(--font-ui); }
+dialog.dlg::backdrop { background: color-mix(in srgb, var(--bg, #0C0C0D) 70%, transparent); }
+dialog.dlg h3 { font-family: var(--font-display); font-weight: 400; margin: 0 0 8px; }
+dialog.dlg .dlg-body p { margin: 6px 0; color: var(--text-2); }
+dialog.dlg input { width: 100%; margin-top: 8px; }
+table.storage tr.sub td:first-child { padding-left: 18px; }
+.meter-bar { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--panel-deep); vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.meter-bar i { display: block; height: 100%; background: var(--text-2); }
+.meter-bar.hot i { background: var(--meter); }

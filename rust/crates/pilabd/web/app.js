@@ -239,6 +239,7 @@ function renderOverview() {
       <td><span class="badge ${x.severity}" title="${esc(x.risk)}">${x.severity}</span></td>
       <td style="text-align:right">${x.control === "console"
         ? `<label class="switch" title="${esc(x.risk)}"><input type="checkbox" data-svc="${x.id}" ${x.active ? "checked" : ""}><span></span></label>`
+        : x.id === "pilab-console" ? `<span class="muted small" title="${esc(x.how)}">on · access path</span>`
         : `<span class="muted small mono" title="${esc(x.how)}">${x.active ? "on" : "off"}</span>`}</td>
     </tr>`).join("");
   const ports = (s.listening || []).map((p) => `<tr><td class="mono">${p.proto}</td><td class="num">${p.port}</td><td>${p.scope}</td><td>${p.service === "undeclared" ? `<span class="badge caution">undeclared</span>` : esc(p.service)}</td></tr>`).join("");
@@ -300,14 +301,95 @@ function renderOverview() {
       <table><tbody>${usb}</tbody></table>
     </div>
     <div class="card span2">
+      <div class="card-head"><h3>Version</h3></div>
+      <div id="ov-versions"><div class="muted small">Loading…</div></div>
+    </div>
+    <div class="card span2">
+      <div class="card-head"><h3>Storage</h3><span class="spacer"></span><span class="muted small">lsblk · temperature where the drive reports it</span></div>
+      <div id="ov-storage" class="tbl-scroll"><div class="muted small">Loading…</div></div>
+    </div>
+    <div class="card span2">
       <div class="card-head"><h3>Events</h3></div>
       <div class="monitor">${ev}</div>
     </div>
   </div>`;
   $$("[data-svc]").forEach((el) => el.addEventListener("change", async (e) => {
+    const on = e.target.checked;
     const x = s.services.find((v) => v.id === e.target.dataset.svc);
-    try { await post(`/services/${x.id}`, { on: e.target.checked }); toast((e.target.checked ? "On. " : "Off. ") + x.risk); } catch (err) { fail(err); e.target.checked = !e.target.checked; }
+    let confirm = "";
+    if (x.kind === "access" && !on) {
+      confirm = await dialog({
+        title: `Turn off ${x.name}?`,
+        body: `<p>${esc(x.name)} is a remote access path. The console stays on, so you can still get in from this page, but if the console stops too, the only way back in is a local monitor and keyboard, or editing the SD card.</p><p>Type <b class="mono">turn off ssh</b> to confirm.</p>`,
+        typed: "turn off ssh", ok: "Turn off",
+      });
+      if (confirm == null) { e.target.checked = !on; return; }
+    } else if (on && x.id !== "pilab-synth") {
+      const go = await dialog({ title: `Turn on ${x.name}?`, body: `<p>${esc(x.risk)}</p><p class="muted small">Ports: ${esc(x.ports)}</p>`, ok: "Turn on" });
+      if (go == null) { e.target.checked = !on; return; }
+    }
+    e.target.disabled = true;
+    try {
+      const r = await post(`/services/${x.id}`, { on, confirm });
+      toast((on ? "On. " : "Off. ") + (r.message || x.risk));
+    } catch (err) { fail(err); e.target.checked = !on; }
+    e.target.disabled = false;
   }));
+  loadOverviewExtras();
+}
+
+// Version and storage panels load once per visit (slow-changing, a few subprocesses).
+async function loadOverviewExtras() {
+  try {
+    if (!S.ovx || Date.now() - S.ovx.t > 60000) {
+      if (S.ovxBusy) return; S.ovxBusy = true;
+      try { const [v, st] = await Promise.all([get("/versions"), get("/storage")]); S.ovx = { t: Date.now(), v, st }; } finally { S.ovxBusy = false; }
+    }
+    const { v, st } = S.ovx;
+    const vEl = $("#ov-versions"), sEl = $("#ov-storage");
+    if (vEl) vEl.innerHTML = `<div class="kv">
+      <span class="k">Console</span><span class="v">${esc(v.console.name)} ${esc(v.console.version)} · <span class="mono">${esc(v.console.commit)}</span></span>
+      <span class="k">Model</span><span class="v">${esc(v.model || "—")}</span>
+      <span class="k">OS</span><span class="v">${esc(v.os || "—")}</span>
+      <span class="k">Kernel</span><span class="v mono small">${esc(v.kernel || "—")}</span>
+      <span class="k">PipeWire</span><span class="v">${esc(v.pipewire || "—")}</span>
+      <span class="k">Firmware</span><span class="v small">${esc(v.firmware || "—")}</span>
+      <span class="k">Bootloader</span><span class="v small">${esc(v.bootloader || "—")}</span>
+      <span class="k">Device id</span><span class="v mono small">${esc(v.device_id)}</span></div>`;
+    const gib = (b) => b == null ? "—" : b >= 1e12 ? (b / 1e12).toFixed(2) + " TB" : (b / 1e9).toFixed(1) + " GB";
+    const rows = [];
+    for (const d of st.blockdevices || []) {
+      rows.push(`<tr><td><b>${esc(d.kind)}</b> <span class="mono small muted">${esc(d.name)}</span>${d.model ? `<div class="small muted">${esc(d.model)}</div>` : ""}</td><td class="num">${gib(+d.size)}</td><td colspan="4"></td><td class="num">${d.temp_c != null ? d.temp_c.toFixed(0) + " °C" : ""}</td></tr>`);
+      for (const p of (d.children || []).concat(d.mountpoint ? [d] : [])) {
+        const used = p.fsused != null ? +p.fsused : null, size = p.fssize != null ? +p.fssize : null;
+        const pct = used != null && size ? used / size * 100 : null;
+        rows.push(`<tr class="sub"><td class="mono small">${esc(p.name)}${p.label ? ` <span class="muted">${esc(p.label)}</span>` : ""}</td><td class="num">${gib(+p.size)}</td>
+          <td class="num">${gib(used)}</td><td class="num">${gib(p.fsavail != null ? +p.fsavail : null)}</td>
+          <td>${pct != null ? `<div class="meter-bar ${pct > 90 ? "hot" : ""}"><i style="width:${pct.toFixed(0)}%"></i></div><span class="small">${pct.toFixed(0)}%</span>` : `<span class="muted small">not mounted</span>`}</td>
+          <td class="small">${esc(p.fstype || "")} ${p.mountpoint ? `<span class="mono muted">${esc(p.mountpoint)}</span>` : ""}</td><td></td></tr>`);
+      }
+    }
+    if (sEl) sEl.innerHTML = `<table class="storage"><thead><tr><th>Device</th><th class="num">Size</th><th class="num">Used</th><th class="num">Free</th><th>Use</th><th>Filesystem · mount</th><th class="num">Temp</th></tr></thead><tbody>${rows.join("") || `<tr><td class="muted">No disks found</td></tr>`}</tbody></table>`;
+  } catch (e) { /* panels stay as placeholders */ }
+}
+
+// Modal dialog. Resolves to the typed text (or "") on OK, null on cancel.
+function dialog({ title, body, typed = "", ok = "OK" }) {
+  return new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.className = "dlg";
+    d.innerHTML = `<h3>${esc(title)}</h3><div class="dlg-body">${body}</div>${typed ? `<input class="input mono" id="dlg-typed" autocomplete="off" placeholder="${esc(typed)}">` : ""}
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" data-x="cancel">Cancel</button><button class="btn" data-x="ok" ${typed ? "disabled" : ""}>${esc(ok)}</button></div>`;
+    document.body.appendChild(d);
+    const okb = $('[data-x="ok"]', d), inp = $("#dlg-typed", d);
+    if (inp) inp.addEventListener("input", () => { okb.disabled = inp.value.trim().toLowerCase() !== typed; });
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    okb.addEventListener("click", () => done(inp ? inp.value.trim() : ""));
+    $('[data-x="cancel"]', d).addEventListener("click", () => done(null));
+    d.addEventListener("cancel", () => done(null));
+    d.showModal();
+    (inp || okb).focus();
+  });
 }
 const fmtUptime = (s) => s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
 
@@ -653,7 +735,7 @@ async function saveScene(name) {
 // ------------------------------------------------------------------ signals
 let selPort = null;
 async function renderSignals() {
-  try { S.graph = await get("/graph"); } catch (e) { fail(e); return; }
+  try { [S.graph, S.adev] = await Promise.all([get("/graph"), get("/audio/devices").catch(() => ({ sinks: [], sources: [] }))]); } catch (e) { fail(e); return; }
   const ports = S.graph.ports;
   const group = (dir) => {
     const m = new Map();
@@ -669,6 +751,11 @@ async function renderSignals() {
     <div class="card"><div class="card-head"><h3>Links</h3><span class="spacer"></span><span class="mono muted">${links.length}</span></div>
       <div class="tbl-scroll" style="max-height:600px"><table><tbody>${links.map(([a, b]) => `<tr><td class="small">${esc(a)}<br><span class="muted">→ ${esc(b)}</span></td><td><button class="btn ghost small" data-unlink="${esc(a)}|${esc(b)}">✕</button></td></tr>`).join("") || `<tr><td class="muted">No links</td></tr>`}</tbody></table></div>
       <div class="muted small" style="margin-top:10px">○ MIDI · ● audio. Hardware MIDI sources are connected to <span class="mono">pilab-synth:in_N</span> automatically; apps can use <span class="mono">pilab-synth:midi_in</span>.</div></div>
+    <div class="card span2"><div class="card-head"><h3>Audio inputs (sources)</h3><span class="spacer"></span><span class="muted small">capture devices: USB mics and interfaces</span></div>
+      <table><tbody>${(S.adev.sources || []).map((d) => `<tr><td>${esc(d.description || d.name)}<div class="mono small muted">${esc(d.name)}</div></td><td><span class="badge">${esc(d.kind)}</span></td><td class="small muted">${esc(String(d.state || "").toLowerCase())}</td></tr>`).join("") || `<tr><td class="muted">No capture devices. Plug in a USB mic or audio interface and it shows here. AirPlay speakers are never inputs.</td></tr>`}</tbody></table></div>
+    <div class="card span2"><div class="card-head"><h3>Audio outputs (sinks)</h3><span class="spacer"></span><span class="muted small">where sound can go</span></div>
+      <table><tbody>${(S.adev.sinks || []).map((d) => `<tr><td>${esc(d.description || d.name)}<div class="mono small muted">${esc(d.name)}</div></td><td><span class="badge ${d.airplay ? "caution" : ""}">${esc(d.kind)}</span></td><td class="small muted">${esc(String(d.state || "").toLowerCase())}</td></tr>`).join("") || `<tr><td class="muted">No outputs reported</td></tr>`}</tbody></table>
+      <div class="muted small" style="margin-top:8px">AirPlay speakers (HomePods, Macs) appear only while the AirPlay sender is on. They are outputs only, never inputs.</div></div>
   </div>`;
   drawLinks(links);
   $("#sig-refresh").addEventListener("click", renderSignals);
