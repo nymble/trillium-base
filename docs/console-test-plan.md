@@ -68,7 +68,7 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
 ## 8. Signals and other apps
 
 - Start another JACK/PipeWire MIDI app or synth (e.g. the Faust GUI or SuperCollider).
-- In Signals, link its MIDI output to `pilab-synth:midi_in`, then unlink it.
+- In Signals, link its MIDI output to `Trillium Synth:midi_in`, then unlink it.
 - Pass: links appear and disappear in the console and in `pw-jack jack_lsp -c`; the synth
   keeps running with no xruns.
 
@@ -104,3 +104,13 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
 - Version panel shows the commit that was deployed; Storage lists the SD card (and any
   USB/NVMe drives) with use and filesystem.
 - Signals: sources vs sinks; with the AirPlay sender on, HomePods appear as outputs only.
+
+## 12. Signals patch panel and levels
+
+- Signals: sources left, destinations right; jacks in a straight column next to the port
+  names; Trillium Synth out_l/out_r cabled to the DAC (filled jacks), free jacks as rings.
+- Drag the synth's stereo bracket to a spare stereo input (not an AirPlay speaker during
+  a test), check both cables, press ⌘Z: both go away.
+- Hover a cable: it and both jacks turn orange. Click it, press Delete, then ⌘Z.
+- Meters: play a chord; the synth and DAC meters move (Amber). Volume: move a non-DAC
+  sink fader only if it is safe to do so; the DAC fader never goes above 100%.

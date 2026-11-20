@@ -1,7 +1,7 @@
 # pilab console
 
-The console is the control surface for the Pi's sound modules. v0 ships one module, the
-**Waveform synth** (`pilab-synth`), and is built so that other MIDI, generative and audio
+The console is the control surface for the Pi's sound modules. v0 ships one module,
+**Trillium Synth** (crate and service id `pilab-synth`), and is built so that other MIDI, generative and audio
 apps run beside it and are patched together through PipeWire.
 
 Product name: `pilab console` for now. It is set once in
@@ -14,7 +14,7 @@ Product name: `pilab console` for now. It is set once in
  ALSA / JACK MIDI apps ────────────────┤   PipeWire graph (JACK API via pw-jack)
                                        ▼
  ┌──────────────────────── pilabd (user service) ─────────────────────────┐
- │  JACK client "pilab-synth"                                             │
+ │  JACK client "Trillium Synth"                                          │
  │    midi_in  (port 0, for apps)   in_1..in_7 (auto-connected sources)   │
  │    audio thread on CPU 3 ── Engine (pilab-synth) ── out_l / out_r ─────┼──► DAC sink
  │         ▲ lock-free command ring          │ stats atomics, garbage ring│
@@ -45,8 +45,15 @@ ZPOD crates are used unmodified from `nymble/zpod` at `525bc84` (see
 ### Audio backend
 
 `AudioBackend` is a trait. `JackBackend` talks to PipeWire's JACK implementation
-(`pw-jack`), so the synth is an ordinary PipeWire node named **pilab-synth** that any
-patchbay (or the console's Signals view) can see and wire. `NullBackend` runs the engine
+(`pw-jack`), so the synth is an ordinary PipeWire node named **Trillium Synth** that any
+patchbay (or the console's Signals view) can see and wire. Its ports are
+`Trillium Synth:out_l`/`out_r`, `midi_in` and `in_1`..`in_7`, plus eight hidden meter
+inputs (`meter_1`..`meter_8`) that are never listed.
+
+Rename (Nov 2026): the node was called `pilab-synth`. That stays the stable internal id
+(crate, service id; `trillium-synth` is accepted as an alias), and port names that start
+with `pilab-synth:` (API calls, `settings.toml` patterns) are mapped to the new name. The
+outputs are linked to `audio.output_ports` (the DAC) at start, as before. `NullBackend` runs the engine
 on a timer with no audio device, for development and screenshots (`--null-audio`).
 If JACK is unavailable at start, pilabd logs it and falls back to the null backend so the
 console stays reachable.
@@ -259,6 +266,60 @@ Settings live in `~/.config/pilab/settings.toml` (audio ports, DAC sink name, MI
 autoconnect, ignore list and device classes, recording, archive, watchdog). The active scene name is kept
 in `~/.config/pilab/state.toml`.
 
+## Signals: patch panel, levels and meters
+
+Sources (outputs) are on the left, destinations (inputs) on the right. Each side is a
+grid: device (one band per node, alternately shaded), port name, a stereo bracket, and a
+column of jacks right next to the port names (mirrored on the right). Cables run from
+jack centre to jack centre.
+
+- **Jacks**: filled = has at least one cable; ring = free; dimmed = cannot take the cable
+  being dragged (wrong type or direction). Audio jacks are warm white, MIDI jacks ash.
+  Orange marks only the cable or jack under the pointer, the selected cable, or the
+  cable being drawn. (Before this, filled meant audio and ring meant MIDI, which is why
+  some looked solid and others hollow regardless of connections.)
+- **Patching**: drag from a jack (or port name) to a jack to connect; drag a stereo
+  bracket (or Shift-drag a jack of a pair) to patch L→L and R→R in one go. Click a cable
+  to select it; Delete/Backspace or its × removes it. Click a jack, then another, as an
+  alternative to dragging. No confirmations; Undo (⌘Z / Ctrl+Z) reverts the last 50
+  changes.
+- **Filters**: All / Audio / MIDI, hide unconnected, show sink monitor outputs, search by
+  device or port.
+- **Levels**: every audio node shows a meter (Amber). Sinks, capture sources and app
+  streams have a volume fader and mute that set the PipeWire node volume through
+  `wpctl` in WirePlumber's cubic scale (the % pavucontrol shows), ramped in 6 steps over
+  about 100 ms and capped at 100%: the console never boosts a node, so the synth's own
+  −6 dBFS cap and limiter still bound what reaches the DAC. The synth's fader is its
+  master (−60 to −6 dBFS) and its M fades the engine out. JACK apps (Cabbage/JUCE,
+  SuperCollider, Faust under pw-jack) have no PipeWire volume; their meter shows and the
+  level is set in the app.
+- **Meters**: the synth meters itself. Other nodes are metered by linking pilabd's
+  hidden meter inputs to running non-AirPlay sinks' monitor ports and to app and capture
+  outputs (up to four stereo pairs, peak per block, no allocation). The links are made
+  only while a Signals page polls and removed 15 s after it stops, and never to a
+  suspended or AirPlay sink, so metering cannot wake a device or a speaker. A sink with
+  no meter of its own shows the peak of the sources patched into it.
+
+### Next: a full mixer (plan, not built)
+
+1. **Channel strips** per source: input gain (pre), mute/solo, pan, 3-band EQ and a
+   high-pass, a compressor, post-fader meter. For JACK apps the strip is a small
+   pilabd-hosted insert (a JACK in/out pair the app is patched through), so every source
+   gets gain even without PipeWire volume.
+2. **Buses**: a main bus to the DAC with the existing limiter and soft clip, plus up to
+   four aux buses (e.g. reverb, headphones cue, AirPlay feed, recording). Buses are
+   pilabd JACK ports, mixed in the realtime callback with the same no-allocation rule.
+3. **Sends**: pre/post-fader send levels from each strip to each aux bus.
+4. **Scene recall of levels**: scenes store strip, bus and send levels and the patch
+   (links) by device class rather than raw port names; loading a scene ramps levels over
+   about 200 ms and never raises the DAC path above the current master (same rule as
+   today).
+5. **Safety**: one output safety stage (limiter, −6 dBFS master cap, start quiet) on
+   everything that reaches the DAC, not only the synth.
+6. **UI**: the mixer as a fourth panel under Signals (strips in a row, meters Amber,
+   one orange element for the active strip), with the patch panel showing buses as
+   nodes.
+
 ## Recording and archival
 
 - **Local recording** (on by default, nothing records until Rec is pressed): float32 WAV of
@@ -278,7 +339,7 @@ refreshed every 6 s and right after a switch.
 
 | Service | Switch | What it runs |
 | --- | --- | --- |
-| Waveform synth | yes | fades the engine in or out |
+| Trillium Synth | yes | fades the engine in or out |
 | AirPlay receiver / sender | yes | `pilab-airplay receiver|sender on|off` (the receiver also needs sudo for `nqptp`; if sudo asks for a password the switch reports it) |
 | Faust web controls | yes | `faust-gui --no-qt ~/faust/synth.dsp` in the user unit `pilab-faust-gui`; off runs `faust-gui --stop` |
 | SuperCollider server | yes | `scsynth -u 57110 -B 127.0.0.1` on CPU 3 in the user unit `pilab-scsynth` (localhost only) |
@@ -354,7 +415,10 @@ downloads are TOML.
 | GET | `/library/akwf/{group}` | Files in a group |
 | GET | `/library/akwf/{group}/frames?points=` | Every cycle in a group, decimated, for thumbnails |
 | GET | `/library/preview?path=&points=` | Raw single cycle for drawing |
-| GET | `/graph` | Audio/MIDI ports and links (PipeWire via the JACK API) |
+| GET | `/graph` | Audio/MIDI ports and links (PipeWire via the JACK API; meter inputs hidden) |
+| GET | `/mixer` | Audio nodes with PipeWire volume (cubic 0..1) and mute; links the meters |
+| POST | `/mixer/{id}` | {name, volume?, mute?} set a node's volume (ramped, capped at 1.0) or mute; `name` must match the node |
+| GET | `/meters` | Peak dBFS per metered device since the last read |
 | POST | `/graph/connect` | {from,to} link two ports |
 | POST | `/graph/disconnect` | {from,to} unlink two ports |
 | GET | `/settings` | Settings |

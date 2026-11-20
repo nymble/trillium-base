@@ -405,7 +405,7 @@ Notes:
 - shairport-sync must be a **user** service, because PipeWire is one. `nqptp` is a system service (UDP 319/320). The user unit waits for it, and the config pins `service_type = "airplay2"` so a race never silently produces a classic-only receiver.
 - The sender runs as its own PipeWire client process, so switching it never restarts the realtime graph.
 
-## pilab console (Waveform synth and web console)
+## pilab console (Trillium Synth and web console)
 
 Needs PipeWire with `pipewire-jack` (step 6) and avahi. From the Mac, in this repo:
 
@@ -433,7 +433,7 @@ Check:
 ```sh
 systemctl --user status pilabd
 pilabctl status
-pw-jack jack_lsp -c pilab-synth        # out_l/out_r linked to the DAC, MIDI sources on in_N
+pw-jack jack_lsp -c 'Trillium Synth'   # out_l/out_r linked to the DAC, MIDI sources on in_N
 avahi-browse -rt _pilab._tcp
 ```
 

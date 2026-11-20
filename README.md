@@ -35,7 +35,7 @@ The login user is `lab` (key-only SSH, passwordless sudo). Hostname is `pilab` (
 | `scripts/pull-from-pi.sh` | Idempotent, read-only refresh of the files above |
 | `bin/pilab-airplay`, [docs/airplay.md](./docs/airplay.md) | Optional AirPlay 2 receiver ("pilab") and AirPlay sender to LAN speakers |
 | `scripts/build-airplay.sh` | Builds nqptp and shairport-sync (AirPlay 2, PipeWire) from source on the Pi |
-| `rust/`, [docs/console.md](./docs/console.md) | pilab console: Waveform synth (`pilab-synth`), scenes and routing (`pilab-core`), service and web console (`pilabd`, `pilabctl`) |
+| `rust/`, [docs/console.md](./docs/console.md) | pilab console: Trillium Synth (`pilab-synth` crate), scenes and routing (`pilab-core`), service and web console (`pilabd`, `pilabctl`) |
 | `scripts/deploy-console.sh`, `scripts/install-console.sh` | Build and install the console on the Pi (run the first from the Mac) |
 | `scripts/fetch-akwf.sh` | Fetches the CC0 AKWF waveform library onto the Pi (never into git) |
 | [docs/discovery.md](./docs/discovery.md) | mDNS records, audit, failure modes and fallbacks |
