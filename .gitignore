@@ -52,3 +52,4 @@ __pycache__/
 # Rust
 rust/target/
 rust/.cargo/config.toml
+/COMMIT

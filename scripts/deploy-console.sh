@@ -21,5 +21,8 @@ git bundle verify -q "$ZPOD" >/dev/null 2>&1 || true
 # tree on the Pi (~/.cache/pilab/target), so replacing the tree keeps incremental builds.
 COPYFILE_DISABLE=1 tar -C "$REPO" --exclude ./.git --exclude ./rust/target --exclude ./rust/.cargo -czf - . |
   ssh "$HOST" 'set -e; mkdir -p ~/src; rm -rf ~/src/pilab.new; mkdir ~/src/pilab.new; tar -xzf - -C ~/src/pilab.new; rm -rf ~/src/pilab; mv ~/src/pilab.new ~/src/pilab'
+C=$(git -C "$REPO" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+[ -z "$(git -C "$REPO" status --porcelain 2>/dev/null)" ] || C="$C-dirty"
+echo "$C" | ssh "$HOST" 'cat > ~/src/pilab/COMMIT'
 ssh "$HOST" 'cat > ~/src/zpod-pin.bundle' < "$ZPOD"
 ssh "$HOST" 'cd ~/src/pilab && sh scripts/install-console.sh ~/src/zpod-pin.bundle'

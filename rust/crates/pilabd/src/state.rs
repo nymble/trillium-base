@@ -545,6 +545,12 @@ impl App {
         Ok(wav16(&out, sr))
     }
 
+    /// Re-reads service state from systemd now (after a switch).
+    pub fn refresh_services(&self) {
+        let v = sys::services(self.stats.running.load(Ordering::Relaxed));
+        self.inner.lock().unwrap().services = v;
+    }
+
     pub fn replace_scene(&self, sc: Scene) -> Result<(), String> {
         self.apply_scene(&sc, false)?;
         let mut g = self.inner.lock().unwrap();

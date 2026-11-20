@@ -33,7 +33,7 @@ cd "$REPO/rust"
 export CARGO_TARGET_DIR=$HOME/.cache/pilab/target
 CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1 \
 GIT_CONFIG_KEY_0="url.file://$MIRROR.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/nymble/zpod \
-  cargo build --release --locked -p pilabd
+  PILAB_COMMIT=$(cat "$REPO/COMMIT" 2>/dev/null || echo unknown) cargo build --release --locked -p pilabd
 
 mkdir -p "$BIN" "$HOME/.config/systemd/user"
 install -m 755 "$CARGO_TARGET_DIR/release/pilabd" "$CARGO_TARGET_DIR/release/pilabctl" "$BIN"/

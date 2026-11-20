@@ -56,6 +56,9 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("DELETE", "/api/v1/scenes/{name}", "Delete a saved scene"),
     ("POST", "/api/v1/midi", "{bytes:[..]} or {note,vel,on,ch} / {bend} / {cc,value}; target 'route' (default) or 'sound'"),
     ("POST", "/api/v1/audition", "{slot} sound played by target 'sound' (0 = none)"),
+    ("GET", "/api/v1/versions", "console version and commit, OS, kernel, PipeWire, firmware, bootloader, model"),
+    ("GET", "/api/v1/storage", "disks and partitions (lsblk) with use and temperature"),
+    ("GET", "/api/v1/audio/devices", "audio outputs (sinks) and inputs (sources), AirPlay speakers marked output-only"),
     ("POST", "/api/v1/audition/play", "{slot|bank|table|preset} play a ~1.5 s phrase on the DAC at the current master"),
     ("GET", "/api/v1/audition/render?slot=|bank=|table=|preset=", "the same phrase rendered offline as a WAV for the browser"),
     ("GET", "/api/v1/library/samples", "installed sample banks (samples/index.json)"),
@@ -86,6 +89,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/status", get(status))
         .route("/system", get(system))
         .route("/services/{id}", post(service_toggle))
+        .route("/versions", get(versions))
+        .route("/storage", get(storage))
+        .route("/audio/devices", get(audio_devices))
         .route("/scene", get(scene_get).put(scene_put).patch(scene_patch))
         .route("/scene/slots/{id}", put(slot_put).delete(slot_delete))
         .route("/scene/slots/{id}/wave", get(slot_wave))
@@ -211,14 +217,46 @@ struct On {
     on: bool,
 }
 
-async fn service_toggle(State(app): S, Path(id): Path<String>, Json(b): Json<On>) -> R {
-    match id.as_str() {
-        "pilab-synth" => {
-            app.engine_run(b.on).map_err(bad)?;
-            ok(json!({ "id": id, "on": b.on }))
-        }
-        _ => Err((StatusCode::CONFLICT, Json(json!({ "error": "this service is shown read-only; switch it on the Pi (see 'how')" })))),
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SvcBody {
+    on: bool,
+    confirm: String,
+}
+
+async fn service_toggle(State(app): S, Path(id): Path<String>, Json(b): Json<SvcBody>) -> R {
+    if id == "pilab-synth" {
+        app.engine_run(b.on).map_err(bad)?;
+        return ok(json!({ "id": id, "on": b.on }));
     }
+    let (id2, on, confirm) = (id.clone(), b.on, b.confirm.clone());
+    let r = tokio::task::spawn_blocking(move || crate::sys::service_switch(&id2, on, &confirm)).await.map_err(|e| bad(e.to_string()))?;
+    match r {
+        Ok(msg) => {
+            app.event("info", format!("service {id} {}: {msg}", if on { "on" } else { "off" }));
+            app.refresh_services();
+            ok(json!({ "id": id, "on": on, "message": msg }))
+        }
+        Err(e) => {
+            app.event("warn", format!("service {id} {}: {e}", if on { "on" } else { "off" }));
+            Err((StatusCode::CONFLICT, Json(json!({ "error": e }))))
+        }
+    }
+}
+
+async fn versions(State(app): S) -> R {
+    let mut v = tokio::task::spawn_blocking(crate::sys::versions).await.map_err(|e| bad(e.to_string()))?;
+    v["console"] = json!({ "name": PRODUCT_NAME, "version": VERSION, "commit": crate::brand::COMMIT });
+    v["device_id"] = json!(app.device_id);
+    ok(v)
+}
+
+async fn storage() -> R {
+    ok(tokio::task::spawn_blocking(crate::sys::storage).await.map_err(|e| bad(e.to_string()))?)
+}
+
+async fn audio_devices() -> R {
+    ok(tokio::task::spawn_blocking(crate::sys::audio_devices).await.map_err(|e| bad(e.to_string()))?)
 }
 
 async fn scene_get(State(app): S) -> R {
