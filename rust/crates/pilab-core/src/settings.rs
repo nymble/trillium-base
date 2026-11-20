@@ -46,7 +46,7 @@ pub struct Midi {
 
 impl Default for Midi {
     fn default() -> Self {
-        Midi { autoconnect: true, ignore: vec![] }
+        Midi { autoconnect: true, ignore: vec!["*Midi Through*".into()] }
     }
 }
 
