@@ -56,6 +56,11 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("DELETE", "/api/v1/scenes/{name}", "Delete a saved scene"),
     ("POST", "/api/v1/midi", "{bytes:[..]} or {note,vel,on,ch} / {bend} / {cc,value}; target 'route' (default) or 'sound'"),
     ("POST", "/api/v1/audition", "{slot} sound played by target 'sound' (0 = none)"),
+    ("POST", "/api/v1/audition/play", "{slot|bank|table|preset} play a ~1.5 s phrase on the DAC at the current master"),
+    ("GET", "/api/v1/audition/render?slot=|bank=|table=|preset=", "the same phrase rendered offline as a WAV for the browser"),
+    ("GET", "/api/v1/library/samples", "installed sample banks (samples/index.json)"),
+    ("GET", "/api/v1/library/presets", "named presets (sampler and oscillator)"),
+    ("POST", "/api/v1/scene/slots/{id}/preset", "{preset} or {bank}: make the slot a sampler with that sound"),
     ("POST", "/api/v1/engine", "{run:bool} fade the synth in or out"),
     ("POST", "/api/v1/panic", "All sound off"),
     ("POST", "/api/v1/master", "{db} master level, capped at -6 dBFS"),
@@ -93,6 +98,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/midi", post(midi))
         .route("/midi/inputs", get(midi_inputs))
         .route("/audition", post(audition))
+        .route("/audition/play", post(audition_play))
+        .route("/audition/render", get(audition_render))
+        .route("/library/samples", get(samples_list))
+        .route("/library/presets", get(presets_list))
+        .route("/scene/slots/{id}/preset", post(slot_preset))
         .route("/engine", post(engine))
         .route("/panic", post(panic))
         .route("/master", post(master))
@@ -373,6 +383,100 @@ struct Aud {
 async fn audition(State(app): S, Json(a): Json<Aud>) -> R {
     app.set_audition(a.slot);
     ok(json!({ "slot": a.slot }))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AudSrcQ {
+    slot: Option<u8>,
+    bank: Option<String>,
+    table: Option<String>,
+    preset: Option<String>,
+}
+
+impl AudSrcQ {
+    fn src(self) -> Result<crate::state::AuditionSrc, String> {
+        use crate::state::AuditionSrc as A;
+        if let Some(s) = self.slot {
+            Ok(A::Slot(s))
+        } else if let Some(b) = self.bank {
+            Ok(A::Bank(b))
+        } else if let Some(t) = self.table {
+            Ok(A::Table(t))
+        } else if let Some(p) = self.preset {
+            Ok(A::Preset(p))
+        } else {
+            Err("slot, bank, table or preset required".into())
+        }
+    }
+}
+
+async fn audition_play(State(app): S, Json(q): Json<AudSrcQ>) -> R {
+    let src = q.src().map_err(bad)?;
+    let a = app.clone();
+    let v = tokio::task::spawn_blocking(move || a.audition_sound_preload(&src).map(|_| src))
+        .await
+        .map_err(|e| bad(e.to_string()))?
+        .map_err(bad)?;
+    ok(app.audition_play(v).map_err(bad)?)
+}
+
+async fn audition_render(State(app): S, Query(q): Query<AudSrcQ>) -> Result<Response, (StatusCode, Json<Value>)> {
+    let src = q.src().map_err(bad)?;
+    let wav = tokio::task::spawn_blocking(move || app.audition_render(src)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
+}
+
+async fn samples_list(State(app): S) -> R {
+    let banks: Vec<Value> = app
+        .samples
+        .banks()
+        .into_iter()
+        .map(|b| {
+            let loaded = app.samples.is_loaded(&b.id);
+            let mut v = serde_json::to_value(&b).unwrap_or_default();
+            v["loaded"] = json!(loaded);
+            v
+        })
+        .collect();
+    ok(json!({
+        "root": app.samples.root.display().to_string(),
+        "available": !banks.is_empty(),
+        "loaded_mib": app.samples.loaded_bytes() as f64 / 1048576.0,
+        "banks": banks,
+        "hint": "install with: sh scripts/fetch-samples.sh",
+    }))
+}
+
+async fn presets_list(State(app): S) -> R {
+    let installed: Vec<String> = app.samples.banks().into_iter().map(|b| b.id).collect();
+    let v: Vec<Value> = pilab_core::presets::all()
+        .into_iter()
+        .map(|p| {
+            let mut v = serde_json::to_value(&p).unwrap_or_default();
+            v["installed"] = json!(p.bank.is_empty() || installed.iter().any(|i| i == p.bank));
+            v
+        })
+        .collect();
+    ok(json!({ "presets": v }))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PresetBody {
+    preset: Option<String>,
+    bank: Option<String>,
+    /// Add a channel-10 route for drum sounds when the slot has no route yet.
+    route: Option<bool>,
+}
+
+async fn slot_preset(State(app): S, Path(id): Path<u8>, Json(b): Json<PresetBody>) -> R {
+    let a = app.clone();
+    tokio::task::spawn_blocking(move || a.apply_preset(id, b.preset.as_deref(), b.bank.as_deref(), b.route.unwrap_or(true)))
+        .await
+        .map_err(|e| bad(e.to_string()))?
+        .map_err(bad)?;
+    scene_get(State(app)).await
 }
 
 async fn midi_inputs(State(app): S) -> R {

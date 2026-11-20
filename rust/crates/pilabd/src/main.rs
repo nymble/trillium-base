@@ -14,6 +14,7 @@ mod brand;
 mod identity;
 mod library;
 mod paths;
+mod samples;
 mod record;
 mod state;
 mod sys;

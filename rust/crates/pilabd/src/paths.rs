@@ -47,6 +47,21 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.config.join("state.toml")
     }
+    /// Sample library root (holds samples/index.json): user, drive, then base tier.
+    pub fn samples_root(&self) -> PathBuf {
+        let cands = [
+            self.data.join("library"),
+            PathBuf::from("/srv/library/pilab-library"),
+            PathBuf::from("/srv/library"),
+            PathBuf::from("/usr/share/pilab/library"),
+        ];
+        for c in &cands {
+            if c.join("samples/index.json").is_file() {
+                return c.clone();
+            }
+        }
+        cands[0].clone()
+    }
     /// AKWF single-cycle library: first existing of the user, drive and base tiers.
     pub fn akwf_root(&self) -> PathBuf {
         let cands = [

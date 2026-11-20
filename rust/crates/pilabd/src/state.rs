@@ -14,13 +14,14 @@ use crate::identity;
 use pilab_core::{classify, compile_routes_with, glob, PortDevices, PortNames, Route, Scene, SceneStore, Settings, SourceIdentity};
 use pilab_synth::osc::Osc;
 use pilab_synth::tuning::gain_to_db;
-use pilab_synth::{Bands, Cmd, CompiledRoute, Garbage, RouteTable, SlotParams, Stats, Waveform, MAX_PORTS, MAX_SLOTS, PORT_AUDITION, PORT_CONSOLE, PORT_VIRTUAL};
+use pilab_synth::{Bands, Cmd, Engine, PREVIEW_SLOT, CompiledRoute, Garbage, RouteTable, SlotParams, Stats, Waveform, MAX_PORTS, MAX_SLOTS, PORT_AUDITION, PORT_CONSOLE, PORT_VIRTUAL};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
 use crate::audio::{AudioBackend, MidiEv, RtLinks, RtShared};
 use crate::library::Library;
+use crate::samples::SampleLib;
 use crate::paths::{self, Paths};
 use crate::record::{self, Recorder};
 use crate::sys::{self, CpuSampler, Listen, Service, Sink, UsbDev};
@@ -81,6 +82,18 @@ struct Inner {
     xr_prev: u64,
     xr_rate: f32,
     audition: u8,
+    /// Bank id last sent to the engine per slot (sampler instruments).
+    sent_inst: [String; MAX_SLOTS + 1],
+}
+
+/// What an audition plays: a scene slot, or a library item in the hidden preview slot.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuditionSrc {
+    Slot(u8),
+    Bank(String),
+    Table(String),
+    Preset(String),
 }
 
 pub struct App {
@@ -93,6 +106,8 @@ pub struct App {
     pub shared: Arc<RtShared>,
     pub recorder: Recorder,
     pub library: Library,
+    pub samples: SampleLib,
+    aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
     pub token: RwLock<String>,
     pub tx: broadcast::Sender<String>,
@@ -134,6 +149,52 @@ pub fn describe_midi(b: &[u8]) -> (&'static str, u8, String) {
     }
 }
 
+fn is_pad(p: &SlotParams) -> bool {
+    p.amp_env.a >= 0.25 || p.amp_env.r >= 1.2
+}
+
+/// Audition phrase as (ms, MIDI bytes): drums play kick, hat, snare, hat on channel 10;
+/// pads hold C4; everything else plays C3, C4, G4. About 1.5 s.
+pub fn phrase(p: &SlotParams, drum: bool) -> Vec<(u64, [u8; 3])> {
+    let on = |ch: u8, n: u8| [0x90 | (ch - 1), n, 96];
+    let off = |ch: u8, n: u8| [0x80 | (ch - 1), n, 0];
+    if drum {
+        let mut v = vec![];
+        for (i, n) in [36u8, 42, 38, 42, 36, 42].iter().enumerate() {
+            let t = i as u64 * 250;
+            v.push((t, on(10, *n)));
+            v.push((t + 120, off(10, *n)));
+        }
+        v.sort_by_key(|s| s.0);
+        v
+    } else if is_pad(p) {
+        vec![(0, on(1, 60)), (1500, off(1, 60))]
+    } else {
+        vec![(0, on(1, 48)), (350, on(1, 60)), (700, on(1, 67)), (1500, off(1, 48)), (1500, off(1, 60)), (1500, off(1, 67))]
+    }
+}
+
+pub fn wav16(x: &[f32], sr: u32) -> Vec<u8> {
+    let mut b = Vec::with_capacity(44 + x.len() * 2);
+    let n = (x.len() * 2) as u32;
+    b.extend(b"RIFF");
+    b.extend((36 + n).to_le_bytes());
+    b.extend(b"WAVEfmt ");
+    b.extend(16u32.to_le_bytes());
+    b.extend(1u16.to_le_bytes());
+    b.extend(1u16.to_le_bytes());
+    b.extend(sr.to_le_bytes());
+    b.extend((sr * 2).to_le_bytes());
+    b.extend(2u16.to_le_bytes());
+    b.extend(16u16.to_le_bytes());
+    b.extend(b"data");
+    b.extend(n.to_le_bytes());
+    for v in x {
+        b.extend(((v.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    b
+}
+
 fn compile_all(routes: &[Route], ports: &PortNames, devices: &PortDevices, audition: u8) -> RouteTable {
     let mut t = compile_routes_with(routes, ports, devices);
     if audition >= 1 {
@@ -149,6 +210,9 @@ impl App {
         let store = SceneStore::new(paths.scenes()).map_err(|e| e.to_string())?;
         if !store.exists("default") {
             store.save(&Scene::factory(), "default")?;
+        }
+        if !store.exists("samples") {
+            store.save(&Scene::samples_demo(), "samples")?;
         }
         if !store.exists("trillium split") {
             store.save(&Scene::trillium_sample(), "trillium split")?;
@@ -177,6 +241,8 @@ impl App {
             device_id: paths::device_id(),
             hostname: paths::hostname(),
             library: Library::new(paths.akwf_root()),
+            samples: SampleLib::new(paths.samples_root()),
+            aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
             backend,
@@ -218,6 +284,7 @@ impl App {
                 idents: Default::default(),
                 skipped: vec![],
                 ble_cache: None,
+                sent_inst: Default::default(),
             }),
         });
         Ok(app)
@@ -278,8 +345,13 @@ impl App {
                         None
                     };
                     self.send(Cmd::SetTable(i as u8, table))?;
+                    let want = if s.sound.wave == Waveform::Sampler { s.sample.clone() } else { String::new() };
+                    self.set_instrument(i as u8, &want, id, &s.name)?;
                 }
-                None => self.send(Cmd::SetSlot(i as u8, SlotParams { enabled: false, ..SlotParams::default() }))?,
+                None => {
+                    self.send(Cmd::SetSlot(i as u8, SlotParams { enabled: false, ..SlotParams::default() }))?;
+                    self.set_instrument(i as u8, "", id, "")?;
+                }
             }
         }
         self.send(Cmd::SetRoutes(Box::new(compile_all(&sc.routes, &ports, &devices, audition))))?;
@@ -287,6 +359,190 @@ impl App {
         let db = if startup { sc.master_db.min(pilab_synth::engine::START_MASTER_DB) } else { sc.master_db };
         self.send(Cmd::SetMaster { db })?;
         Ok(())
+    }
+
+    /// Sends a sampler instrument to engine slot `i` when the bank changed.
+    fn set_instrument(&self, i: u8, bank: &str, id: u8, name: &str) -> Result<(), String> {
+        if self.inner.lock().unwrap().sent_inst[i as usize] == bank {
+            return Ok(());
+        }
+        let inst = if bank.is_empty() {
+            None
+        } else {
+            match self.samples.load(bank) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    self.event("warn", format!("slot {id} \"{name}\": samples not loaded ({e})"));
+                    None
+                }
+            }
+        };
+        let key = if inst.is_some() { bank.to_string() } else { String::new() };
+        self.send(Cmd::SetInstrument(i, inst))?;
+        self.inner.lock().unwrap().sent_inst[i as usize] = key;
+        Ok(())
+    }
+
+    /// Resolves an audition source to slot params plus its table or instrument.
+    fn audition_sound(&self, src: &AuditionSrc) -> Result<(String, SlotParams, Option<Arc<pilab_synth::Wavetable>>, Option<Arc<pilab_synth::Instrument>>, bool), String> {
+        match src {
+            AuditionSrc::Slot(id) => {
+                let sc = self.scene().0;
+                let s = sc.slot(*id).ok_or("no such slot")?.clone();
+                let table = if s.sound.wave == Waveform::Table && !s.table.is_empty() { self.library.load(&s.table).ok() } else { None };
+                let (inst, drum) = if s.sound.wave == Waveform::Sampler && !s.sample.is_empty() {
+                    (Some(self.samples.load(&s.sample)?), self.samples.bank(&s.sample).is_some_and(|b| b.drum))
+                } else {
+                    (None, false)
+                };
+                Ok((format!("slot {id} \"{}\"", s.name), s.sound, table, inst, drum))
+            }
+            AuditionSrc::Bank(b) => {
+                let bank = self.samples.bank(b).ok_or("bank not installed")?;
+                let p = pilab_core::presets::for_bank(&bank.category);
+                Ok((bank.title.clone(), p, None, Some(self.samples.load(b)?), bank.drum))
+            }
+            AuditionSrc::Preset(id) => {
+                let p = pilab_core::presets::find(id).ok_or("no such preset")?;
+                let inst = if p.bank.is_empty() { None } else { Some(self.samples.load(p.bank)?) };
+                Ok((p.name.to_string(), p.sound, None, inst, p.drum))
+            }
+            AuditionSrc::Table(path) => {
+                let t = self.library.load(path)?;
+                let p = SlotParams { wave: Waveform::Table, ..SlotParams::default() };
+                Ok((path.rsplit('/').next().unwrap_or(path).to_string(), p, Some(t), None, false))
+            }
+        }
+    }
+
+    /// Loads the bank or table behind `src` (slow the first time) so play starts promptly.
+    pub fn audition_sound_preload(&self, src: &AuditionSrc) -> Result<(), String> {
+        self.audition_sound(src).map(|_| ())
+    }
+
+    /// Makes slot `id` a sampler with a preset or a bare bank. Drum sounds get a channel-10
+    /// route ("*" input) when no route plays the slot yet.
+    pub fn apply_preset(&self, id: u8, preset: Option<&str>, bank: Option<&str>, add_route: bool) -> Result<Scene, String> {
+        let (mut slot, drum) = if let Some(p) = preset {
+            let p = pilab_core::presets::find(p).ok_or("no such preset")?;
+            (p.slot(id), p.drum)
+        } else if let Some(b) = bank {
+            let bk = self.samples.bank(b).ok_or("bank not installed")?;
+            let mut sound = pilab_core::presets::for_bank(&bk.category);
+            if let Ok(inst) = self.samples.load(b) {
+                if let Some(r) = inst.env.release {
+                    sound.amp_env.r = r.clamp(0.02, 4.0);
+                }
+                if let Some(a) = inst.env.attack {
+                    sound.amp_env.a = a.clamp(0.001, 4.0);
+                }
+            }
+            (Slot { id, name: bk.title.clone(), table: String::new(), sample: b.to_string(), sound }, bk.drum)
+        } else {
+            return Err("preset or bank required".into());
+        };
+        if !slot.sample.is_empty() {
+            self.samples.load(&slot.sample)?;
+        }
+        let sc = self.scene().0;
+        if let Some(old) = sc.slot(id) {
+            slot.sound.octave = 0;
+            slot.sound.pan = old.sound.pan;
+        }
+        self.edit_scene(|sc| {
+            match sc.slots.iter_mut().find(|s| s.id == id) {
+                Some(s) => *s = slot,
+                None => {
+                    sc.slots.push(slot);
+                    sc.slots.sort_by_key(|s| s.id);
+                }
+            }
+            if drum && add_route && !sc.routes.iter().any(|r| r.slot == id) {
+                sc.routes.push(Route { label: "Drums (GM ch 10)".into(), input: "*".into(), channel: 10, slot: id, ..Route::default() });
+            }
+            Ok(())
+        })
+    }
+
+    /// Plays a short phrase of `src` on the DAC through the audition port, at the current
+    /// master level (never louder) and through the same output stage.
+    pub fn audition_play(self: &Arc<Self>, src: AuditionSrc) -> Result<Value, String> {
+        let (label, sound, table, inst, drum) = self.audition_sound(&src)?;
+        match &src {
+            AuditionSrc::Slot(id) => self.set_audition(*id),
+            _ => {
+                let p = PREVIEW_SLOT;
+                self.send(Cmd::SetSlot(p, SlotParams { enabled: true, ..sound }))?;
+                self.send(Cmd::SetTable(p, table))?;
+                self.send(Cmd::SetInstrument(p, inst))?;
+                self.inner.lock().unwrap().audition = p + 1;
+                self.recompile();
+            }
+        }
+        let steps = phrase(&sound, drum);
+        let gen = self.aud_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let app = self.clone();
+        tokio::spawn(async move {
+            let t0 = tokio::time::Instant::now();
+            let mut held: Vec<[u8; 3]> = vec![];
+            for (ms, b) in steps {
+                tokio::time::sleep_until(t0 + Duration::from_millis(ms)).await;
+                if app.aud_gen.load(Ordering::SeqCst) != gen {
+                    break;
+                }
+                let _ = app.send(Cmd::Midi { port: PORT_AUDITION, len: 3, bytes: b });
+                if b[0] & 0xF0 == 0x90 && b[2] > 0 {
+                    held.push(b);
+                } else {
+                    held.retain(|h| !(h[0] & 0x0F == b[0] & 0x0F && h[1] == b[1]));
+                }
+            }
+            for h in held {
+                let _ = app.send(Cmd::Midi { port: PORT_AUDITION, len: 3, bytes: [0x80 | (h[0] & 0x0F), h[1], 0] });
+            }
+        });
+        let s = self.settings();
+        Ok(json!({
+            "output": "dac",
+            "label": "DAC (Pi headphone / line out)",
+            "sink": s.audio.dac_sink,
+            "playing": label,
+            "master_db": Stats::f32(&self.stats.master_db),
+            "phrase": if drum { "kick, hat, snare, hat (ch 10)" } else if is_pad(&sound) { "held C4" } else { "C3, C4, G4" },
+        }))
+    }
+
+    /// Renders the audition phrase offline to a mono 16-bit WAV at the live master level.
+    pub fn audition_render(&self, src: AuditionSrc) -> Result<Vec<u8>, String> {
+        let (_, sound, table, inst, drum) = self.audition_sound(&src)?;
+        let sr = 48_000u32;
+        let mut e = Engine::new(sr as f32);
+        e.apply(Cmd::SetSlot(0, SlotParams { enabled: true, ..sound }));
+        e.apply(Cmd::SetTable(0, table));
+        e.apply(Cmd::SetInstrument(0, inst));
+        let mut rt = RouteTable::new();
+        rt.push(CompiledRoute { port_mask: u32::MAX, slot: 0, ..Default::default() });
+        e.apply(Cmd::SetRoutes(Box::new(rt)));
+        let live = Stats::f32(&self.stats.master_db);
+        let db = live.min(self.scene().0.master_db).min(pilab_synth::engine::MAX_MASTER_DB);
+        e.apply(Cmd::SetMaster { db });
+        e.apply(Cmd::Run(true));
+        let steps = phrase(&sound, drum);
+        let total = (steps.last().map(|s| s.0).unwrap_or(0) as f32 / 1000.0 + sound.amp_env.r.min(1.5) + 0.2) * sr as f32;
+        let total = total as usize;
+        let mut out = Vec::with_capacity(total);
+        let (mut l, mut r) = (vec![0f32; 256], vec![0f32; 256]);
+        let mut next = 0;
+        while out.len() < total {
+            let now_ms = out.len() as u64 * 1000 / sr as u64;
+            while next < steps.len() && steps[next].0 <= now_ms {
+                e.midi(0, &steps[next].1);
+                next += 1;
+            }
+            e.process(&mut l, &mut r);
+            out.extend(l.iter().zip(&r).map(|(a, b)| 0.5 * (a + b)));
+        }
+        Ok(wav16(&out, sr))
     }
 
     pub fn replace_scene(&self, sc: Scene) -> Result<(), String> {
@@ -411,6 +667,7 @@ impl App {
     /// Selects the slot the "Selected sound" keyboard mode plays (0 = none).
     pub fn set_audition(&self, slot: u8) {
         self.inner.lock().unwrap().audition = slot.min(MAX_SLOTS as u8);
+        self.aud_gen.fetch_add(1, Ordering::SeqCst);
         self.recompile();
     }
 
@@ -479,6 +736,9 @@ impl App {
     pub fn slot_preview(&self, id: u8, points: usize) -> Vec<f32> {
         let sc = self.scene().0;
         let Some(slot) = sc.slot(id) else { return vec![] };
+        if slot.sound.wave == Waveform::Sampler {
+            return self.samples.load(&slot.sample).map(|i| i.preview(60, points)).unwrap_or_else(|_| vec![0.0; points]);
+        }
         let bands = Bands::shared();
         let dt = 110.0 / self.backend.sample_rate();
         let bl = bands.saw.level_for_dt(dt);
