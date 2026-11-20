@@ -269,7 +269,7 @@ function renderOverview() {
     const who = i.device ? `<span class="badge ok">${esc(i.device)}</span> ` : "";
     const ident = i.identity ? `<div class="mono small muted">${esc(i.identity)}${i.rule ? " · matched by " + esc(i.rule) : ""}</div>` : "";
     if (i.slot == null) return `<tr class="muted"><td><span class="act"></span>${who}${esc(i.label)}${ident}<div class="small">${esc(i.skipped)}</div></td><td class="mono small">not connected</td><td class="num">—</td></tr>`;
-    return `<tr><td><span class="act" data-port="${i.slot}"></span>${who}${esc(i.label)}${ident}</td><td class="mono small muted">${i.slot === 0 ? "pilab-synth:midi_in" : i.slot === 8 ? "web keyboard" : "in " + i.slot}</td><td class="num">${i.events}</td></tr>`;
+    return `<tr><td><span class="act" data-port="${i.slot}"></span>${who}${esc(i.label)}${ident}</td><td class="mono small muted">${i.slot === 0 ? `${(S.info && S.info.synth) || "Trillium Synth"}:midi_in` : i.slot === 8 ? "web keyboard" : "in " + i.slot}</td><td class="num">${i.events}</td></tr>`;
   }).join("");
   const ev = (s.events || []).map((e) => `<div><span class="t">${e.time}</span><span>${e.level}</span><span></span><span>${esc(e.text)}</span></div>`).join("");
   const rec = s.recording;
@@ -907,54 +907,340 @@ async function saveScene(name) {
 }
 
 // ------------------------------------------------------------------ signals
-let selPort = null;
-async function renderSignals() {
-  try { [S.graph, S.adev] = await Promise.all([get("/graph"), get("/audio/devices").catch(() => ({ sinks: [], sources: [] }))]); } catch (e) { fail(e); return; }
-  const ports = S.graph.ports;
-  const group = (dir) => {
+// ------------------------------------------------------------------ signals: patch panel
+// Sources (outputs) on the left, destinations (inputs) on the right. Each side is a grid:
+// device | port | stereo bracket | jack, mirrored on the right. Cables run jack centre to
+// jack centre. Jacks: filled = connected, ring = free, dimmed = cannot take the cable
+// being dragged. Audio jacks are warm white, MIDI jacks ash. Orange only marks the cable
+// or jack under the pointer or selected.
+const SP = { kind: "all", hideFree: false, monitors: false, q: "", sel: null, pick: null, undo: [], drag: null, graph: null, gkey: "", mixer: null, meters: {}, lvl: {}, timer: null, tick: 0 };
+const SYN = () => (S.info && S.info.synth) || "Trillium Synth";
+
+function pairKey(short) {
+  let m = short.match(/^(.*?)(FL|FR)$/); if (m) return [m[1], m[2] === "FL" ? 0 : 1];
+  m = short.match(/^(.*?[_-])(l|r|L|R|left|right)$/); if (m) return [m[1], /^l/i.test(m[2]) ? 0 : 1];
+  m = short.match(/^(.*?)(\d+)$/); if (m) { const n = +m[2]; return [m[1] + "#" + Math.floor((n - 1) / 2), (n - 1) % 2]; }
+  return null;
+}
+// Rows of a node: [{p, pair: "a"|"b"|null}], pairs only between neighbours of one kind.
+function rowsOf(ps) {
+  const rows = ps.map((p) => ({ p, pair: null }));
+  for (let i = 0; i + 1 < rows.length; i++) {
+    const a = rows[i].p, b = rows[i + 1].p;
+    if (rows[i].pair || a.kind !== "audio" || b.kind !== "audio") continue;
+    const ka = pairKey(a.short), kb = pairKey(b.short);
+    if (ka && kb && ka[0] === kb[0] && ka[1] === 0 && kb[1] === 1) { rows[i].pair = "a"; rows[i + 1].pair = "b"; i++; }
+  }
+  return rows;
+}
+const mixNode = (client) => SP.mixer && SP.mixer.nodes.find((n) => n.label === client);
+
+function sigModel() {
+  const all = SP.graph.ports.filter((p) => p.kind === "audio" || p.kind === "midi");
+  const names = new Set(all.map((p) => p.name));
+  const links = all.filter((p) => p.dir === "out").flatMap((p) => p.connections.filter((c) => names.has(c)).map((c) => ({ a: p.name, b: c, kind: p.kind })));
+  const linked = new Set(links.flatMap((l) => [l.a, l.b]));
+  const q = SP.q.trim().toLowerCase();
+  const show = (p) => (SP.kind === "all" || p.kind === SP.kind)
+    && (SP.monitors || !(p.dir === "out" && p.short.startsWith("monitor_")))
+    && (!SP.hideFree || linked.has(p.name))
+    && (!q || p.client.toLowerCase().includes(q) || p.short.toLowerCase().includes(q));
+  const side = (dir) => {
     const m = new Map();
-    for (const p of ports.filter((x) => x.dir === dir && (x.kind === "audio" || x.kind === "midi"))) { if (!m.has(p.client)) m.set(p.client, []); m.get(p.client).push(p); }
-    return Array.from(m.entries()).sort((a, b) => (a[0] === "pilab-synth" ? -1 : b[0] === "pilab-synth" ? 1 : a[0].localeCompare(b[0])));
+    for (const p of all.filter((x) => x.dir === dir && show(x))) { if (!m.has(p.client)) m.set(p.client, []); m.get(p.client).push(p); }
+    const rank = (c, ps) => {
+      const n = mixNode(c);
+      if (c === SYN()) return dir === "out" ? 0 : 1;
+      if (n && SP.mixer && n.name === SP.mixer.dac_sink) return dir === "in" ? 0 : 5;
+      if (ps.every((p) => p.short.startsWith("monitor_"))) return 6;
+      if (n && n.airplay) return 4;
+      if (ps.some((p) => p.physical)) return 3;
+      return 2;
+    };
+    return Array.from(m.entries()).map(([c, ps]) => ({ c, ps, r: rank(c, ps) })).sort((x, y) => x.r - y.r || x.c.localeCompare(y.c));
   };
-  const col = (dir) => group(dir).map(([c, ps]) => `<div class="client"><div class="cn">${esc(c)}${c === "pilab-synth" ? ` <span class="badge">this synth</span>` : ""}</div>
-    ${ps.map((p) => `<div class="port ${p.kind} ${selPort === p.name ? "sel" : ""}" data-port="${esc(p.name)}" data-dir="${dir}" data-kind="${p.kind}">${dir === "in" ? `<span>${esc(p.short)}</span><span class="pd"></span>` : `<span class="pd"></span><span>${esc(p.short)}</span>`}</div>`).join("")}</div>`).join("");
-  const links = ports.filter((p) => p.dir === "out").flatMap((p) => p.connections.map((c) => [p.name, c]));
-  $("#main").innerHTML = head("Signals", `Audio and MIDI graph (PipeWire via the JACK API, ${esc(S.graph.backend)}). Click an output, then an input, to link or unlink them.`, `<button class="btn ghost" id="sig-refresh">Refresh</button>`) + `
-  <div class="grid g4">
-    <div class="card span3"><div class="patch" id="patch"><div class="col out">${col("out")}</div><div></div><div class="col in">${col("in")}</div><svg id="patch-svg"></svg></div></div>
-    <div class="card"><div class="card-head"><h3>Links</h3><span class="spacer"></span><span class="mono muted">${links.length}</span></div>
-      <div class="tbl-scroll" style="max-height:600px"><table><tbody>${links.map(([a, b]) => `<tr><td class="small">${esc(a)}<br><span class="muted">→ ${esc(b)}</span></td><td><button class="btn ghost small" data-unlink="${esc(a)}|${esc(b)}">✕</button></td></tr>`).join("") || `<tr><td class="muted">No links</td></tr>`}</tbody></table></div>
-      <div class="muted small" style="margin-top:10px">○ MIDI · ● audio. Hardware MIDI sources are connected to <span class="mono">pilab-synth:in_N</span> automatically; apps can use <span class="mono">pilab-synth:midi_in</span>.</div></div>
-    <div class="card span2"><div class="card-head"><h3>Audio inputs (sources)</h3><span class="spacer"></span><span class="muted small">capture devices: USB mics and interfaces</span></div>
-      <table><tbody>${(S.adev.sources || []).map((d) => `<tr><td>${esc(d.description || d.name)}<div class="mono small muted">${esc(d.name)}</div></td><td><span class="badge">${esc(d.kind)}</span></td><td class="small muted">${esc(String(d.state || "").toLowerCase())}</td></tr>`).join("") || `<tr><td class="muted">No capture devices. Plug in a USB mic or audio interface and it shows here. AirPlay speakers are never inputs.</td></tr>`}</tbody></table></div>
-    <div class="card span2"><div class="card-head"><h3>Audio outputs (sinks)</h3><span class="spacer"></span><span class="muted small">where sound can go</span></div>
-      <table><tbody>${(S.adev.sinks || []).map((d) => `<tr><td>${esc(d.description || d.name)}<div class="mono small muted">${esc(d.name)}</div></td><td><span class="badge ${d.airplay ? "caution" : ""}">${esc(d.kind)}</span></td><td class="small muted">${esc(String(d.state || "").toLowerCase())}</td></tr>`).join("") || `<tr><td class="muted">No outputs reported</td></tr>`}</tbody></table>
-      <div class="muted small" style="margin-top:8px">AirPlay speakers (HomePods, Macs) appear only while the AirPlay sender is on. They are outputs only, never inputs.</div></div>
-  </div>`;
-  drawLinks(links);
-  $("#sig-refresh").addEventListener("click", renderSignals);
-  $$("#patch .port").forEach((el) => el.addEventListener("click", async () => {
-    if (el.dataset.dir === "out") { selPort = selPort === el.dataset.port ? null : el.dataset.port; renderSignals(); return; }
-    if (!selPort) return toast("Pick an output port first");
-    const linked = links.some(([a, b]) => a === selPort && b === el.dataset.port);
-    try { await post(linked ? "/graph/disconnect" : "/graph/connect", { from: selPort, to: el.dataset.port }); toast(linked ? "Unlinked" : "Linked"); } catch (e) { fail(e); }
-    renderSignals();
-  }));
-  $$("[data-unlink]").forEach((b) => b.addEventListener("click", async () => { const [from, to] = b.dataset.unlink.split("|"); try { await post("/graph/disconnect", { from, to }); renderSignals(); } catch (e) { fail(e); } }));
+  const L = side("out"), R = side("in");
+  const vis = new Set([...L, ...R].flatMap((g) => g.ps.map((p) => p.name)));
+  return { links: links.filter((l) => vis.has(l.a) && vis.has(l.b)), allLinks: links, linked, L, R };
 }
 
-function drawLinks(links) {
-  const svg = $("#patch-svg"), box = $("#patch"); if (!svg) return;
-  const R = box.getBoundingClientRect();
-  const find = (name, dir) => $$(`#patch .port[data-dir="${dir}"]`).find((e) => e.dataset.port === name);
-  svg.innerHTML = links.map(([a, b]) => {
-    const ea = find(a, "out"), eb = find(b, "in"); if (!ea || !eb) return "";
-    const ra = ea.getBoundingClientRect(), rb = eb.getBoundingClientRect();
-    const x1 = ra.right - R.left, y1 = ra.top + ra.height / 2 - R.top, x2 = rb.left - R.left, y2 = rb.top + rb.height / 2 - R.top;
-    const hot = a === selPort;
-    return `<path d="M${x1},${y1} C${x1 + 70},${y1} ${x2 - 70},${y2} ${x2},${y2}" fill="none" stroke="${hot ? css("--accent") : css("--text-3")}" stroke-width="${hot ? 2 : 1.25}" opacity="${hot ? 1 : 0.8}"/>`;
-  }).join("");
+function devTags(c, ps, dir) {
+  const n = mixNode(c), t = [];
+  if (c === SYN()) { t.push("this synth"); if (ps.every((p) => p.kind === "midi")) t.push("MIDI in"); return t; }
+  if (n && SP.mixer && n.name === SP.mixer.dac_sink) t.push("DAC");
+  if (n && n.airplay) t.push("AirPlay · output only");
+  else if (n && n.role === "sink") t.push("output");
+  else if (n && n.role === "source") t.push("capture");
+  else if (ps.every((p) => p.short.startsWith("monitor_"))) t.push("monitor");
+  else if (ps.some((p) => p.physical)) t.push("hardware");
+  else if (n && n.role === "jack") t.push("JACK app");
+  if (ps.every((p) => p.kind === "midi")) t.push("MIDI");
+  return t;
 }
+
+// Level strip: meter (Amber), fader, mute. Synth: its master (capped at -6 dBFS) and fade.
+function stripHtml(c, ps) {
+  if (!ps.some((p) => p.kind === "audio")) return "";
+  const id = esc(c);
+  const meter = `<span class="mtr" data-mtr="${id}"><i><b></b></i><i><b></b></i></span>`;
+  if (c === SYN()) {
+    const db = S.status ? S.status.master_db : -18, on = S.status ? S.status.running : true;
+    return `<div class="strip">${meter}<input type="range" class="mini" data-syn-fader min="-60" max="-6" step="0.5" value="${db}" title="Synth master (capped at −6 dBFS)"><button class="mute ${on ? "" : "on"}" data-syn-mute title="Fade the synth out / in">M</button><span class="sv mono">${fmtDb(db).replace(" dB", "")}</span></div>`;
+  }
+  const n = mixNode(c);
+  if (!n || n.volume == null) return `<div class="strip">${meter}<span class="muted tiny">${n && n.role === "jack" ? "level set in the app" : "no volume control"}</span></div>`;
+  const v = Math.round(n.volume * 100), db = n.volume > 0 ? 60 * Math.log10(n.volume) : -120;
+  return `<div class="strip">${meter}<input type="range" class="mini" data-vol="${n.id}" data-name="${esc(n.name)}" min="0" max="${Math.round(SP.mixer.cap * 100)}" value="${v}" title="Volume (WirePlumber scale; capped at 100%, never boosts)"><button class="mute ${n.mute ? "on" : ""}" data-mute="${n.id}" data-name="${esc(n.name)}" title="Mute">M</button><span class="sv mono">${n.volume > 0 ? db.toFixed(1) : "−∞"}</span></div>`;
+}
+
+function groupHtml(g, dir, model) {
+  const rows = rowsOf(g.ps), n = rows.length, src = dir === "out";
+  const strip = stripHtml(g.c, g.ps);
+  const tags = devTags(g.c, g.ps, dir).map((t) => `<span class="dtag">${esc(t)}</span>`).join("");
+  const dev = `<div class="dev" style="grid-row:1 / span ${Math.max(n, strip && n < 2 ? 2 : n)}"><div class="dhead"><span class="dn" title="${esc(g.c)}">${esc(g.c)}</span><span class="dtags">${tags}</span></div>${strip}</div>`;
+  const cells = rows.map((r, i) => {
+    const p = r.p, on = model.linked.has(p.name), row = i + 1;
+    const jk = `<span class="jkc" style="grid-row:${row}"><span class="jk ${p.kind} ${on ? "on" : ""} ${SP.pick === p.name ? "hot" : ""}" data-port="${esc(p.name)}" data-dir="${dir}" data-kind="${p.kind}" title="${esc(p.name)} · ${on ? "connected" : "free"}"></span></span>`;
+    const pn = `<span class="pn ${i % 2 ? "odd" : ""}" style="grid-row:${row}" data-port="${esc(p.name)}" data-dir="${dir}" data-kind="${p.kind}">${esc(p.short)}</span>`;
+    const br = r.pair === "a" ? `<span class="brk" style="grid-row:${row} / span 2" data-pair="${esc(p.name)}|${esc(rows[i + 1].p.name)}" data-dir="${dir}" title="Drag to patch the stereo pair"></span>` : r.pair === "b" ? "" : `<span class="brc" style="grid-row:${row}"></span>`;
+    return src ? pn + br + jk : jk + br + pn;
+  }).join("");
+  const filler = strip && n < 2 ? `<span class="pn" style="grid-row:2"></span>` : "";
+  return `<div class="pg ${src ? "src" : "dst"}">${dev}${cells}${filler}</div>`;
+}
+
+async function renderSignals() {
+  try {
+    const [g, m] = await Promise.all([get("/graph"), get("/mixer").catch(() => SP.mixer || { nodes: [], cap: 1 })]);
+    SP.graph = g; SP.mixer = m; SP.gkey = JSON.stringify(g.ports) + JSON.stringify(m.nodes);
+  } catch (e) { fail(e); return; }
+  renderSignalsNoFetch();
+  if (!SP.timer) SP.timer = setInterval(sigTick, 125);
+}
+
+// Renders from the data in hand (filters, patching, polling); keeps the scroll position.
+function renderSignalsNoFetch() {
+  if (!SP.graph) return;
+  const main = $("#main"), sc = main.scrollTop;
+  const model = sigModel();
+  const tool = `<div class="pp-tools">
+    <div class="seg" id="sp-kind">${[["all", "All"], ["audio", "Audio"], ["midi", "MIDI"]].map(([k, l]) => `<button data-k="${k}" class="${SP.kind === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    <label class="row tight small"><input type="checkbox" id="sp-free" ${SP.hideFree ? "checked" : ""}> Hide unconnected</label>
+    <label class="row tight small"><input type="checkbox" id="sp-mon" ${SP.monitors ? "checked" : ""}> Monitors</label>
+    <input class="input small" id="sp-q" placeholder="Search devices or ports" value="${esc(SP.q)}" style="width:200px">
+    <span class="spacer"></span>
+    <span class="legend"><span class="jk audio on"></span>connected <span class="jk audio"></span>free <span class="jk audio dimj"></span>can't take this cable <span class="sep"></span><span class="jk audio on"></span>audio <span class="jk midi on"></span>MIDI</span>
+    <span class="mono muted small">${model.links.length} cable${model.links.length === 1 ? "" : "s"}</span>
+    <button class="btn ghost small" id="sp-undo" ${SP.undo.length ? "" : "disabled"} title="Undo (⌘Z / Ctrl+Z)">Undo</button>
+  </div>`;
+  const empty = (t) => `<div class="pp-empty muted small">${t}</div>`;
+  $("#main").innerHTML = head("Signals", `Patch panel: sources on the left, destinations on the right (PipeWire via JACK, ${esc(SP.graph.backend)}). Drag from a jack to a jack to connect; drag a stereo bracket to patch both sides; click a cable to select it, Delete removes it.`, `<button class="btn ghost" id="sig-refresh">Refresh</button>`) + `
+  <div class="card pp-card">${tool}
+    <div class="pp" id="pp">
+      <div class="pp-side src"><div class="pp-h"><span>Source</span><span class="r">Output</span><span></span><span></span></div>${model.L.map((g) => groupHtml(g, "out", model)).join("") || empty("No sources match.")}</div>
+      <div class="pp-gut"></div>
+      <div class="pp-side dst"><div class="pp-h"><span></span><span></span><span>Input</span><span class="r">Destination</span></div>${model.R.map((g) => groupHtml(g, "in", model)).join("") || empty("No destinations match.")}</div>
+      <svg id="pp-svg"></svg>
+    </div>
+    <div class="muted small pp-foot">Solid jack: has at least one cable. Ring: free. Dimmed while dragging: wrong type or direction. Hardware MIDI sources are connected to <span class="mono">${esc(SYN())}:in_N</span> automatically; other apps can use <span class="mono">${esc(SYN())}:midi_in</span>. AirPlay speakers are outputs only and appear while the AirPlay sender is on. Volumes never go above 100% (no boost), so the synth's −6 dBFS cap and limiter still bound the DAC.</div>
+  </div>`;
+  SP.model = model;
+  main.scrollTop = sc;
+  drawCables();
+  bindSignals();
+  paintMeters();
+}
+
+// Polls: meters at 8 Hz, graph every 3 s (re-rendered only when it changed), mixer every 6 s.
+async function sigTick() {
+  if (S.view !== "signals") { clearInterval(SP.timer); SP.timer = null; return; }
+  SP.tick++;
+  try { SP.meters = await get("/meters"); } catch (e) { /* ignore */ }
+  paintMeters();
+  if (SP.tick % 24 === 0 && !SP.drag && !document.querySelector(".pp input.mini:active") && document.activeElement !== $("#sp-q")) {
+    try {
+      const g = await get("/graph"), m = SP.tick % 48 === 0 ? await get("/mixer") : SP.mixer;
+      const k = JSON.stringify(g.ports) + JSON.stringify(m.nodes);
+      if (k !== SP.gkey) { SP.graph = g; SP.mixer = m; SP.gkey = k; renderSignalsNoFetch(); }
+    } catch (e) { /* offline */ }
+  }
+}
+function paintMeters() {
+  const lv = {};
+  const dbOf = (c) => {
+    if (c === SYN() && S.status) return S.status.peak_db;
+    return SP.meters[c];
+  };
+  // sinks without their own meter show what their sources send
+  const model = SP.model; if (!model) return;
+  const clientOf = (port) => port.split(":")[0];
+  for (const g of [...model.L, ...model.R]) {
+    let v = dbOf(g.c);
+    if (!v) {
+      const srcs = model.allLinks.filter((l) => clientOf(l.b) === g.c).map((l) => dbOf(clientOf(l.a))).filter(Boolean);
+      if (srcs.length) v = [Math.max(...srcs.map((s) => s[0])), Math.max(...srcs.map((s) => s[s.length > 1 ? 1 : 0]))];
+    }
+    lv[g.c] = v || [-120, -120];
+  }
+  $$("[data-mtr]").forEach((el) => {
+    const c = el.dataset.mtr, v = lv[c] || [-120, -120], old = SP.lvl[c] || [-120, -120];
+    const now = [0, 1].map((i) => Math.max(v[Math.min(i, v.length - 1)] ?? -120, old[i] - 2.5));
+    SP.lvl[c] = now;
+    el.querySelectorAll("b").forEach((b, i) => { b.style.width = Math.max(0, Math.min(100, (now[i] + 60) / 60 * 100)) + "%"; });
+    el.title = `${c}: ${now.map((x) => (x <= -119 ? "−∞" : x.toFixed(0))).join(" / ")} dBFS`;
+  });
+}
+
+function jackPos(name, dir) {
+  const box = $("#pp"); if (!box) return null;
+  const el = box.querySelector(`.jk[data-dir="${dir}"][data-port="${CSS.escape(name)}"]`); if (!el) return null;
+  const R = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - R.left, y: r.top + r.height / 2 - R.top };
+}
+const bez = (a, b) => { const d = Math.max(50, Math.abs(b.x - a.x) * 0.5); return `M${a.x},${a.y} C${a.x + d},${a.y} ${b.x - d},${b.y} ${b.x},${b.y}`; };
+
+function drawCables() {
+  const svg = $("#pp-svg"), box = $("#pp"); if (!svg || !box) return;
+  svg.setAttribute("width", box.clientWidth); svg.setAttribute("height", box.clientHeight);
+  const out = [];
+  for (const l of SP.model.links) {
+    const a = jackPos(l.a, "out"), b = jackPos(l.b, "in"); if (!a || !b) continue;
+    const key = l.a + "|" + l.b, d = bez(a, b), sel = SP.sel === key;
+    out.push(`<g class="cg" data-key="${esc(key)}"><path class="cb ${l.kind} ${sel ? "sel" : ""}" d="${d}"/><path class="hit" d="${d}"/>${sel ? `<g class="del" data-del="${esc(key)}" transform="translate(${(a.x + b.x) / 2},${(a.y + b.y) / 2})"><circle r="8"/><path d="M-3,-3 L3,3 M3,-3 L-3,3"/></g>` : ""}</g>`);
+  }
+  svg.innerHTML = out.join("") + `<path id="pp-temp" class="cb temp" d=""/><path id="pp-temp2" class="cb temp" d=""/>`;
+  $$("#pp-svg .cg").forEach((g) => {
+    const [a, b] = g.dataset.key.split("|");
+    g.addEventListener("mouseenter", () => { g.querySelector(".cb").classList.add("hot"); hotJacks([a, b], true); svg.appendChild(g); });
+    g.addEventListener("mouseleave", () => { g.querySelector(".cb").classList.remove("hot"); hotJacks([a, b], false); });
+    g.querySelector(".hit").addEventListener("click", (e) => { e.stopPropagation(); SP.sel = SP.sel === g.dataset.key ? null : g.dataset.key; drawCables(); });
+  });
+  $$("#pp-svg [data-del]").forEach((d) => d.addEventListener("click", (e) => { e.stopPropagation(); const [a, b] = d.dataset.del.split("|"); patch("disconnect", [[a, b]]); }));
+}
+function hotJacks(names, on) { names.forEach((n) => $$(`#pp .jk[data-port="${CSS.escape(n)}"]`).forEach((j) => j.classList.toggle("hot", on))); }
+
+// Connect or disconnect a set of links; recorded for undo unless it is the undo itself.
+async function patch(op, pairs, record = true) {
+  const done = [];
+  for (const [from, to] of pairs) {
+    try { await post(op === "connect" ? "/graph/connect" : "/graph/disconnect", { from, to }); done.push([from, to]); }
+    catch (e) { if (!/Exist/i.test(e.message)) fail(e); }
+  }
+  if (done.length && record) { SP.undo.push({ op, pairs: done }); if (SP.undo.length > 50) SP.undo.shift(); }
+  if (done.length) toast(`${op === "connect" ? "Connected" : "Disconnected"} ${done.map(([a, b]) => `${a.split(":").pop()} → ${b}`).join(", ")}${record ? " · ⌘Z to undo" : ""}`);
+  SP.sel = null;
+  try { SP.graph = await get("/graph"); } catch (e) {}
+  renderSignalsNoFetch();
+}
+function undoPatch() {
+  const u = SP.undo.pop(); if (!u) return toast("Nothing to undo");
+  patch(u.op === "connect" ? "disconnect" : "connect", u.pairs, false);
+}
+
+function bindSignals() {
+  $("#sig-refresh").addEventListener("click", renderSignals);
+  $$("#sp-kind button").forEach((b) => b.addEventListener("click", () => { SP.kind = b.dataset.k; renderSignalsNoFetch(); }));
+  $("#sp-free").addEventListener("change", (e) => { SP.hideFree = e.target.checked; renderSignalsNoFetch(); });
+  $("#sp-mon").addEventListener("change", (e) => { SP.monitors = e.target.checked; renderSignalsNoFetch(); });
+  $("#sp-q").addEventListener("input", (e) => { SP.q = e.target.value; debounce("spq", () => { renderSignalsNoFetch(); const q = $("#sp-q"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }, 180); });
+  $("#sp-undo").addEventListener("click", undoPatch);
+  $("#pp").addEventListener("click", (e) => { if (!e.target.closest(".jk,.pn,.brk,.cg") && SP.sel) { SP.sel = null; drawCables(); } });
+  // levels
+  $$("[data-vol]").forEach((f) => f.addEventListener("input", () => {
+    const v = +f.value / 100, sv = f.parentElement.querySelector(".sv");
+    sv.textContent = v > 0 ? (60 * Math.log10(v)).toFixed(1) : "−∞";
+    debounce("vol" + f.dataset.vol, () => post(`/mixer/${f.dataset.vol}`, { name: f.dataset.name, volume: v }).then((n) => { const x = mixNode(n.label); if (x) Object.assign(x, n); }).catch(fail), 90);
+  }));
+  $$("[data-mute]").forEach((b) => b.addEventListener("click", async () => {
+    const on = !b.classList.contains("on");
+    try { const n = await post(`/mixer/${b.dataset.mute}`, { name: b.dataset.name, mute: on }); b.classList.toggle("on", !!n.mute); const x = mixNode(n.label); if (x) Object.assign(x, n); } catch (e) { fail(e); }
+  }));
+  const sf = $("[data-syn-fader]");
+  if (sf) sf.addEventListener("input", () => {
+    const db = +sf.value; sf.parentElement.querySelector(".sv").textContent = fmtDb(db).replace(" dB", "");
+    $("#master").value = db; $("#master-v").textContent = fmtDb(db);
+    debounce("master", () => post("/master", { db }).catch(fail), 60);
+  });
+  const sm = $("[data-syn-mute]");
+  if (sm) sm.addEventListener("click", async () => { const run = sm.classList.contains("on"); try { await post("/engine", { run }); sm.classList.toggle("on", !run); } catch (e) { fail(e); } });
+  // drag to connect (jack, port name or stereo bracket); click-click also works
+  $$("#pp .jk, #pp .pn[data-port], #pp .brk").forEach((el) => el.addEventListener("pointerdown", startDrag));
+}
+
+function targetsFor(d) {
+  const want = d.dir === "out" ? "in" : "out";
+  $$("#pp .jk").forEach((j) => {
+    const ok = j.dataset.dir === want && j.dataset.kind === d.kind;
+    j.classList.toggle("tgt", ok); j.classList.toggle("dim", !ok && j.dataset.port !== d.ports[0]);
+  });
+}
+function startDrag(e) {
+  if (e.button !== 0) return;
+  const el = e.currentTarget, br = el.classList.contains("brk");
+  const ports = br ? el.dataset.pair.split("|") : [el.dataset.port];
+  const dir = el.dataset.dir, j = $(`#pp .jk[data-dir="${dir}"][data-port="${CSS.escape(ports[0])}"]`); if (!j) return;
+  let pair = br ? ports : null;
+  if (!pair && e.shiftKey) { const b = el.closest(".pg").querySelector(`.brk[data-pair*="${CSS.escape(ports[0])}"]`); if (b) pair = b.dataset.pair.split("|"); }
+  const d = { ports: pair || ports, dir, kind: j.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false, pair: !!pair };
+  SP.drag = d; e.preventDefault();
+  const box = $("#pp"), temp = $("#pp-temp"), temp2 = $("#pp-temp2");
+  const from = jackPos(d.ports[0], dir), from2 = d.pair ? jackPos(d.ports[1], dir) : null;
+  const move = (ev) => {
+    if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 4) return;
+    if (!d.moved) { d.moved = true; box.classList.add("dragging"); targetsFor(d); }
+    const R = box.getBoundingClientRect(), p = { x: ev.clientX - R.left, y: ev.clientY - R.top };
+    temp.setAttribute("d", dir === "out" ? bez(from, p) : bez(p, from));
+    if (from2) { const p2 = { x: p.x, y: p.y + (from2.y - from.y) }; temp2.setAttribute("d", dir === "out" ? bez(from2, p2) : bez(p2, from2)); }
+    $$("#pp .jk.hot2").forEach((x) => x.classList.remove("hot2"));
+    const t = dropTarget(ev, d); if (t) t.classList.add("hot2");
+  };
+  const up = (ev) => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    box.classList.remove("dragging"); temp.setAttribute("d", ""); temp2.setAttribute("d", ""); SP.drag = null;
+    $$("#pp .jk").forEach((x) => x.classList.remove("tgt", "dim", "hot2"));
+    if (!d.moved) return clickPort(d.ports[0], dir, d.kind);
+    const t = dropTarget(ev, d); if (!t) return;
+    connectFrom(d, t.dataset.port, t.closest(".pg"));
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+function dropTarget(ev, d) {
+  const want = d.dir === "out" ? "in" : "out";
+  const el = document.elementFromPoint(ev.clientX, ev.clientY); if (!el) return null;
+  const hit = el.closest(`.jk, .pn[data-port], .brk`); if (!hit || hit.dataset.dir !== want) return null;
+  const port = hit.classList.contains("brk") ? hit.dataset.pair.split("|")[0] : hit.dataset.port;
+  const j = $(`#pp .jk[data-dir="${want}"][data-port="${CSS.escape(port)}"]`);
+  return j && j.dataset.kind === d.kind ? j : null;
+}
+function connectFrom(d, target, group) {
+  let tgts = [target];
+  if (d.pair) {
+    const b = group && Array.from(group.querySelectorAll(".brk")).find((x) => x.dataset.pair.split("|").includes(target));
+    tgts = b ? b.dataset.pair.split("|") : [target];
+    if (tgts.length < 2) { // mono target: both sides of the pair go to it
+      tgts = [target, target];
+    }
+  }
+  const pairs = d.ports.map((p, i) => d.dir === "out" ? [p, tgts[Math.min(i, tgts.length - 1)]] : [tgts[Math.min(i, tgts.length - 1)], p]);
+  const fresh = pairs.filter(([a, b]) => !SP.model.allLinks.some((l) => l.a === a && l.b === b));
+  if (!fresh.length) return toast("Already connected");
+  patch("connect", fresh);
+}
+function clickPort(port, dir, kind) {
+  if (!SP.pick || SP.pick === port) { SP.pick = SP.pick === port ? null : port; SP.pickDir = dir; SP.pickKind = kind; hotJacks([port], !!SP.pick); return; }
+  if (SP.pickDir === dir || SP.pickKind !== kind) { hotJacks([SP.pick], false); SP.pick = port; SP.pickDir = dir; SP.pickKind = kind; hotJacks([port], true); return; }
+  const [a, b] = dir === "in" ? [SP.pick, port] : [port, SP.pick];
+  SP.pick = null;
+  const exists = SP.model.allLinks.some((l) => l.a === a && l.b === b);
+  patch(exists ? "disconnect" : "connect", [[a, b]]);
+}
+document.addEventListener("keydown", (e) => {
+  if (S.view !== "signals" || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undoPatch(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && SP.sel) { e.preventDefault(); const [a, b] = SP.sel.split("|"); patch("disconnect", [[a, b]]); }
+  else if (e.key === "Escape") { SP.sel = null; SP.pick = null; renderSignalsNoFetch(); }
+});
+window.addEventListener("resize", () => { if (S.view === "signals" && SP.model) drawCables(); });
 
 // ------------------------------------------------------------------ settings
 async function renderSettings() {
