@@ -404,3 +404,40 @@ Notes:
 - Debian's `shairport-sync` package (4.3.7) is classic AirPlay only, and there is no `nqptp` package, so both come from source. `systemd-dev` is needed to build on Trixie. Its dry run installed only that package.
 - shairport-sync must be a **user** service, because PipeWire is one. `nqptp` is a system service (UDP 319/320). The user unit waits for it, and the config pins `service_type = "airplay2"` so a race never silently produces a classic-only receiver.
 - The sender runs as its own PipeWire client process, so switching it never restarts the realtime graph.
+
+## pilab console (Waveform synth and web console)
+
+Needs PipeWire with `pipewire-jack` (step 6) and avahi. From the Mac, in this repo:
+
+```sh
+sh scripts/deploy-console.sh ~/path/to/zpod     # a zpod clone, or a bundle of the pinned commit
+```
+
+It copies the repo to `~/src/pilab` on the Pi (tar over ssh), sends the ZPOD crates as a
+git bundle (the Pi has no GitHub credentials), and runs `scripts/install-console.sh`
+there, which:
+
+1. installs `pkg-config` and `libjack-jackd2-dev` if missing, and a minimal Rust
+   toolchain with rustup in `~/.rustup` / `~/.cargo` if `cargo` is missing;
+2. builds `pilabd` and `pilabctl` in release mode with `--locked`, using
+   `~/.cache/pilab/zpod.git` as the ZPOD source and `~/.cache/pilab/target` as the build
+   directory (about 2 minutes on a Pi 5 the first time);
+3. installs both binaries to `~/.local/bin`;
+4. installs `home/.config/systemd/user/pilabd.service`, enables and restarts it;
+5. writes `/etc/avahi/services/pilab-console.service` with sudo, from `pilabd mdns-service`;
+6. fetches AKWF into `~/.local/share/pilab/library/akwf` if it is not there
+   (`scripts/fetch-akwf.sh`, about 6 MB of WAVs, CC0).
+
+Check:
+
+```sh
+systemctl --user status pilabd
+pilabctl status
+pw-jack jack_lsp -c pilab-synth        # out_l/out_r linked to the DAC, MIDI sources on in_N
+avahi-browse -rt _pilab._tcp
+```
+
+Then pair a browser with `pilabctl pair` and follow docs/console-test-plan.md.
+Logs go to the journal (`journalctl --user -u pilabd` or
+`journalctl _SYSTEMD_USER_UNIT=pilabd.service`).
+

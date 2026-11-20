@@ -331,4 +331,4 @@ ZPOD uses the same `pilab.manifest/v1` format and sources list. Differences:
 
 - Which existing disk goes on pilab, and its filesystem (ext4, exFAT, NTFS, APFS).
 - A NAS account for the recordings push, limited to `Archive/topics/pilab/recordings/`.
-- Repo licence for presets and our own content (none is set yet).
+- Repo licence for presets and our own content: decided 2026-11-20, GPL-3.0-or-later with a commercial option (LICENSE, LICENSE-COMMERCIAL.md). Recordings stay `LicenseRef-proprietary` unless filed otherwise.
