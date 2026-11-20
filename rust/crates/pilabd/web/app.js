@@ -10,14 +10,16 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const noteName = (n) => NOTE[n % 12] + (Math.floor(n / 12) - 1);
 const fmtDb = (d) => (d <= -119 ? "−∞" : (d >= 0 ? "+" : "") + d.toFixed(1)) + " dB";
-const WAVES = ["sine", "saw", "square", "pulse", "triangle", "table"];
+const WAVES = ["sine", "saw", "square", "pulse", "triangle", "table", "sampler"];
+const WAVE_LABEL = { table: "wavetable" };
 
 const S = {
   token: localStorage.getItem("pilab.token") || "",
   view: (location.hash || "#overview").slice(1),
   info: null, sys: null, status: null, scene: null, dirty: false, inputs: [],
   scenes: [], settings: null, graph: null, akwf: null, akwfGroup: null, akwfFiles: [],
-  selSlot: 1, midiLog: [], activity: {}, kbdOct: 4, kbdTarget: "route", ws: null,
+  selSlot: 1, midiLog: [], samples: null, presets: null, browserTab: localStorage.getItem("pilab.tab") || "samples",
+  out: localStorage.getItem("pilab.out") || "dac", prevSel: localStorage.getItem("pilab.previewOnSelect") === "1", activity: {}, kbdOct: 4, kbdTarget: "route", ws: null,
 };
 
 // ------------------------------------------------------------------ API
@@ -44,6 +46,47 @@ function toast(msg, err = false) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hidden"), err ? 6000 : 3200);
 }
 const fail = (e) => toast(e.message || String(e), true);
+
+// ------------------------------------------------------------------ audition
+// Plays a ~1.5 s phrase: on the DAC (Pi headphone/line out) at the current master, or
+// rendered by pilabd to a small WAV and played here with Web Audio.
+let audCtx, audSrc;
+async function audition(src) {
+  const q = Object.entries(src).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  try {
+    if (S.out === "browser") {
+      toast("Rendering…");
+      const r = await fetch(`${API}/audition/render?${q}`, { headers: { "Authorization": "Bearer " + S.token } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+      audCtx = audCtx || new AudioContext();
+      const buf = await audCtx.decodeAudioData(await r.arrayBuffer());
+      if (audSrc) try { audSrc.stop(); } catch (e) {}
+      audSrc = audCtx.createBufferSource(); audSrc.buffer = buf; audSrc.connect(audCtx.destination); audSrc.start();
+      toast(`Playing in this browser (rendered at the Pi's master level)`);
+    } else {
+      const r = await post("/audition/play", src);
+      toast(`Playing on ${r.label} at ${fmtDb(r.master_db)}: ${r.playing} · ${r.phrase}`);
+    }
+  } catch (e) { fail(e); }
+}
+const playBtn = (attrs, title = "Play") => `<button class="btn ghost small play" ${attrs} title="${esc(title)}" aria-label="${esc(title)}">▶</button>`;
+function bindPlay(root = document) {
+  $$("[data-play]", root).forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const [k, ...v] = b.dataset.play.split(":");
+    audition({ [k]: k === "slot" ? +v.join(":") : v.join(":") });
+  }));
+}
+function outputSeg() {
+  return `<div class="row tight"><span class="muted small">Play on</span><div class="seg" id="out-seg">
+    <button data-o="dac" class="${S.out === "dac" ? "on" : ""}" title="Pi DAC: headphone / line out, at the current master">DAC</button>
+    <button data-o="browser" class="${S.out === "browser" ? "on" : ""}" title="Render on the Pi, play in this browser">This browser</button></div>
+    <label class="row tight muted small" title="Play a short phrase whenever you select a sound or table"><span>Preview on select</span><label class="switch"><input type="checkbox" id="prev-sel" ${S.prevSel ? "checked" : ""}><span></span></label></label></div>`;
+}
+function bindOutput(rerender) {
+  $$("#out-seg button").forEach((b) => b.addEventListener("click", () => { S.out = b.dataset.o; localStorage.setItem("pilab.out", S.out); rerender(); }));
+  const ps = $("#prev-sel"); if (ps) ps.addEventListener("change", (e) => { S.prevSel = e.target.checked; localStorage.setItem("pilab.previewOnSelect", S.prevSel ? "1" : "0"); });
+}
 
 // ------------------------------------------------------------------ pairing
 function showPair(msg) {
@@ -292,7 +335,7 @@ function renderSounds() {
   const ids = Array.from({ length: 16 }, (_, i) => i + 1);
   const list = ids.map((id) => {
     const s = slotById(id);
-    return `<div class="slot ${id === S.selSlot ? "on" : ""} ${s ? "" : "empty"}" data-slot="${id}"><span class="num">${id}</span><span class="nm">${s ? esc(s.name) : "empty"}</span>${s ? `<span class="badge mono">${s.sound.wave}</span>` : ""}</div>`;
+    return `<div class="slot ${id === S.selSlot ? "on" : ""} ${s ? "" : "empty"}" data-slot="${id}"><span class="num">${id}</span><span class="nm">${s ? esc(s.name) : "empty"}</span>${s ? `<span class="badge mono">${WAVE_LABEL[s.sound.wave] || s.sound.wave}</span>` : ""}</div>`;
   }).join("");
   const s = slotById(S.selSlot);
   let editor;
@@ -305,10 +348,11 @@ function renderSounds() {
       <div class="card-head"><input class="input" id="slot-name" value="${esc(s.name)}" style="font-family:var(--font-display);font-size:18px;width:260px">
         <span class="spacer"></span>
         <label class="row tight muted small"><span>Enabled</span><label class="switch"><input type="checkbox" id="slot-en" ${snd.enabled ? "checked" : ""}><span></span></label></label>
+        <button class="btn ghost small" data-play="slot:${s.id}" title="Play a short phrase">▶ Play</button>
         <button class="btn ghost small" id="slot-del">Remove</button>
       </div>
-      <div class="row" style="margin-bottom:10px"><div class="seg" id="wave-seg">${WAVES.map((w) => `<button data-w="${w}" class="${snd.wave === w ? "on" : ""}">${w}</button>`).join("")}</div>
-        <span class="muted small">${snd.wave === "table" ? (s.table ? "Table: <span class='mono'>" + esc(s.table) + "</span>" : "Pick a table from the AKWF browser →") : ""}</span></div>
+      <div class="row" style="margin-bottom:10px"><div class="seg" id="wave-seg">${WAVES.map((w) => `<button data-w="${w}" class="${snd.wave === w ? "on" : ""}">${WAVE_LABEL[w] || w}</button>`).join("")}</div>
+        <span class="muted small">${snd.wave === "table" ? (s.table ? "Table: <span class='mono'>" + esc(s.table) + "</span>" : "Pick a table from the AKWF browser →") : snd.wave === "sampler" ? (s.sample ? "Samples: <b>" + esc(bankTitle(s.sample)) + "</b>" : "Pick a sample bank or preset from the browser →") : ""}</span></div>
       <canvas class="wave" id="wave-cv" width="900" height="240"></canvas>
       <div class="params" style="margin-top:12px">${OSC_PARAMS.map((p) => paramHtml("sound", p, snd[p.key])).join("")}${snd.wave === "pulse" ? PW_PARAMS.map((p) => paramHtml("sound", p, snd[p.key])).join("") : ""}</div>
       <div class="grid g2" style="margin-top:14px">
@@ -323,23 +367,57 @@ function renderSounds() {
   const ak = S.akwf;
   const akHtml = !ak ? `<div class="muted">Loading…</div>` : !ak.available ? `<div class="risk">AKWF library not found at <code>${esc(ak.root)}</code>. Run <code>scripts/fetch-akwf.sh</code> on the Pi.</div>` : `
     <div class="akwf-groups">${ak.groups.map((g) => `<div data-g="${esc(g.name)}" class="${g.name === S.akwfGroup ? "sel" : ""}"><span>${esc(g.name.replace(/^AKWF_/, ""))}</span><span class="mono muted">${g.count}</span></div>`).join("")}</div>
-    <div class="akwf-files">${S.akwfFiles.map((f) => `<div data-f="${esc(f)}" class="${s && s.table === f ? "sel" : ""}"><span class="mono small">${esc(f.split("/").pop().replace(/^AKWF_/, "").replace(/\.wav$/i, ""))}</span><canvas data-prev="${esc(f)}" width="128" height="36"></canvas></div>`).join("")}</div>`;
-  $("#main").innerHTML = head("Sounds", `Sound slots for scene <b>${esc(S.scene.name)}</b>. Edits play live; save the scene in Scenes.`, `<button class="btn primary" id="save-now">Save scene</button>`) + `
+    <div class="akwf-files">${S.akwfFiles.map((f) => `<div data-f="${esc(f)}" class="${s && s.table === f ? "sel" : ""}"><span class="mono small">${esc(f.split("/").pop().replace(/^AKWF_/, "").replace(/\.wav$/i, ""))}</span><canvas data-prev="${esc(f)}" width="128" height="36"></canvas>${playBtn(`data-play="table:${esc(f)}"`)}</div>`).join("")}</div>`;
+  const sm = S.samples, pr = S.presets;
+  let smHtml;
+  if (!sm || !pr) smHtml = `<div class="muted">Loading…</div>`;
+  else if (!sm.available) smHtml = `<div class="risk">No sample banks installed at <code>${esc(sm.root)}</code>. On the Pi run <code>sh scripts/fetch-samples.sh</code> (CC0 FreePats banks and the VCSL drum kit, about 120 MiB).</div>`;
+  else {
+    const cats = {};
+    sm.banks.forEach((b) => (cats[b.category] = cats[b.category] || []).push(b));
+    const CAT = { keys: "Keys", "strings-and-plucked": "Strings and plucked", winds: "Winds", "mallets-and-bells": "Mallets and bells", drums: "Drums and percussion", synths: "Synths" };
+    smHtml = `<div class="lbl" style="margin-bottom:6px">Presets</div>
+      <div class="presets">${pr.presets.filter((p) => p.installed).map((p) => `<div class="preset" data-preset="${p.id}" title="Use in slot ${S.selSlot}"><span>${esc(p.name)}</span>${p.drum ? `<span class="badge">ch 10</span>` : ""}${playBtn(`data-play="preset:${p.id}"`)}</div>`).join("")}</div>
+      <div class="banks">${Object.keys(CAT).filter((c) => cats[c]).map((c) => `<div class="lbl" style="margin:10px 0 4px">${CAT[c]}</div>` + cats[c].map((b) => `<div class="bank ${s && s.sample === b.id ? "sel" : ""}" data-bank="${esc(b.id)}" title="Use in slot ${S.selSlot}"><span>${esc(b.title)}</span><span class="mono muted small">${(b.bytes / 1048576).toFixed(1)} MiB</span>${playBtn(`data-play="bank:${esc(b.id)}"`)}</div>`).join("")).join("")}</div>
+      <div class="muted small" style="margin-top:8px">FreePats and VCSL, CC0 1.0. Banks load into RAM on first use${sm.loaded_mib ? ` (${sm.loaded_mib.toFixed(0)} MiB loaded)` : ""}.</div>`;
+  }
+  const tab = S.browserTab;
+  $("#main").innerHTML = head("Sounds", `Sound slots for scene <b>${esc(S.scene.name)}</b>. Edits play live; save the scene in Scenes.`, `${outputSeg()}<button class="btn primary" id="save-now">Save scene</button>`) + `
   <div class="sounds">
     <div class="card"><div class="card-head"><h3>Slots</h3></div><div class="slotlist">${list}</div></div>
     ${editor}
-    <div class="card"><div class="card-head"><h3>AKWF tables</h3><span class="spacer"></span><span class="badge">CC0</span></div>${akHtml}
-      <div class="muted small" style="margin-top:8px">Adventure Kid Waveforms, single-cycle, CC0 1.0. Mipmapped on load.</div></div>
+    <div class="card"><div class="card-head"><div class="seg" id="tab-seg"><button data-t="samples" class="${tab === "samples" ? "on" : ""}">Samples</button><button data-t="akwf" class="${tab === "akwf" ? "on" : ""}">AKWF tables</button></div><span class="spacer"></span><span class="badge">CC0</span></div>
+      ${tab === "samples" ? smHtml : akHtml + `<div class="muted small" style="margin-top:8px">Adventure Kid Waveforms, single-cycle, CC0 1.0. Mipmapped on load.</div>`}</div>
   </div>`;
   bindSounds();
   if (s) { drawWave(); drawEnv("env-amp", s.sound.amp_env); }
   if (!S.akwf) get("/library/akwf").then((r) => { S.akwf = r; if (S.view === "sounds") renderSounds(); }).catch(fail);
-  drawPreviews();
+  if (!S.samples) Promise.all([get("/library/samples"), get("/library/presets")]).then(([a, b]) => { S.samples = a; S.presets = b; if (S.view === "sounds") renderSounds(); }).catch(fail);
+  if (tab === "akwf") drawPreviews();
   post("/audition", { slot: s ? s.id : 0 }).catch(() => {});
 }
 
+function bankTitle(id) { const b = S.samples && S.samples.banks.find((x) => x.id === id); return b ? b.title : id; }
+
+async function applyPreset(body) {
+  try {
+    const r = await post(`/scene/slots/${S.selSlot}/preset`, body);
+    S.scene = norm(r.scene); S.dirty = r.dirty;
+    renderSounds();
+    if (S.prevSel) audition({ slot: S.selSlot });
+  } catch (e) { fail(e); }
+}
+
 function bindSounds() {
-  $$(".slot").forEach((el) => el.addEventListener("click", () => { S.selSlot = +el.dataset.slot; renderSounds(); }));
+  bindOutput(renderSounds);
+  bindPlay($("#main"));
+  $$("#tab-seg button").forEach((b) => b.addEventListener("click", () => { S.browserTab = b.dataset.t; localStorage.setItem("pilab.tab", S.browserTab); renderSounds(); }));
+  $$("[data-preset]").forEach((el) => el.addEventListener("click", () => applyPreset({ preset: el.dataset.preset })));
+  $$("[data-bank]").forEach((el) => el.addEventListener("click", () => applyPreset({ bank: el.dataset.bank })));
+  $$(".slot").forEach((el) => el.addEventListener("click", () => {
+    S.selSlot = +el.dataset.slot; renderSounds();
+    if (S.prevSel && slotById(S.selSlot)) audition({ slot: S.selSlot });
+  }));
   $("#save-now").addEventListener("click", () => saveScene(S.scene.name));
   const nw = $("#slot-new");
   if (nw) nw.addEventListener("click", () => pushSlot(defaultSlot(S.selSlot), true));
@@ -373,7 +451,7 @@ function bindAkwf(s) {
   }));
   $$(".akwf-files [data-f]").forEach((el) => el.addEventListener("click", () => {
     if (!s) return toast("Select or create a sound slot first.");
-    s.table = el.dataset.f; s.sound.wave = "table"; pushSlot(s, true);
+    s.table = el.dataset.f; s.sound.wave = "table"; pushSlot(s, true).then(() => { if (S.prevSel) audition({ slot: s.id }); });
   }));
 }
 
@@ -457,7 +535,7 @@ function renderMidiMap() {
     <td><input class="input mono w-sm" data-k="note_hi" value="${noteName(r.note_hi)}" title="highest note"></td>
     <td><input class="input mono w-sm" type="number" min="-48" max="48" data-k="transpose" value="${r.transpose}"></td>
     <td><input class="input mono w-sm" type="number" min="0" max="2" step="0.05" data-k="velocity_scale" value="${r.velocity_scale}"></td>
-    <td><select data-k="slot">${slotOpts(r.slot)}</select></td>
+    <td class="nowrap"><select data-k="slot">${slotOpts(r.slot)}</select> ${playBtn(`data-play="slot:${r.slot}"`, "Play this sound")}</td>
     <td><div class="range-bar"><i style="left:${r.note_lo / 127 * 100}%;width:${Math.max(1, (r.note_hi - r.note_lo) / 127 * 100)}%"></i></div></td>
     <td><button class="btn ghost small" data-del="${i}">✕</button></td></tr>`).join("");
   // keyboard lanes: one lane per slot showing which notes reach it (splits and layers)
@@ -478,6 +556,7 @@ function renderMidiMap() {
   updateMonitor();
   $("#save-now").addEventListener("click", () => saveScene(S.scene.name));
   $("#mon-clear").addEventListener("click", () => { S.midiLog = []; updateMonitor(); });
+  bindPlay($("#main")); bindOutput(renderMidiMap);
   $("#add-route").addEventListener("click", () => { const r = { enabled: true, label: "", input: "*", channel: 0, note_lo: 0, note_hi: 127, transpose: 0, velocity_scale: 1, slot: (slots[0] || {}).id || 1 }; pushRoutes(sc.routes.concat([r])); });
   $$("td.cell").forEach((td) => td.addEventListener("click", () => {
     const inp = td.dataset.in, slot = +td.dataset.slot;
