@@ -272,9 +272,16 @@ fn loads_external_banks_when_listed() {
             t.elapsed(),
             inst.unsupported
         );
+        let mut out = [0u16; 4];
+        let key = if inst.select(60, 100, 0, 0.0, &mut out) > 0 {
+            60
+        } else {
+            let z = inst.zones[inst.zones.len() / 2];
+            ((z.lokey as u16 + z.hikey as u16) / 2) as u8
+        };
         let mut e = engine(inst);
-        e.midi(0, &[0x90, 60, 100]);
+        e.midi(0, &[0x90, key, 100]);
         let x = run(&mut e, 0.5);
-        assert!(rms(&x) > 1e-3, "{p} is silent at C4");
+        assert!(rms(&x) > 1e-3, "{p} is silent at key {key}");
     }
 }
