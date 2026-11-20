@@ -300,6 +300,30 @@ per-scene toggle, because it tells a venue network what the unit holds.
 - Drive: only the `pilab-library/` folder is shown; the rest of the disk is shown as
   "other data, not touched".
 
+## Sample library (installed now)
+
+`scripts/fetch-samples.sh` (wrapper for `scripts/pilab-samples.py`) installs the base-pack
+samples onto a unit, never into git:
+
+- 28 FreePats banks from `library/samples-base.tsv`: pinned URL, archive sha256 and size.
+  SFZ variants only (the small SFZ+FLAC variant where one exists), so no SF2 conversion.
+  Each bank must contain a CC0 / public-domain statement or it is skipped.
+- The VCSL starter kit from `library/vcsl-starter.tsv`: 114 files pinned by upstream commit
+  and git blob id, plus a generated `starter-kit.sfz` General MIDI drum map (kick 35/36,
+  snares 37/38/40, clap 39, toms 41-50 from one stick tom pitched, hi-hats 42/44/46 with an
+  open-hat choke, crashes 49/57, tambourine 54, cowbell 56, bongos 60/61, congas 62-64,
+  shakers 69/70, claves 75, woodblocks 76/77, cajon 27/28). Velocity layers from `_vN_` or
+  dynamics names; round robin from `_rrN`. Converted to FLAC when `flac` is installed.
+- Root: `/srv/library` if present and writable, else `~/.local/share/pilab/library`.
+  Layout: `samples/freepats/{id}/`, `samples/vcsl-starter/`, `manifest/{id}.yaml` plus
+  `manifest/{id}.files.tsv` (`pilab.manifest/v1`, sha256 per file), and the runtime index
+  `samples/index.json` that the console reads.
+- Needs `python3`, `tar`, `xz` and `7z` (`sudo apt install 7zip`).
+
+Presets (in code, `pilab-core/src/presets.rs`): Upright Piano, Starter Kit (GM), Picked
+Bass, Kalimba, Choir Pad, Sweep Pad, Nylon Guitar, Drawbar Organ, Synth Percussion. The
+`samples` scene uses piano ch 1, kit ch 10, bass ch 2, kalimba ch 3, pad ch 4.
+
 ## ZPOD
 
 ZPOD uses the same `pilab.manifest/v1` format and sources list. Differences:

@@ -104,7 +104,7 @@ port name (e.g. `*Keystation*`).
 
 - 32 voices, oldest-voice stealing, sustain pedal, 16-sample control rate, 5 ms crossfade on
   wave changes.
-- Oscillators: sine, saw, square, pulse (PWM from the mod wheel), triangle, and AKWF
+- Oscillators: sine, saw, square, pulse (PWM from the mod wheel), triangle, AKWF
   single-cycle tables. Default mode reads mipmapped Fourier tables (2048 points, a level
   every third of an octave), measured alias floor below −60 dB at 5 kHz fundamental. A
   polyBLEP mode (ZPOD `dsp::saw`/`square`, plus polyBLAMP triangle) is kept for
@@ -115,6 +115,56 @@ port name (e.g. `*Keystation*`).
   ADSR, key tracking and velocity amount.
 - MIDI: note on/off, velocity, pitch bend (±2 semitones by default, per scene), CC1 mod
   wheel, CC64 sustain, CC120/123 all sound/notes off. A4 is per scene (default 440 Hz).
+
+### Wavetables
+
+Common practice (Serum, Vital, Surge XT, Ableton Wavetable, Waldorf) treats a wavetable as
+an ordered set of single cycles scanned by a **position** control, followed by optional
+warp transforms, unison, then the usual filter / envelope / FX chain. pilab follows that:
+
+- Oscillator types per slot: sine, saw, square, pulse, triangle, **wavetable**, **sampler**.
+- Wavetable = one AKWF folder. Every cycle in it is a frame; `position` (0..1) crossfades
+  between neighbouring frames. Clicking a wave in the browser selects the folder and sets
+  the position to that wave, so a "single wave" is just a parked position.
+- Position modulation: the mod envelope (the filter envelope), a per-voice sine LFO
+  (`lfo_hz`, `pos_lfo`), and the mod wheel (CC 1, `pos_mod`).
+- Warp: bend (phase skew), sync (1-8 cycles per period), mirror, asym (PWM-style moved
+  midpoint), fold (wavefolder on the output). Works on every oscillator type.
+- Unison 1-3 copies with a cents spread; drive (soft saturation) before the filter.
+- Names: `web/data/akwf-catalog.json` maps folder names to readable names and tags (Basic,
+  Analog, Digital/FM, Instrument, Voice, Chip, Noise/Odd, Mixed). Edit the file to rename;
+  unknown folders fall back to the folder name. The wave number is the secondary label.
+- Not yet: a second oscillator with mix, chorus/delay/reverb FX, spectral warps. Each is a
+  contained engine change if wanted.
+
+### Sampler
+
+`wave = "sampler"` plays a multisample instrument loaded from SFZ (a practical subset:
+`<control>/<global>/<master>/<group>/<region>` inheritance, `#define`, `sample`,
+`default_path`, key and velocity ranges, `pitch_keycenter`, `tune`, `transpose`,
+`volume`, `pan`, `offset`, `end`, loop modes `no_loop`, `one_shot`, `loop_continuous`,
+`loop_sustain` with loop points, `seq_length`/`seq_position` round robin,
+`lorand`/`hirand`, `group`/`off_by` choke, `trigger=attack`). Unknown opcodes are counted
+and ignored. Samples are WAV (8/16/24/32-bit, float) or FLAC (pure-Rust decoder),
+preloaded into RAM as f32; the audio thread only reads them. Pitch uses 4-point Hermite
+interpolation; the slot's ADSR and filter apply. One-shot regions ignore note-off (drums).
+
+Slots name a bank by id (`sample = "freepats-kalimba"`). Banks come from
+`samples/index.json` under the library root (see "Sample library" in docs/library.md).
+
+### Audition
+
+Every sound has a **Play** button (Sounds editor, samples and presets, wavetable waves,
+MIDI Map route rows). It plays about 1.5 s: C3, C4, G4 for most sounds; a held C4 for pads
+(attack ≥ 0.25 s or release ≥ 1.2 s); kick, hat, snare, hat on channel 10 for drum kits.
+
+- **DAC** (default): played through the synth's audition port on the Pi's DAC (headphone /
+  line out) at the current master level, through the same limiter and soft clip. It never
+  raises the level. The toast names the output and the level.
+- **This browser**: pilabd renders the same phrase offline at the current master level
+  (never above) into a small mono WAV (`/audition/render`), and the page plays it.
+- **Preview on select** (off by default, remembered per browser) plays the phrase whenever
+  you pick a slot, preset, bank or wave.
 
 ### Output safety
 
@@ -209,9 +259,35 @@ in `~/.config/pilab/state.toml`.
 ## Services view
 
 Overview lists the services that matter for sound and exposure, with their ports and a
-risk note. Only the Waveform synth is switchable from the console in v0; AirPlay, Faust,
-SuperCollider, VNC, SSH and mDNS are shown read-only with the command that switches them.
-The listening-ports table comes from `ss` and flags anything undeclared.
+risk note, and live state from systemd (and the process table for Faust and scsynth),
+refreshed every 6 s and right after a switch.
+
+| Service | Switch | What it runs |
+| --- | --- | --- |
+| Waveform synth | yes | fades the engine in or out |
+| AirPlay receiver / sender | yes | `pilab-airplay receiver|sender on|off` (the receiver also needs sudo for `nqptp`; if sudo asks for a password the switch reports it) |
+| Faust web controls | yes | `faust-gui --no-qt ~/faust/synth.dsp` in the user unit `pilab-faust-gui`; off runs `faust-gui --stop` |
+| SuperCollider server | yes | `scsynth -u 57110 -B 127.0.0.1` on CPU 3 in the user unit `pilab-scsynth` (localhost only) |
+| SSH | yes, guarded | `sudo -n systemctl enable|disable --now ssh` |
+| Console | no | an access path; stop it on the Pi only |
+| VNC, mDNS | read-only | |
+
+Switching anything on shows its risk note first. **Access paths** (SSH and the console):
+the console is never switched off from the console, so one remote way in always remains.
+Turning SSH off opens a dialog that explains that with SSH and the console both off the
+only way back in is a local monitor and keyboard or editing the SD card, and it needs the
+typed confirmation `turn off ssh` (also enforced by the API).
+
+Overview also has a **Version** panel (console version and git commit, model, OS, kernel,
+PipeWire, firmware, bootloader, device id; no serial numbers) and a **Storage** panel
+(every disk and partition from `lsblk`: size, used, free, percent, filesystem, mount point,
+and the drive temperature where the kernel exposes it through hwmon; no `smartctl`, which
+needs root). The listening-ports table comes from `ss` and flags anything undeclared.
+
+Signals lists **audio inputs (sources)** and **audio outputs (sinks)** from PipeWire.
+Monitors are not shown as inputs. AirPlay speakers (HomePods, Macs) are outputs only and
+labelled so; they appear only while the AirPlay sender is on. USB mics and interfaces show
+as capture devices when plugged in.
 
 ## Dropout watchdog
 
@@ -232,7 +308,10 @@ downloads are TOML.
 | GET | `/ws?token=` | WebSocket: status frames at 15 Hz, sys frames every 2 s; send {t:'midi',bytes:[..]} |
 | GET | `/status` | Voices, peaks, limiter, master, xruns, recording |
 | GET | `/system` | Machine state, DAC, backend, services, ports, USB, events, recording and archive status |
-| POST | `/services/{id}` | {on:bool} for services the console controls (pilab-synth) |
+| POST | `/services/{id}` | {on:bool, confirm?} switch a service (SSH off needs confirm "turn off ssh"; the console is never switched) |
+| GET | `/versions` | Console version and commit, OS, kernel, PipeWire, firmware, bootloader, model, device id |
+| GET | `/storage` | Disks and partitions (lsblk) with use and temperature |
+| GET | `/audio/devices` | Audio outputs (sinks) and inputs (sources); AirPlay speakers marked output-only |
 | GET | `/scene` | Active scene (JSON) and whether it has unsaved changes |
 | PUT | `/scene` | Replace the active scene (applied live, not saved) |
 | PATCH | `/scene` | {master_db?, a4_hz?, bend_range?, description?} |
@@ -248,12 +327,18 @@ downloads are TOML.
 | DELETE | `/scenes/{name}` | Delete a saved scene |
 | POST | `/midi` | {bytes:[..]} or {note,vel,on,ch} / {bend} / {cc,value}; target 'route' (default) or 'sound' |
 | POST | `/audition` | {slot} sound played by target 'sound' (0 = none) |
+| POST | `/audition/play` | {slot|bank|table|preset} play the ~1.5 s phrase on the DAC at the current master |
+| GET | `/audition/render?slot=|bank=|table=|preset=` | The same phrase rendered offline as a WAV |
+| GET | `/library/samples` | Installed sample banks |
+| GET | `/library/presets` | Named presets (and whether their bank is installed) |
+| POST | `/scene/slots/{id}/preset` | {preset} or {bank}: make the slot a sampler; drum kits get a ch 10 route |
 | POST | `/engine` | {run:bool} fade the synth in or out |
 | POST | `/panic` | All sound off |
 | POST | `/master` | {db} master level, capped at -6 dBFS |
 | GET | `/midi/inputs` | MIDI input slots and their sources |
 | GET | `/library/akwf` | AKWF groups |
 | GET | `/library/akwf/{group}` | Files in a group |
+| GET | `/library/akwf/{group}/frames?points=` | Every cycle in a group, decimated, for thumbnails |
 | GET | `/library/preview?path=&points=` | Raw single cycle for drawing |
 | GET | `/graph` | Audio/MIDI ports and links (PipeWire via the JACK API) |
 | POST | `/graph/connect` | {from,to} link two ports |

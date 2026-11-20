@@ -82,3 +82,25 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
   log it and back off for 120 s.
 - Pass: the take plays back cleanly; archive stays off until configured; audio survives
   load; the watchdog acts and logs.
+
+## 10. Audition, samples and wavetables
+
+- With headphones off the head, master at -18 dB: Sounds, press Play on a slot. The toast
+  says "Playing on DAC (Pi headphone / line out) at -18.0 dB". Switch "Play on" to This
+  browser and press Play: the phrase plays from the laptop speakers.
+- Samples tab: press ▶ on Kalimba, Starter Kit (GM) and Choir Pad; then click Starter Kit
+  with slot 6 selected: the slot becomes a sampler and a "Drums (GM ch 10)" route appears.
+- Load the `samples` scene and play a keyboard on channels 1, 10, 2, 3, 4.
+- Wavetables tab: search "fm", pick FM synth, click wave #41; move Position, set LFO →
+  position 50 %, try each warp; Play. The stacked view highlights the position.
+- Pass: no clicks or level jumps, nothing louder than the master, no xruns.
+
+## 11. Services, access paths, versions, storage, sources
+
+- Overview: SuperCollider on (risk dialog), state turns on within 6 s; off again.
+- SSH switch off: the dialog explains the lockout and needs "turn off ssh". **Cancel it
+  during testing; never turn SSH off in a test.** The console row has no switch.
+- AirPlay switches: verify state only (do not toggle in tests unless the owner asks).
+- Version panel shows the commit that was deployed; Storage lists the SD card (and any
+  USB/NVMe drives) with use and filesystem.
+- Signals: sources vs sinks; with the AirPlay sender on, HomePods appear as outputs only.
