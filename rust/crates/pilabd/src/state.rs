@@ -53,6 +53,9 @@ struct Persist {
 }
 
 struct Inner {
+    /// Which output port each meter input is linked to (client label, port name).
+    meter_map: Vec<(String, String)>,
+    meter_poll: Option<Instant>,
     scene: Scene,
     dirty: bool,
     settings: Settings,
@@ -117,6 +120,7 @@ pub struct App {
     pub shared: Arc<RtShared>,
     pub recorder: Recorder,
     pub library: Library,
+    pub mixer: crate::mixer::Mixer,
     pub samples: SampleLib,
     aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
@@ -239,6 +243,11 @@ impl App {
                 s
             }
         };
+        let mut settings = settings;
+        // Rename: patterns that named the old synth node now name "Trillium Synth".
+        for p in settings.midi.ignore.iter_mut().chain(settings.audio.output_ports.iter_mut()) {
+            *p = crate::audio::canon_port(p);
+        }
         let persist: Persist = std::fs::read_to_string(paths.state()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
         let active = if persist.active_scene.is_empty() { "default".to_string() } else { persist.active_scene };
         let scene = store.load(&active).or_else(|_| store.load("default")).unwrap_or_else(|_| Scene::factory());
@@ -253,6 +262,7 @@ impl App {
             hostname: paths::hostname(),
             library: Library::new(paths.akwf_root()),
             samples: SampleLib::new(paths.samples_root()),
+            mixer: crate::mixer::Mixer::new(),
             aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
@@ -269,6 +279,8 @@ impl App {
             mon_rx: Mutex::new(links.mon_rx),
             rec_rx: Mutex::new(links.rec_rx),
             inner: Mutex::new(Inner {
+                meter_map: Vec::new(),
+                meter_poll: None,
                 scene,
                 dirty: false,
                 settings,
@@ -703,6 +715,96 @@ impl App {
             .map(|p| p.bank.to_string())
             .find(|b| banks.iter().any(|x| &x.id == b))
             .or_else(|| banks.first().map(|b| b.id.clone()))
+    }
+
+    /// Audio nodes with volume and mute, for the patch panel. Also (re)links the meters.
+    pub fn mixer_json(&self) -> Value {
+        let nodes = self.mixer.nodes();
+        self.ensure_meters(&nodes);
+        json!({ "nodes": nodes, "cap": crate::mixer::VOLUME_CAP, "synth": crate::brand::SYNTH_NAME, "dac_sink": self.settings().audio.dac_sink })
+    }
+
+    /// Peak per metered client since the last call, in dBFS per channel.
+    pub fn meters_json(&self) -> Value {
+        let peaks = self.shared.take_meters();
+        let mut g = self.inner.lock().unwrap();
+        g.meter_poll = Some(Instant::now());
+        let mut m: serde_json::Map<String, Value> = Default::default();
+        for (k, (client, _)) in g.meter_map.iter().enumerate() {
+            let e = m.entry(client.clone()).or_insert_with(|| json!([]));
+            if let Some(a) = e.as_array_mut() {
+                a.push(json!((gain_to_db(peaks[k]) * 10.0).round() / 10.0));
+            }
+        }
+        Value::Object(m)
+    }
+
+    /// Links the hidden meter inputs to the outputs worth metering: running non-AirPlay
+    /// sinks (their monitor ports), capture devices and app outputs. Never links to a
+    /// suspended sink or an AirPlay sink, so metering never wakes a device or a speaker.
+    fn ensure_meters(&self, nodes: &[crate::mixer::MixNode]) {
+        if self.backend.meter_port(0).is_none() {
+            return;
+        }
+        let graph = self.backend.graph();
+        let synth = crate::audio::CLIENT_NAME;
+        let mut want: Vec<(String, String)> = vec![];
+        let mut clients: Vec<String> = vec![];
+        for p in graph.iter().filter(|p| p.dir == "out" && p.kind == "audio" && p.client != synth) {
+            if !clients.contains(&p.client) {
+                clients.push(p.client.clone());
+            }
+        }
+        let node = |c: &str| nodes.iter().find(|n| n.label == c);
+        // sinks first, then capture and apps
+        clients.sort_by_key(|c| match node(c).map(|n| n.role) {
+            Some("sink") => 0,
+            Some("source") => 1,
+            _ => 2,
+        });
+        for c in clients {
+            let n = node(&c);
+            if n.is_some_and(|n| n.airplay) {
+                continue;
+            }
+            let is_sink = n.is_some_and(|n| n.role == "sink");
+            if is_sink && !n.is_some_and(|n| n.state == "running") {
+                continue;
+            }
+            let ports: Vec<&crate::audio::GraphPort> = graph
+                .iter()
+                .filter(|p| p.client == c && p.dir == "out" && p.kind == "audio" && (p.short.starts_with("monitor_") == is_sink))
+                .take(2)
+                .collect();
+            if want.len() + ports.len() > crate::audio::METER_PORTS {
+                break;
+            }
+            want.extend(ports.into_iter().map(|p| (c.clone(), p.name.clone())));
+        }
+        let cur = self.inner.lock().unwrap().meter_map.clone();
+        if cur == want {
+            self.inner.lock().unwrap().meter_poll = Some(Instant::now());
+            return;
+        }
+        self.detach_meters();
+        for (k, (_, port)) in want.iter().enumerate() {
+            if let Some(m) = self.backend.meter_port(k) {
+                let _ = self.backend.connect(port, &m);
+            }
+        }
+        let mut g = self.inner.lock().unwrap();
+        g.meter_map = want;
+        g.meter_poll = Some(Instant::now());
+    }
+
+    /// Unlinks all meter inputs (no one is looking at the meters).
+    pub fn detach_meters(&self) {
+        let map = std::mem::take(&mut self.inner.lock().unwrap().meter_map);
+        for (k, (_, port)) in map.iter().enumerate() {
+            if let Some(m) = self.backend.meter_port(k) {
+                let _ = self.backend.disconnect(port, &m);
+            }
+        }
     }
 
     pub fn delete_slot(&self, id: u8) -> Result<Scene, String> {
@@ -1201,6 +1303,11 @@ pub fn spawn_loops(app: Arc<App>) {
                         *app.token.write().unwrap() = t;
                         app.event("info", "pairing token changed; paired browsers must re-enter it");
                     }
+                }
+                let idle = app.inner.lock().unwrap().meter_poll.is_some_and(|t| t.elapsed() > Duration::from_secs(15));
+                if idle {
+                    app.inner.lock().unwrap().meter_poll = None;
+                    app.detach_meters();
                 }
                 let cores = cpu.sample();
                 let sinks = sys::sinks();

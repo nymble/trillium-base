@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Nymble
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! pilabd: the pilab console service and Waveform synth host.
+//! pilabd: the pilab console service and Trillium Synth host.
 //!
 //! ```text
 //! pilabd [serve] [--port 8410] [--null-audio] [--config DIR] [--audio-cpu 3]
@@ -13,6 +13,7 @@ mod audio;
 mod brand;
 mod identity;
 mod library;
+mod mixer;
 mod paths;
 mod samples;
 mod record;

@@ -11,5 +11,11 @@ pub const COMMIT: &str = match option_env!("PILAB_COMMIT") {
     Some(c) => c,
     None => "dev",
 };
+/// The synth as people see it: the PipeWire/JACK node name, labels and docs. The stable
+/// internal id (service id, crate name) stays `pilab-synth`; `LEGACY_SYNTH_CLIENT` is the
+/// node name before the rename, accepted wherever a port name is given.
+pub const SYNTH_NAME: &str = "Trillium Synth";
+pub const SYNTH_ID: &str = "pilab-synth";
+pub const LEGACY_SYNTH_CLIENT: &str = "pilab-synth";
 pub const DEFAULT_PORT: u16 = 8410;
 pub const API_PREFIX: &str = "/api/v1";

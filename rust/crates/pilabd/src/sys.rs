@@ -198,7 +198,7 @@ enum Probe {
 }
 
 const SERVICES: &[Def] = &[
-    Def { id: "pilab-synth", name: "Waveform synth", kind: "audio", ports: "none (PipeWire node)", risk: "Plays through the DAC, including its headphone output. Starts at -18 dBFS with a fade-in and is capped at -6 dBFS.", severity: "info", control: "console", how: "", probe: Probe::Engine },
+    Def { id: "pilab-synth", name: "Trillium Synth", kind: "audio", ports: "none (PipeWire node)", risk: "Plays through the DAC, including its headphone output. Starts at -18 dBFS with a fade-in and is capped at -6 dBFS.", severity: "info", control: "console", how: "", probe: Probe::Engine },
     Def { id: "pilab-console", name: "Console", kind: "control", ports: "TCP 8410 (LAN)", risk: "Anyone on this network who has the pairing token can change the sound. Plain HTTP on the LAN, so the token is not encrypted in transit. It is a remote access path, so it cannot be switched off from here.", severity: "caution", control: "read-only", how: "on the Pi: systemctl --user stop pilabd", probe: Probe::Console },
     Def { id: "airplay-rx", name: "AirPlay receiver", kind: "audio", ports: "TCP 7000, UDP 319-320", risk: "Anyone on this network can play audio to the DAC unless a password is set.", severity: "caution", control: "console", how: "pilab-airplay receiver on|off", probe: Probe::UserUnit("shairport-sync.service") },
     Def { id: "airplay-tx", name: "AirPlay sender", kind: "audio", ports: "outbound only", risk: "Sends audio to AirPlay speakers on this network.", severity: "info", control: "console", how: "pilab-airplay sender on|off", probe: Probe::UserUnit("pilab-airplay-sender.service") },

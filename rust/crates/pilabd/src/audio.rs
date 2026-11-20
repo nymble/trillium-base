@@ -3,17 +3,33 @@
 //! Audio backends behind one trait.
 //!
 //! * `JackBackend`: a JACK client. On pilab it runs under `pw-jack`, so the synth is a
-//!   normal PipeWire node ("pilab-synth") with a MIDI input per source slot and a stereo
-//!   output, patchable next to SuperCollider, Faust, Csound or AirPlay.
+//!   normal PipeWire node ("Trillium Synth") with a MIDI input per source slot and a stereo
+//!   output, patchable next to SuperCollider, Faust, Csound or AirPlay. It also has
+//!   hidden meter inputs (`meter_N`) that pilabd links to outputs it wants to meter.
 //! * `NullBackend`: renders on a timer with no device (development, CI, screenshots).
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pilab_synth::{Cmd, Engine, Garbage, Stats};
 use serde::Serialize;
 
-pub const CLIENT_NAME: &str = "pilab-synth";
+pub const CLIENT_NAME: &str = crate::brand::SYNTH_NAME;
+/// Hidden meter inputs (4 stereo pairs). Never shown in the graph.
+pub const METER_PORTS: usize = 8;
+pub const METER_PREFIX: &str = "meter_";
+
+/// Port name with the pre-rename client name mapped to the current one.
+pub fn canon_port(name: &str) -> String {
+    match name.strip_prefix(crate::brand::LEGACY_SYNTH_CLIENT).and_then(|r| r.strip_prefix(':')) {
+        Some(rest) => format!("{CLIENT_NAME}:{rest}"),
+        None => name.to_string(),
+    }
+}
+
+fn is_meter_port(name: &str) -> bool {
+    name.strip_prefix(CLIENT_NAME).and_then(|r| r.strip_prefix(':')).is_some_and(|p| p.starts_with(METER_PREFIX))
+}
 /// JACK MIDI input ports, by input slot. Slot 0 is the virtual port other apps connect to.
 pub const MIDI_PORTS: [&str; 8] = ["midi_in", "in_1", "in_2", "in_3", "in_4", "in_5", "in_6", "in_7"];
 
@@ -43,6 +59,19 @@ pub struct RtShared {
     /// Scheduling policy of the audio thread (SCHED_FIFO = 1).
     pub policy: AtomicI32,
     pub rt_prio: AtomicI32,
+    /// Peak (f32 bits, max-hold until read) of each meter input.
+    pub meters: [AtomicU32; METER_PORTS],
+}
+
+impl RtShared {
+    /// Reads and resets the meter peaks (linear).
+    pub fn take_meters(&self) -> [f32; METER_PORTS] {
+        let mut v = [0.0; METER_PORTS];
+        for (i, m) in self.meters.iter().enumerate() {
+            v[i] = f32::from_bits(m.swap(0, Ordering::Relaxed));
+        }
+        v
+    }
 }
 
 /// Owns the engine inside the realtime callback.
@@ -155,6 +184,10 @@ pub trait AudioBackend: Send + Sync {
     /// Full name of our input port for slot `k`.
     fn input_port(&self, k: usize) -> Option<String>;
     fn output_ports(&self) -> [String; 2];
+    /// Full name of meter input `k` (0..METER_PORTS), if the backend has meters.
+    fn meter_port(&self, _k: usize) -> Option<String> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------- JACK
@@ -164,6 +197,7 @@ struct Proc {
     midi: Vec<jack::Port<jack::MidiIn>>,
     out_l: jack::Port<jack::AudioOut>,
     out_r: jack::Port<jack::AudioOut>,
+    meters: Vec<jack::Port<jack::AudioIn>>,
 }
 
 impl jack::ProcessHandler for Proc {
@@ -177,6 +211,13 @@ impl jack::ProcessHandler for Proc {
         let l = self.out_l.as_mut_slice(ps);
         let r = self.out_r.as_mut_slice(ps);
         self.host.render(l, r);
+        // Meters: peak per block, max-held until pilabd reads it. No allocation, no locks.
+        for (k, p) in self.meters.iter().enumerate() {
+            let pk = p.as_slice(ps).iter().fold(0.0f32, |a, &x| a.max(x.abs()));
+            if pk > 0.0 {
+                self.host.shared.meters[k].fetch_max(pk.to_bits(), Ordering::Relaxed);
+            }
+        }
         jack::Control::Continue
     }
 }
@@ -211,11 +252,15 @@ impl JackBackend {
         }
         let out_l = client.register_port("out_l", jack::AudioOut::default()).map_err(|e| format!("{e:?}"))?;
         let out_r = client.register_port("out_r", jack::AudioOut::default()).map_err(|e| format!("{e:?}"))?;
+        let mut meters = Vec::new();
+        for k in 0..METER_PORTS {
+            meters.push(client.register_port(&format!("{METER_PREFIX}{}", k + 1), jack::AudioIn::default()).map_err(|e| format!("meter: {e:?}"))?);
+        }
         let engine = Engine::new(sr);
         let (host, links) = rt_pair(engine, shared.clone(), audio_cpu, sr);
         let stats = host.stats();
         let active = client
-            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r })
+            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters })
             .map_err(|e| format!("activate: {e:?}"))?;
         Ok((JackBackend { client: Mutex::new(Some(active)), sr, bufsize }, links, stats))
     }
@@ -260,6 +305,9 @@ impl AudioBackend for JackBackend {
         self.with(|c| {
             let mut out = vec![];
             for name in c.ports(None, None, jack::PortFlags::empty()) {
+                if is_meter_port(&name) {
+                    continue;
+                }
                 if let Some(p) = c.port_by_name(&name) {
                     let fl = p.flags();
                     let (client, short) = name.split_once(':').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or((String::new(), name.clone()));
@@ -267,7 +315,7 @@ impl AudioBackend for JackBackend {
                         kind: kind_of(&p.port_type().unwrap_or_default()),
                         dir: if fl.contains(jack::PortFlags::IS_OUTPUT) { "out" } else { "in" },
                         physical: fl.contains(jack::PortFlags::IS_PHYSICAL),
-                        connections: if fl.contains(jack::PortFlags::IS_OUTPUT) { p.get_connections() } else { vec![] },
+                        connections: if fl.contains(jack::PortFlags::IS_OUTPUT) { p.get_connections().into_iter().filter(|c| !is_meter_port(c)).collect() } else { vec![] },
                         name,
                         client,
                         short,
@@ -277,6 +325,9 @@ impl AudioBackend for JackBackend {
             out
         })
         .unwrap_or_default()
+    }
+    fn meter_port(&self, k: usize) -> Option<String> {
+        (k < METER_PORTS).then(|| format!("{CLIENT_NAME}:{METER_PREFIX}{}", k + 1))
     }
     fn connect(&self, from: &str, to: &str) -> Result<(), String> {
         self.with(|c| c.connect_ports_by_name(from, to).map_err(|e| format!("{e:?}"))).unwrap_or(Err("client closed".into()))
@@ -306,6 +357,44 @@ impl AudioBackend for JackBackend {
 pub struct NullBackend {
     sr: f32,
     stop: Arc<AtomicBool>,
+    /// Development only: a recorded graph (`PILAB_DEMO_GRAPH=file.json`, the body of
+    /// GET /graph from a real unit) that connect/disconnect edit in memory.
+    demo: Option<Mutex<Vec<GraphPort>>>,
+}
+
+#[derive(serde::Deserialize)]
+struct DemoPort {
+    name: String,
+    kind: String,
+    dir: String,
+    #[serde(default)]
+    physical: bool,
+    #[serde(default)]
+    connections: Vec<String>,
+}
+
+fn load_demo_graph() -> Option<Vec<GraphPort>> {
+    let path = std::env::var_os("PILAB_DEMO_GRAPH")?;
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let ports: Vec<DemoPort> = serde_json::from_value(v.get("ports")?.clone()).ok()?;
+    Some(
+        ports
+            .into_iter()
+            .map(|p| {
+                let name = canon_port(&p.name);
+                let (client, short) = name.split_once(':').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or_default();
+                GraphPort {
+                    name,
+                    client,
+                    short,
+                    kind: p.kind,
+                    dir: if p.dir == "out" { "out" } else { "in" },
+                    physical: p.physical,
+                    connections: p.connections.iter().map(|c| canon_port(c)).collect(),
+                }
+            })
+            .collect(),
+    )
 }
 
 impl NullBackend {
@@ -336,7 +425,7 @@ impl NullBackend {
                 }
             })
             .expect("spawn null audio");
-        (NullBackend { sr, stop }, links, stats)
+        (NullBackend { sr, stop, demo: load_demo_graph().map(Mutex::new) }, links, stats)
     }
 }
 
@@ -360,6 +449,9 @@ impl AudioBackend for NullBackend {
         0.0
     }
     fn graph(&self) -> Vec<GraphPort> {
+        if let Some(d) = &self.demo {
+            return d.lock().unwrap().clone();
+        }
         let mut v: Vec<GraphPort> = MIDI_PORTS
             .iter()
             .map(|n| GraphPort { name: format!("{CLIENT_NAME}:{n}"), client: CLIENT_NAME.into(), short: n.to_string(), kind: "midi".into(), dir: "in", physical: false, connections: vec![] })
@@ -369,11 +461,26 @@ impl AudioBackend for NullBackend {
         }
         v
     }
-    fn connect(&self, _: &str, _: &str) -> Result<(), String> {
-        Err("no audio graph in the null backend".into())
+    fn connect(&self, from: &str, to: &str) -> Result<(), String> {
+        let d = self.demo.as_ref().ok_or("no audio graph in the null backend")?;
+        let mut g = d.lock().unwrap();
+        let kind_in = g.iter().find(|p| p.name == to && p.dir == "in").map(|p| p.kind.clone()).ok_or("no such input")?;
+        let src = g.iter_mut().find(|p| p.name == from && p.dir == "out").ok_or("no such output")?;
+        if src.kind != kind_in {
+            return Err("port types differ".into());
+        }
+        if src.connections.iter().any(|c| c == to) {
+            return Err("Exists".into());
+        }
+        src.connections.push(to.to_string());
+        Ok(())
     }
-    fn disconnect(&self, _: &str, _: &str) -> Result<(), String> {
-        Err("no audio graph in the null backend".into())
+    fn disconnect(&self, from: &str, to: &str) -> Result<(), String> {
+        let d = self.demo.as_ref().ok_or("no audio graph in the null backend")?;
+        let mut g = d.lock().unwrap();
+        let src = g.iter_mut().find(|p| p.name == from).ok_or("no such output")?;
+        src.connections.retain(|c| c != to);
+        Ok(())
     }
     fn midi_sources(&self) -> Vec<String> {
         vec![]
@@ -383,5 +490,20 @@ impl AudioBackend for NullBackend {
     }
     fn output_ports(&self) -> [String; 2] {
         [format!("{CLIENT_NAME}:out_l"), format!("{CLIENT_NAME}:out_r")]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_synth_port_names_map_to_the_new_node() {
+        assert_eq!(canon_port("pilab-synth:out_l"), "Trillium Synth:out_l");
+        assert_eq!(canon_port("pilab-synth:midi_in"), "Trillium Synth:midi_in");
+        assert_eq!(canon_port("Built-in Audio Stereo:playback_FL"), "Built-in Audio Stereo:playback_FL");
+        assert_eq!(canon_port("pilab-synthesizer:x"), "pilab-synthesizer:x");
+        assert!(is_meter_port("Trillium Synth:meter_3"));
+        assert!(!is_meter_port("Trillium Synth:midi_in"));
     }
 }

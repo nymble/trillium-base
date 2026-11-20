@@ -40,7 +40,7 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/ws?token=", "WebSocket: status frames at 15 Hz, sys frames every 2 s; send {t:'midi',bytes:[..]}"),
     ("GET", "/api/v1/status", "Voices, peaks, limiter, master, xruns, recording"),
     ("GET", "/api/v1/system", "Machine state, DAC, backend, services, ports, USB, events, recording and archive status"),
-    ("POST", "/api/v1/services/{id}", "{on:bool} for services the console controls (pilab-synth)"),
+    ("POST", "/api/v1/services/{id}", "{on:bool, confirm?} switch a service (synth id pilab-synth, alias trillium-synth)"),
     ("GET", "/api/v1/scene", "Active scene (JSON) and whether it has unsaved changes"),
     ("PUT", "/api/v1/scene", "Replace the active scene (applied live, not saved)"),
     ("PATCH", "/api/v1/scene", "{master_db?, a4_hz?, bend_range?, description?}"),
@@ -58,6 +58,9 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/audition", "{slot} sound played by target 'sound' (0 = none)"),
     ("GET", "/api/v1/versions", "console version and commit, OS, kernel, PipeWire, firmware, bootloader, model"),
     ("GET", "/api/v1/storage", "disks and partitions (lsblk) with use and temperature"),
+    ("GET", "/api/v1/mixer", "audio nodes with PipeWire volume and mute (also links the meters)"),
+    ("POST", "/api/v1/mixer/{id}", "{name, volume?, mute?} set a node's volume (cubic 0..1, ramped, capped at 1.0) or mute"),
+    ("GET", "/api/v1/meters", "peak dBFS per metered client since the last read"),
     ("GET", "/api/v1/audio/devices", "audio outputs (sinks) and inputs (sources), AirPlay speakers marked output-only"),
     ("POST", "/api/v1/audition/play", "{slot|bank|table|preset} play a ~1.5 s phrase on the DAC at the current master"),
     ("GET", "/api/v1/audition/render?slot=|bank=|table=|preset=", "the same phrase rendered offline as a WAV for the browser"),
@@ -118,6 +121,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/library/akwf/{group}/frames", get(akwf_frames))
         .route("/library/preview", get(akwf_preview))
         .route("/graph", get(graph))
+        .route("/mixer", get(mixer))
+        .route("/mixer/{id}", post(mixer_set))
+        .route("/meters", get(meters))
         .route("/graph/connect", post(graph_connect))
         .route("/graph/disconnect", post(graph_disconnect))
         .route("/settings", get(settings_get).put(settings_put))
@@ -166,6 +172,7 @@ async fn info(State(app): S) -> Json<Value> {
         "pairing_required": true,
         "pairing": "token",
         "audio_backend": app.backend.name(),
+        "synth": crate::brand::SYNTH_NAME,
     }))
 }
 
@@ -229,7 +236,9 @@ struct SvcBody {
 }
 
 async fn service_toggle(State(app): S, Path(id): Path<String>, Json(b): Json<SvcBody>) -> R {
-    if id == "pilab-synth" {
+    // "trillium-synth" is accepted as an alias of the stable id
+    let id = if id == "trillium-synth" { crate::brand::SYNTH_ID.to_string() } else { id };
+    if id == crate::brand::SYNTH_ID {
         app.engine_run(b.on).map_err(bad)?;
         return ok(json!({ "id": id, "on": b.on }));
     }
@@ -587,13 +596,40 @@ struct Link {
     to: String,
 }
 
-async fn graph_connect(State(app): S, Json(l): Json<Link>) -> R {
+async fn mixer(State(app): S) -> R {
+    let a = app.clone();
+    ok(tokio::task::spawn_blocking(move || a.mixer_json()).await.map_err(|e| bad(e.to_string()))?)
+}
+
+async fn meters(State(app): S) -> R {
+    ok(app.meters_json())
+}
+
+#[derive(Deserialize)]
+struct MixSet {
+    name: String,
+    volume: Option<f32>,
+    mute: Option<bool>,
+}
+
+async fn mixer_set(State(app): S, Path(id): Path<u32>, Json(b): Json<MixSet>) -> R {
+    let a = app.clone();
+    let n = tokio::task::spawn_blocking(move || a.mixer.set(id, &b.name, b.volume, b.mute)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    app.event("info", format!("{}: volume {} {}", n.label, n.volume.map(|v| format!("{:.0}% ({:.1} dB)", v * 100.0, crate::mixer::cubic_db(v))).unwrap_or("-".into()), if n.mute == Some(true) { "(muted)" } else { "" }));
+    ok(json!(n))
+}
+
+async fn graph_connect(State(app): S, Json(mut l): Json<Link>) -> R {
+    l.from = crate::audio::canon_port(&l.from);
+    l.to = crate::audio::canon_port(&l.to);
     app.backend.connect(&l.from, &l.to).map_err(bad)?;
     app.event("info", format!("linked {} -> {}", l.from, l.to));
     ok(json!({ "ok": true }))
 }
 
-async fn graph_disconnect(State(app): S, Json(l): Json<Link>) -> R {
+async fn graph_disconnect(State(app): S, Json(mut l): Json<Link>) -> R {
+    l.from = crate::audio::canon_port(&l.from);
+    l.to = crate::audio::canon_port(&l.to);
     app.backend.disconnect(&l.from, &l.to).map_err(bad)?;
     app.event("info", format!("unlinked {} -> {}", l.from, l.to));
     ok(json!({ "ok": true }))

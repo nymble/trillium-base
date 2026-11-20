@@ -119,7 +119,7 @@ impl Recorder {
             sample_rate: self.sr,
             channels: 2,
             format: "wav-f32le".into(),
-            source: "pilab-synth output (post master, limiter)".into(),
+            source: "Trillium Synth output (post master, limiter)".into(),
             scene: scene.to_string(),
             role: "master".into(),
             filed: false,
