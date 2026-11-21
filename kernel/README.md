@@ -1,14 +1,16 @@
 # Trillium Base kernel
 
 What the lab unit runs today, captured read-only, plus the recipe and proposed deltas for
-a reproducible Trillium Base kernel. Nothing here has been built, installed or booted yet.
+a reproducible Trillium Base kernel. The custom kernel has not been built or booted yet;
+the CPU isolation command line is applied on the lab unit (2026-11-20).
 
 | File | What |
 | --- | --- |
 | `configs/6.18.60+rpt-rpi-v8-rt.config` | Full config of the running kernel (`/boot/config-6.18.60+rpt-rpi-v8-rt`), unmodified |
 | `snapshots/2026-11-20-pilab.txt` | Boot and RT tuning snapshot (`scripts/capture-tuning.sh`, MAC scrubbed) |
 | `trillium-rt.fragment` | Proposed config deltas, each with its reason |
-| `cmdline-proposed.txt` | Proposed kernel command-line additions (CPU 3 isolation) |
+| `cmdline-proposed.txt` | Kernel command-line additions for CPU 3 isolation (reference) |
+| `cpu-isolation.sh` | Applies/reverts CPU 3 isolation: `cmdline.txt` (with backups) + boot service for IRQs, workqueues, kthreads |
 | `build-deb.sh` | Build recipe: stock config + fragment → `.deb` packages (not run yet) |
 
 ## Running today (2026-11-20)
@@ -22,16 +24,37 @@ a reproducible Trillium Base kernel. Nothing here has been built, installed or b
   - systemd `CPUAffinity=0-2` (`etc/systemd/system.conf.d/10-cpu-affinity.conf`) keeps
     services off CPU 3; pilabd's audio thread is placed on CPU 3.
   - `cpu-performance.service` sets all four cores to `performance` (2.4 GHz).
-  - **No kernel isolation**: `isolcpus`, `nohz_full` and `rcu_nocbs` are unset and 49 of
-    53 IRQs may run on any core (irqbalance is off). CPU 3 still takes kernel threads,
-    timer ticks and IPIs.
+  - **Kernel isolation** (since 2026-11-20, `cpu-isolation.sh`): `isolcpus=managed_irq,domain,3
+    irqaffinity=0-2`; `trillium-cpu-isolation.service` moves movable IRQs, unbound
+    workqueues and unbound kthreads to CPUs 0-2 at boot. Only the per-core PMU IRQ remains
+    on CPU 3 (1 of 53); timer ticks and IPIs remain until a `NO_HZ_FULL` kernel.
 - Limits: `@audio` and `@pipewire` rtprio 95, memlock unlimited / 4 GiB, nice −19.
 - PipeWire 1.4.2: 48 kHz, quantum 64 (1.33 ms), min 32, max 1024
   (`etc/pipewire/pipewire.conf.d`). The DAC is an Allo Katana HAT (`allo-katana-dac-audio`),
   onboard audio off.
 - No A/B boot: no `autoboot.txt` or `tryboot.txt`; one boot partition.
-- Latency (`bench/20261118-1835-…`, cyclictest, 4 threads, P95): idle max 9–14 µs, under
-  load max 81–94 µs. That is well inside the 1.33 ms period.
+- Latency (`bench/20261120-*-isolation.txt`, cyclictest on all 4 cores, P95): isolated
+  CPU 3 max 9 µs idle / 38 µs under load (before isolation 10 / 58 µs); all cores
+  22 / 77 µs (before 20 / 96 µs). Well inside the 1.33 ms period.
+
+## CPU isolation (`cpu-isolation.sh`)
+
+```
+sudo sh kernel/cpu-isolation.sh status            # what is applied and booted
+sudo sh kernel/cpu-isolation.sh apply --dry-run   # show the new cmdline.txt
+sudo sh kernel/cpu-isolation.sh apply             # write it (backup first), install service
+sudo reboot
+sudo sh kernel/cpu-isolation.sh revert && sudo reboot   # undo
+```
+
+- Idempotent: running `apply` again changes nothing.
+- Backups: every write keeps `/var/lib/trillium/cmdline-backups/cmdline.txt.<time>`; the first
+  original also stays on the boot partition as `cmdline.txt.pre-isolation`, so a card can be
+  restored from any computer by copying that file over `cmdline.txt` (no flashing).
+- Only adds parameters the running kernel supports (`nohz_full`, `rcu_nocbs` need
+  `CONFIG_NO_HZ_FULL` / `CONFIG_RCU_NOCB_CPU`).
+- `AUDIO_CPU` and `HOUSEKEEPING` override the defaults (3 and 0-2).
+- pilabd pins its audio thread to CPU 3 explicitly, which `isolcpus` allows.
 
 ## Reproducing the running kernel
 

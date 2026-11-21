@@ -96,9 +96,28 @@ function showPair(msg) {
   $("#pair-msg").textContent = msg || "";
   if (S.ws) { S.ws.onclose = null; S.ws.close(); S.ws = null; }
 }
+// One-time pairing code (from `trillium-base pair --qr`): exchange it for the token.
+async function redeemCode(code) {
+  const r = await fetch(API + "/pair/redeem", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+  if (!r.ok) return false;
+  const j = await r.json();
+  if (!j.token) return false;
+  S.token = j.token;
+  localStorage.setItem("pilab.token", S.token);
+  return true;
+}
+const looksLikeCode = (v) => v.replace(/[^A-Za-z0-9]/g, "").length === 8;
 $("#pair-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  S.token = $("#pair-token").value.trim();
+  const v = $("#pair-token").value.trim();
+  if (looksLikeCode(v)) {
+    try {
+      if (await redeemCode(v)) { $("#pair").classList.add("hidden"); start(); return; }
+    } catch (e) { /* fall through */ }
+    $("#pair-msg").textContent = "Code not accepted (expired, used, or mistyped). Run `trillium-base pair --qr` on the device for a new one.";
+    return;
+  }
+  S.token = v;
   try {
     await post("/pair/check");
     localStorage.setItem("pilab.token", S.token);
@@ -133,6 +152,13 @@ async function boot() {
   if (S.info) {
     $("#pair-device").textContent = `${S.info.hostname} · device ${S.info.device_id} · v${S.info.version}`;
     $("#foot-ver").textContent = `${S.info.product} v${S.info.version} · ${S.info.device_id}`;
+  }
+  const pm = location.hash.match(/pair=([A-Za-z0-9-]+)/);
+  if (pm) {
+    history.replaceState(null, "", location.pathname + location.search);
+    let ok = false;
+    try { ok = await redeemCode(pm[1]); } catch (e) { ok = false; }
+    if (!ok && !S.token) return showPair("That pairing code has expired or was already used. Run `trillium-base pair --qr` on the device for a new one.");
   }
   if (!S.token) return showPair();
   try { await post("/pair/check"); start(); } catch (e) { if (e.message !== "unauthorized") showPair("Cannot reach the device: " + e.message); }

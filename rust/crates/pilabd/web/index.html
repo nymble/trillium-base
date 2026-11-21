@@ -18,9 +18,9 @@
   <div class="pair-card">
     <img src="/brand/rhodonea-glyph.svg?v={{BUILD}}" alt="" class="pair-mark">
     <h1>{{PRODUCT_NAME}}</h1>
-    <p class="muted">Enter the pairing token for this {{DEVICE_NAME}}. On the device, run <code>trillium-base pair</code> (or <code>pilabctl pair</code>) and copy the token it prints.</p>
+    <p class="muted">Enter the pairing token for this {{DEVICE_NAME}}. On the device, run <code>trillium-base pair --qr</code> and scan the QR code with your phone, or type the 8-character code here. <code>trillium-base pair</code> prints the full token instead.</p>
     <form id="pair-form">
-      <input id="pair-token" class="input mono" autocomplete="off" spellcheck="false" placeholder="pairing token" aria-label="Pairing token">
+      <input id="pair-token" class="input mono" autocomplete="off" spellcheck="false" placeholder="pairing token or one-time code" aria-label="Pairing token or one-time code">
       <button class="btn primary" type="submit">Pair this browser</button>
     </form>
     <p id="pair-msg" class="muted small"></p>

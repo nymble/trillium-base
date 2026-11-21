@@ -60,6 +60,9 @@ Copyright (C) 2026 M-of-N. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-C
 - **LicenseRef-Commercial**: commercial terms from M-of-N, see
   [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md).
 
+Hardware design files in [hardware/](./hardware/) are licensed separately under
+**CERN-OHL-S-2.0** (see [hardware/LICENSE-HARDWARE](./hardware/LICENSE-HARDWARE)).
+
 Third-party parts keep their own licences (ZPOD crates, fonts, sample libraries, system
 packages).
 

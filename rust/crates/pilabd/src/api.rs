@@ -37,6 +37,7 @@ fn ok(v: Value) -> R {
 pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/info", "Product, version, device id, pairing requirement (no token needed)"),
     ("POST", "/api/v1/pair/check", "200 if the bearer token is valid"),
+    ("POST", "/api/v1/pair/redeem", "{code} exchange a one-time pairing code (pilabctl pair --qr) for the token; no token needed"),
     ("GET", "/api/v1/ws?token=", "WebSocket: status frames at 15 Hz, sys frames every 2 s; send {t:'midi',bytes:[..]}"),
     ("GET", "/api/v1/status", "Voices, peaks, limiter, master, xruns, recording"),
     ("GET", "/api/v1/system", "Machine state, DAC, backend, services, ports, USB, events, recording and archive status"),
@@ -89,6 +90,7 @@ pub fn router(app: Arc<App>) -> Router {
     let api = Router::new()
         .route("/info", get(info))
         .route("/pair/check", post(|| async { Json(json!({ "ok": true })) }))
+        .route("/pair/redeem", post(pair_redeem))
         .route("/ws", get(ws))
         .route("/status", get(status))
         .route("/system", get(system))
@@ -136,7 +138,7 @@ pub fn router(app: Arc<App>) -> Router {
 
 async fn auth(State(app): S, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
-    if path.ends_with("/info") || path.ends_with("/endpoints") {
+    if path.ends_with("/info") || path.ends_with("/endpoints") || path.ends_with("/pair/redeem") {
         return next.run(req).await;
     }
     let token = app.token.read().unwrap().clone();
@@ -158,6 +160,53 @@ async fn auth(State(app): S, req: Request, next: Next) -> Response {
     }
 }
 
+/// Failed redeem attempts against the current code; five failures burn the code.
+static PAIR_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[derive(Deserialize)]
+struct PairRedeem {
+    code: String,
+}
+
+fn normalize_code(c: &str) -> String {
+    c.chars().filter(|ch| ch.is_ascii_alphanumeric()).map(|ch| ch.to_ascii_uppercase()).collect()
+}
+
+/// Exchange a one-time pairing code for the console token. The code is single use, expires
+/// (pilabctl sets 5 minutes), and is destroyed after 5 wrong guesses. Each failure waits.
+async fn pair_redeem(State(app): S, Json(r): Json<PairRedeem>) -> Response {
+    use std::sync::atomic::Ordering::SeqCst;
+    let path = app.paths.pair_code();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let stored = std::fs::read_to_string(&path).ok().and_then(|s| {
+        let mut it = s.split_whitespace();
+        Some((normalize_code(it.next()?), it.next()?.parse::<u64>().ok()?))
+    });
+    let deny = |msg: &'static str| (StatusCode::UNAUTHORIZED, Json(json!({ "error": msg, "hint": "run `trillium-base pair --qr` on the device for a new code" }))).into_response();
+    let Some((code, expires)) = stored else {
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        return deny("no pairing code is active");
+    };
+    if now > expires {
+        let _ = std::fs::remove_file(&path);
+        return deny("pairing code expired");
+    }
+    if code.len() >= 8 && ct_eq(&normalize_code(&r.code), &code) {
+        let _ = std::fs::remove_file(&path);
+        PAIR_FAILS.store(0, SeqCst);
+        app.event("info", "console paired with a one-time code");
+        let token = app.token.read().unwrap().clone();
+        return Json(json!({ "ok": true, "token": token })).into_response();
+    }
+    if PAIR_FAILS.fetch_add(1, SeqCst) + 1 >= 5 {
+        let _ = std::fs::remove_file(&path);
+        PAIR_FAILS.store(0, SeqCst);
+        app.event("warn", "pairing code destroyed after 5 wrong attempts");
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    deny("pairing code not accepted")
+}
+
 async fn info(State(app): S) -> Json<Value> {
     Json(json!({
         "product": PRODUCT_NAME,
@@ -172,6 +221,7 @@ async fn info(State(app): S) -> Json<Value> {
         "ws": format!("{API_PREFIX}/ws"),
         "pairing_required": true,
         "pairing": "token",
+        "pairing_code": true,
         "audio_backend": app.backend.name(),
         "synth": crate::brand::SYNTH_NAME,
     }))

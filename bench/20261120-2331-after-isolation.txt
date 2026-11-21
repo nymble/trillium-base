@@ -1,0 +1,22 @@
+6.18.60+rpt-rpi-v8-rt #1 SMP PREEMPT_RT Debian 1:6.18.60-1+rpt1 (2026-11-03)
+cmdline: isolcpus=managed_irq,domain,3 irqaffinity=0-2 
+isolated: 3  nohz_full: n/a
+irqs allowing cpu3: 1/53
+cpu3 interrupts/s (idle): 999
+IDLE
+WARN: -t ignored due to smp mode
+WARN: -a ignored due to smp mode
+T: 0 ( 3003) P:95 I:1000 C:  45000 Min:      1 Act:    2 Avg:    1 Max:      15
+T: 1 ( 3004) P:95 I:1500 C:  29999 Min:      1 Act:    3 Avg:    1 Max:      22
+T: 2 ( 3005) P:95 I:2000 C:  22498 Min:      1 Act:    1 Avg:    2 Max:      16
+T: 3 ( 3006) P:95 I:2500 C:  17997 Min:      2 Act:    2 Avg:    2 Max:       9
+LOAD
+WARN: -t ignored due to smp mode
+WARN: -a ignored due to smp mode
+T: 0 ( 3096) P:95 I:1000 C:  45000 Min:      1 Act:    3 Avg:    5 Max:      66
+T: 1 ( 3097) P:95 I:1500 C:  29998 Min:      1 Act:    5 Avg:    6 Max:      77
+T: 2 ( 3098) P:95 I:2000 C:  22498 Min:      1 Act:    5 Avg:    7 Max:      55
+T: 3 ( 3099) P:95 I:2500 C:  17997 Min:      2 Act:    2 Avg:    4 Max:      38
+temp=56.5'C
+throttled=0x0
+DONE

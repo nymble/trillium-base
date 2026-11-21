@@ -1120,16 +1120,30 @@ impl App {
         }
     }
 
-    pub fn connect_outputs(&self) {
+    /// Connect the synth outputs to the configured sink ports. Returns true when every
+    /// configured link exists afterwards. With `warn` false, failures are silent (used
+    /// while waiting for the DAC sink to appear at boot).
+    pub fn try_connect_outputs(&self, warn: bool) -> bool {
         let s = self.settings();
         let ours = self.backend.output_ports();
+        let mut ok = true;
         for (i, dst) in s.audio.output_ports.iter().take(2).enumerate() {
             match self.backend.connect(&ours[i], dst) {
                 Ok(()) => {}
                 Err(e) if e.contains("Exist") => {}
-                Err(e) => self.event("warn", format!("output {} -> {dst}: {e}", ours[i])),
+                Err(e) => {
+                    ok = false;
+                    if warn {
+                        self.event("warn", format!("output {} -> {dst}: {e}", ours[i]));
+                    }
+                }
             }
         }
+        ok
+    }
+
+    pub fn connect_outputs(&self) -> bool {
+        self.try_connect_outputs(true)
     }
 
     pub fn device_classes_json(&self) -> Value {

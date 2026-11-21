@@ -183,7 +183,22 @@ async fn main() {
     if let Err(e) = app.apply_scene(&sc, true) {
         app.event("error", format!("scene \"{}\": {e}", sc.name));
     }
-    app.connect_outputs();
+    // At boot the DAC sink can appear after pilabd starts (WirePlumber is still probing the
+    // card). Retry quietly for up to a minute instead of starting unpatched. This only runs
+    // at startup, so it never fights a link the user later removes in the patch panel.
+    if !app.try_connect_outputs(false) {
+        let a2 = app.clone();
+        std::thread::spawn(move || {
+            for i in 1..=60 {
+                std::thread::sleep(Duration::from_secs(1));
+                if a2.try_connect_outputs(false) {
+                    a2.event("info", format!("outputs connected (sink appeared after {i} s)"));
+                    return;
+                }
+            }
+            a2.connect_outputs();
+        });
+    }
     app.refresh_midi_inputs(true);
     if app.settings().audio.start_engine {
         let _ = app.engine_run(true);

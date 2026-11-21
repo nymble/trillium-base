@@ -1,5 +1,6 @@
-# Proposed additions to /boot/firmware/cmdline.txt (one line in the real file).
-# NOT applied. Changing the boot command line needs approval and a reboot.
-# Today CPU 3 is only kept free by systemd CPUAffinity=0-2; the kernel still schedules
-# kthreads and routes IRQs to it (49 of 53 IRQs allow CPUs 0-3).
+# Kernel command-line additions for Trillium Base CPU 3 isolation (one line in the real
+# /boot/firmware/cmdline.txt). Applied on the lab unit 2026-11-20 by kernel/cpu-isolation.sh,
+# which writes only what the running kernel supports:
+#   stock RPi RT kernel:   isolcpus=managed_irq,domain,3 irqaffinity=0-2
+#   Trillium kernel:       + nohz_full=3 rcu_nocbs=3   (needs NO_HZ_FULL, RCU_NOCB_CPU)
 isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2

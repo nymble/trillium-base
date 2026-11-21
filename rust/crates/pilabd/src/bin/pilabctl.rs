@@ -5,6 +5,7 @@
 //!
 //! ```text
 //! pilabctl pair [--rotate]      show (or replace) the pairing token and console URLs
+//! pilabctl pair --qr            one-time pairing code (5 min, single use) as a QR code + URL
 //! pilabctl status               engine and machine status
 //! pilabctl note NOTE [VEL] [SECONDS]   play a test note through the console port
 //! pilabctl gain DB              set the master level (capped at -6 dBFS)
@@ -83,6 +84,36 @@ fn addrs() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Writes a one-time pairing code (8 characters, no look-alikes, valid 5 minutes, single
+/// use) and shows it as a QR code pointing at the console. The console exchanges it for
+/// the token, so the token itself never has to be typed or shown.
+fn pair_qr() {
+    const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    const TTL: u64 = 300;
+    let mut buf = [0u8; 8];
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).expect("urandom");
+    let code: String = buf.iter().map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char).collect();
+    let shown = format!("{}-{}", &code[..4], &code[4..]);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let path = config_dir().join("pair-code");
+    let tmp = path.with_extension("tmp");
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).expect("write pairing code");
+        writeln!(f, "{code} {}", now + TTL).unwrap();
+    }
+    std::fs::rename(&tmp, &path).expect("rename pairing code");
+    let url = format!("http://{}.local:{}/#pair={shown}", hostname(), port());
+    let qr = std::process::Command::new("qrencode").args(["-t", "ansiutf8", "-m", "2", &url]).output();
+    match qr {
+        Ok(o) if o.status.success() => println!("{}", String::from_utf8_lossy(&o.stdout)),
+        _ => println!("(install qrencode to show a scannable QR code here)\n"),
+    }
+    println!("Scan with a phone camera, or open:\n\n    {url}\n");
+    println!("Or type the code into the console's pairing box:  {shown}");
+    println!("Valid for {} minutes, works once. A new `pair --qr` replaces it.", TTL / 60);
+}
+
 fn hostname() -> String {
     std::fs::read_to_string("/proc/sys/kernel/hostname").map(|s| s.trim().to_string()).unwrap_or_else(|_| "pilab".into())
 }
@@ -101,6 +132,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     match a.as_slice() {
+        ["pair", rest @ ..] if rest.contains(&"--qr") => pair_qr(),
         ["pair", rest @ ..] => {
             let path = config_dir().join("console-token");
             if rest.contains(&"--rotate") {
@@ -142,7 +174,7 @@ fn main() {
         ["save", name] => out(http("POST", &format!("/scenes/{}/save", name.replace(' ', "%20")), Some("{}".into()))),
         ["record", v] => out(http("POST", "/record", Some(format!("{{\"on\":{}}}", *v == "on")))),
         _ => {
-            eprintln!("usage: {} pair [--rotate] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off", prog());
             std::process::exit(2);
         }
     }

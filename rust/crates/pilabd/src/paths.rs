@@ -38,6 +38,10 @@ impl Paths {
     pub fn token(&self) -> PathBuf {
         self.config.join("console-token")
     }
+    /// One-time pairing code written by `pilabctl pair --qr`: "CODE EXPIRY_UNIX_SECONDS".
+    pub fn pair_code(&self) -> PathBuf {
+        self.config.join("pair-code")
+    }
     pub fn scenes(&self) -> PathBuf {
         self.config.join("scenes")
     }

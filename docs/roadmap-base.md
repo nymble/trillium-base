@@ -12,6 +12,53 @@ configure:
 It starts from what the lab unit actually runs (captured read-only on 2026-11-20, see
 `kernel/README.md` and `kernel/snapshots/`), not from a wish list.
 
+**v0 release = the OS image.** Software is the product. The hardware for v0 is
+do-it-yourself from off-the-shelf parts (Pi 5 + Allo Katana DAC HAT), documented as a
+reference build; no boards or kits are sold with v0.
+
+## Decisions (2026-11-20)
+
+| # | Topic | Decision |
+| --- | --- | --- |
+| 1 | Hardware licence | **CERN-OHL-S-2.0** (strongly reciprocal) for everything in `hardware/` |
+| 2 | v0 scope | **Image only**; hardware is DIY; software is the main product. SD card reference; NVMe, DIN MIDI and a front panel are later |
+| 3 | DAC | **Allo Katana** stays for now (high-end); a cheaper variant can come later |
+| 4 | Kernel tuning | **Approved and applied** on the lab unit: CPU 3 isolation, repeatable via `kernel/cpu-isolation.sh`, documented as a feature |
+| 5 | Image tooling | ZPOD's tooling is ahead on A/B boot; this image is ahead on real time. Separate report and recommendation; shared crates expected on both targets over time |
+| 6 | Secure boot | **Not yet**; listed as a feature for a later release |
+| 7 | Pairing | **QR code with a one-time code** (never the raw token). Implemented: `trillium-base pair --qr` |
+| 8 | Hostnames | New units are **`tbase-xxxx`** (last 4 hex of the board serial, MAC as fallback). The lab unit keeps `pilab` |
+
+## Features
+
+**Released (in this repository, running on the lab unit):**
+
+| Feature | What | Where |
+| --- | --- | --- |
+| PREEMPT_RT kernel | Stock Raspberry Pi RT kernel 6.18.60, 48 kHz / quantum 64 (1.33 ms) PipeWire graph | `kernel/README.md`, `etc/pipewire` |
+| RT kernel tuning | Performance governor, rtprio/memlock limits, systemd keeps services on CPUs 0-2 | `etc/systemd`, `etc/security` |
+| CPU isolation for audio | `isolcpus=managed_irq,domain,3 irqaffinity=0-2` plus a boot service that moves IRQs, unbound workqueues and kernel threads off CPU 3. Idempotent apply, backups, revert | `kernel/cpu-isolation.sh` |
+| Per-core latency bench | cyclictest on all four cores incl. the isolated one, CPU 3 interrupt rate, isolation state | `bin/pilab-bench`, `bench/` |
+| QR pairing | One-time 8-character code (5 min, single use, burned after 5 wrong tries) shown as a terminal QR; the console exchanges it for the token | `trillium-base pair --qr`, `POST /api/v1/pair/redeem` |
+| Patch panel | Audio and MIDI routing with stereo pairs, meters, faders, undo | Trillium Console |
+| BLE MIDI in | BLE-MIDI GATT service (PipeWire bluez5) autoconnected to Trillium Synth; time-boxed advertising tool for pairing a Mac/iPhone | `tools/ble-midi-advertise.py`, `docs/bluetooth-midi.md` |
+| Boot-time output retry | pilabd waits up to 60 s for the DAC sink at boot instead of starting unpatched | `pilabd` |
+| `tbase-xxxx` hostname tool | Computes and (on first boot of an image) sets the unit hostname | `tools/tbase-hostname.sh`, `etc/systemd/system/tbase-hostname.service` |
+
+**Planned:**
+
+| Feature | Release | Notes |
+| --- | --- | --- |
+| OS image (rpi-image-gen) | v0 | First boot runs `tbase-hostname.service` and prints a pairing QR |
+| `nohz_full` + `rcu_nocbs` on CPU 3 | v0/v1 | Needs the Trillium kernel build (`kernel/trillium-rt.fragment`); the stock kernel lacks `NO_HZ_FULL` and `RCU_NOCB_CPU`. `cpu-isolation.sh` adds them automatically when the kernel supports them |
+| QR on the console Settings page | v0 | Same one-time code, rendered in the browser |
+| A/B boot with tryboot | later | Arrives with the image's partition layout; align with ZPOD's A/B tooling |
+| Signed releases (offline minisign key) | later | Needs the owner's OK on key handling |
+| Secure boot (signed boot.img, OTP key hash) | later release | OTP writes are irreversible; not before the image and update path are stable |
+| Bluetooth off by default | v0 | BLE MIDI advertising only on request (time-boxed) |
+| Open hardware files (CERN-OHL-S) | after v0 | BOM, DIN MIDI board, front panel, enclosure under `hardware/` |
+| Full mixer, effects, second oscillator | later | See `docs/console.md` |
+
 ## Starting point
 
 | Area | Today |
@@ -20,9 +67,9 @@ It starts from what the lab unit actually runs (captured read-only on 2026-11-20
 | Storage | 32 GB SD card, one boot partition, no NVMe |
 | OS | Raspberry Pi OS Lite 64-bit, Debian 13 trixie |
 | Kernel | Stock `linux-image-rpi-v8-rt` 6.18.60 (PREEMPT_RT, 4K pages, HZ 250), unsigned modules |
-| CPU | Governor `performance` (unit); systemd `CPUAffinity=0-2`; audio thread on CPU 3; **no kernel isolation** (no `isolcpus`/`nohz_full`, IRQs on all cores) |
+| CPU | Governor `performance` (unit); systemd `CPUAffinity=0-2`; audio thread on CPU 3; kernel isolation since 2026-11-20 (`isolcpus=managed_irq,domain,3 irqaffinity=0-2`, 1 of 53 IRQs on CPU 3, the per-core PMU) |
 | Audio | Allo Katana DAC HAT (ES9038Q2M), PipeWire 1.4.2 at 48 kHz, quantum 64 (1.33 ms) |
-| Latency | cyclictest max 14 µs idle, 94 µs under load |
+| Latency | cyclictest, isolated CPU 3: max 9 µs idle, 38 µs under load (all cores: 22 / 77 µs) |
 | Network | Ethernet only, home LAN; mDNS `_trillium-base._tcp` + `_pilab._tcp`; console on 8410, plain HTTP with a pairing token |
 | MIDI | BLE MIDI (bluez) into Trillium Synth; USB MIDI by class driver; no DIN yet |
 | Software | `pilabd` (Trillium Console + Trillium Synth), Cabbage/Csound, SuperCollider, Faust, optional AirPlay |
@@ -44,11 +91,10 @@ It starts from what the lab unit actually runs (captured read-only on 2026-11-20
 | Enclosure | none | Desktop / Eurorack-adjacent; aluminium or printed; vents placed away from the DAC |
 | Radio (optional) | none | SDR or packet-radio dongles via USB, **receive-only** until transmit is approved |
 
-**License.** Hardware files under **CERN-OHL-S-2.0** (strongly reciprocal, like the GPL).
-It matches the GPL-3.0 + commercial model of the software. A company that wants to ship a
-closed derivative takes a commercial licence, as with the code. **CERN-OHL-W** (weakly
-reciprocal) is the alternative if third parties should be able to build closed add-on
-boards around an open core. The enclosure CAD can sit under the same licence. Logos and the
+**License (decided).** Hardware files under **CERN-OHL-S-2.0** (strongly reciprocal, like
+the GPL); text in `hardware/LICENSE-HARDWARE`, notice in `hardware/README.md`. It matches the
+GPL-3.0 + commercial model of the software. A company that wants to ship a closed derivative
+takes a commercial licence, as with the code. The enclosure CAD sits under the same licence. Logos and the
 Trillium name stay trademarks and are outside the licence. Copyright line: "Copyright (C)
 2026 M-of-N".
 
@@ -95,12 +141,36 @@ that adds a radio transmitter.
 - `kernel/cmdline-proposed.txt`: `isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2`;
 - `kernel/build-deb.sh`: a recipe from captured config plus fragment to `.deb`, not run yet.
 
-**Biggest finding:** CPU 3 is only "isolated" by systemd affinity. The kernel still
-puts ticks, RCU work and most IRQs on it. Latency is already good (94 µs worst case under
-load against a 1.33 ms period), so this is about headroom for quantum 32 and many voices,
-not a current problem. Try the command line first on the stock kernel: it is reversible by
-editing one line and gives most of the gain. A custom kernel only adds `nohz_full` and
-`rcu_nocbs` support and signing.
+**Biggest finding:** CPU 3 was only "isolated" by systemd affinity; the kernel still put
+ticks, RCU work and most IRQs on it.
+
+**Applied 2026-11-20 (stock kernel):** `kernel/cpu-isolation.sh apply` added
+`isolcpus=managed_irq,domain,3 irqaffinity=0-2` to `cmdline.txt` (backup kept) and installed
+`trillium-cpu-isolation.service`, which at boot moves every movable IRQ, the unbound
+workqueues and unbound kernel threads to CPUs 0-2. `nohz_full`/`rcu_nocbs` are skipped
+because the stock kernel lacks `NO_HZ_FULL`/`RCU_NOCB_CPU`; the script adds them once the
+Trillium kernel is installed. Results, same bench (`bench/20261120-*-isolation.txt`,
+cyclictest P95 45 s per phase, stress-ng cpu 4 / vm 2 / io 1):
+
+| | Before | After |
+| --- | --- | --- |
+| IRQs allowed on CPU 3 | 50 / 53 | 1 / 53 (per-core PMU only) |
+| CPU 3 interrupts/s, idle | 1228 | 999 (timer tick + IPIs; needs `nohz_full` to go lower) |
+| CPU 3 max latency, idle | 10 µs | 9 µs |
+| CPU 3 max latency, load | 58 µs (avg 7) | **38 µs** (avg 4) |
+| All cores max, load | 96 µs | 77 µs |
+| Temperature / throttling | 57 °C / 0x0 | 57 °C / 0x0 |
+
+Audio after the change (two reboots): pilabd up, PipeWire 48 kHz / quantum 64, Katana
+present, DAC volume 0.70, master −18 dB, audio thread pinned to CPU 3, synth → DAC and
+BLE MIDI → synth links restored at boot. **0 xruns** in 60 s of the same stress-ng load with
+notes playing. One boot showed a dropout burst about 80 s after power-up that the pilabd
+watchdog recovered (DAC sink suspend/resume); cause not identified yet (no persistent
+journal). To watch in the xrun soak.
+
+Note: the earlier "14 µs idle / 94 µs load" figures came from a bench that inherited
+systemd's CPUAffinity=0-2 and never measured CPU 3. `pilab-bench` now starts cyclictest
+through `taskset -c 0-3` so every core, including the isolated one, is measured.
 
 **Latency measurement.** Run `pilab-bench` (cyclictest idle and under load) before and
 after each change, and save the results in `bench/`. Watch xruns in `/api/v1/status` and
@@ -139,9 +209,10 @@ pilab pins `zpod` crates today. ZPOD's own crates stay unmodified.
 1. Pin the exact `raspberrypi/linux` commit for `1:6.18.60-1+rpt1`, by reading the package
    changelog read-only. Run `build-deb.sh` on the box to prove the recipe; the build output
    stays out of git.
-2. Run `pilab-bench` again now (baseline with today's load) and add an xrun soak mode.
-3. With approval, try `cmdline-proposed.txt` on the stock kernel and re-bench. Revert if
-   anything regresses.
+2. Add an xrun soak mode to `pilab-bench` (1 hour, quantum 64, 32 voices; then quantum 32).
+3. ~~Try `cmdline-proposed.txt` on the stock kernel and re-bench~~ (done 2026-11-20, see
+   above). Next: the Trillium kernel with `NO_HZ_FULL`/`RCU_NOCB_CPU`, installed through
+   tryboot, then re-bench.
 
 **Needs the owner's OK:** any change to `/boot/firmware` (`cmdline.txt`, `config.txt`,
 `autoboot.txt`) and the reboot it needs; installing a custom kernel; any EEPROM/bootloader
@@ -164,10 +235,12 @@ image does not flash anything. **Flashing a card is always a manual step by the 
 
 **First boot.** The image boots to a "setup" state:
 
-- hostname `trillium-<4 hex of id>`;
+- hostname `tbase-xxxx`, set once by `tbase-hostname.service` (`tools/tbase-hostname.sh`):
+  the last 4 hex digits of the board serial number, or of the first MAC address if there is
+  no serial. A host that was named by hand is never renamed;
 - no SSH password; SSH off until a key is added;
-- the console is reachable at `http://trillium-xxxx.local:8410/`;
-- the pairing token is printed on the HDMI console and through `trillium-base pair`.
+- the console is reachable at `http://tbase-xxxx.local:8410/`;
+- a pairing QR (one-time code) is printed on the HDMI console and by `trillium-base pair --qr`.
 
 The console then shows a setup wizard:
 
@@ -193,11 +266,15 @@ The wizard writes `~/.config/pilab/settings.toml` (path kept) through the existi
 It runs on the device; from a Mac, Trillium Console (web now, Mac app later) does the
 same over the API.
 
-**QR pairing.** `trillium-base pair --qr` shows a QR in the terminal, and the console's
-Settings page shows one too. Both encode the URL and device id (`http://…:8410/#id=…`).
-Putting the token in the QR is a choice: it is convenient for a phone, but anyone who sees
-the screen gets the token. Suggestion: the QR holds a one-time code that expires in 2
-minutes and is exchanged for the token, never the token itself.
+**QR pairing (implemented).** `trillium-base pair --qr` writes a one-time code to
+`~/.config/pilab/pair-code` (0600) and prints a terminal QR (via `qrencode`) for
+`http://<host>.local:8410/#pair=XXXX-XXXX`. The code is 8 characters from a 31-symbol
+alphabet without look-alikes, valid 5 minutes, works once, and is destroyed after 5 wrong
+attempts (each failure also waits 0.7 s). Opening the URL makes the console call
+`POST /api/v1/pair/redeem {code}` (no token needed), store the returned token and drop the
+code from the address bar. The code can also be typed into the pairing box. The QR never
+contains the token. Still to do: show the same QR on the console's Settings page for
+pairing a second device from a paired one, and on the HDMI console at first boot.
 
 **Signed release pipeline (GitHub, as nymble).** Tags `base-vMAJOR.MINOR.PATCH`. The
 console/service version (0.2.0 now) follows SemVer for the API (`/api/v1`). GitHub
@@ -229,8 +306,8 @@ shairport-sync) stay separate processes with source offered, as today.
 1. Add `image/` with an rpi-image-gen config that reproduces the lab unit minus the
    desktop, built on the box and **not flashed**. Compare its package list with
    `packages/apt-mark-showmanual.txt`.
-2. Grow `pilabctl` / `trillium-base` with `backup`, `doctor` and `pair --qr`, plus a QR on
-   the Settings page. These are software only and testable on the box.
+2. Grow `pilabctl` / `trillium-base` with `backup` and `doctor` (`pair --qr` is done), plus
+   a QR on the Settings page. These are software only and testable on the box.
 3. Write the release workflow (`.github/workflows/release.yml`): build arm64 `pilabd`
    bundles on a tag and leave signing as a documented manual step.
 
@@ -239,18 +316,9 @@ key and where it lives; making a release public; the update channel policy.
 
 ## Decisions for the owner
 
-1. Hardware licence: CERN-OHL-S (suggested) or CERN-OHL-W.
-2. Reference storage: SD (simple) or NVMe (A/B, durability). Also whether DIN MIDI and a
-   front panel are in v1.
-3. DAC for a release: Katana or a cheaper HAT for a lighter variant.
-4. Kernel: OK to try the CPU 3 isolation command line on the lab unit (one-line,
-   reversible, needs a reboot)?
-5. Image tool: rpi-image-gen (suggested) or pi-gen. Also whether the image tooling is
-   shared with ZPOD from the start.
-6. Signing: offline minisign key now. Secure boot / OTP later or never.
-7. QR content: one-time code (suggested) or the raw token.
-8. Hostname for new images: `trillium-<4 hex>` (suggested) or keep `pilab`. The lab unit
-   keeps `pilab` either way.
+All eight were answered on 2026-11-20; see "Decisions (2026-11-20)" at the top. Still open:
+the Pi RAM size for the BOM, the release signing key handling, and the image tooling
+recommendation (shared with ZPOD or not).
 
 ## Repository name
 

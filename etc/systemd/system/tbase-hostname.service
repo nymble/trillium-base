@@ -1,0 +1,18 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# First boot of a Trillium Base image: name the unit tbase-XXXX (tools/tbase-hostname.sh).
+# Image tooling installs the script as /usr/local/sbin/tbase-hostname and enables this unit.
+# Not installed on the lab unit, which keeps its hand-set name.
+[Unit]
+Description=Trillium Base: set the tbase-XXXX hostname on first boot
+ConditionPathExists=!/var/lib/trillium/hostname-set
+Before=avahi-daemon.service network-online.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tbase-hostname --first-boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

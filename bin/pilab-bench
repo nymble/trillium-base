@@ -1,8 +1,36 @@
 #!/bin/sh
 # Copyright (C) 2026 M-of-N
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
-# Latency benchmark: cyclictest idle and under load
-out=/var/lib/pilab/bench/$(date +%Y%m%d-%H%M)-$(uname -r).txt
-{ uname -rv; echo IDLE; cyclictest -m -S -p 95 -i 1000 -D 45 -q | grep -E "Max|Avg|Min";
-  stress-ng --cpu 4 --vm 2 --vm-bytes 512M --io 1 -t 50 >/dev/null 2>&1 &
-  echo LOAD; cyclictest -m -S -p 95 -i 1000 -D 45 -q | grep -E "Max|Avg|Min"; wait; vcgencmd measure_temp; vcgencmd get_throttled; echo DONE; } > "$out" 2>&1
+# Latency benchmark: cyclictest on every core (thread N pinned to CPU N), idle and under
+# load, plus CPU 3 interrupt rate and isolation state. Run as root.
+#
+# cyclictest is started through `taskset -c 0-3` so it reaches CPU 3 even when the caller
+# inherits systemd's CPUAffinity=0-2 (an ssh or service shell would otherwise only ever
+# measure CPUs 0-2). The stress-ng load keeps the caller's affinity, which is the normal
+# place for system work; CPU 3 is the audio core.
+set -u
+DUR=${DUR:-45}
+out=${1:-/var/lib/pilab/bench/$(date +%Y%m%d-%H%M)-$(uname -r).txt}
+mkdir -p "$(dirname "$out")"
+ct() { taskset -c 0-3 cyclictest -m -S -p 95 -i 1000 -D "$DUR" -q | grep -E "^T:"; }
+cpu3_irqs() { awk 'NR>1{s+=$5} END{print s}' /proc/interrupts; }
+{
+  uname -rv
+  echo "cmdline: $(cat /proc/cmdline | tr ' ' '\n' | grep -E '^(isolcpus|nohz_full|rcu_nocbs|irqaffinity)=' | tr '\n' ' ')"
+  echo "isolated: $(cat /sys/devices/system/cpu/isolated)  nohz_full: $(cat /sys/devices/system/cpu/nohz_full 2>/dev/null || echo n/a)"
+  echo "irqs allowing cpu3: $(for i in /proc/irq/[0-9]*/smp_affinity_list; do cat "$i"; done | python3 -c '
+import sys
+def cpus(s):
+    r=set()
+    for p in s.strip().split(","):
+        a,_,b=p.partition("-"); r.update(range(int(a),int(b or a)+1))
+    return r
+l=[cpus(x) for x in sys.stdin if x.strip()]
+print(f"{sum(3 in c for c in l)}/{len(l)}")')"
+  a=$(cpu3_irqs); sleep 10; b=$(cpu3_irqs); echo "cpu3 interrupts/s (idle): $(( (b - a) / 10 ))"
+  echo IDLE; ct
+  stress-ng --cpu 4 --vm 2 --vm-bytes 512M --io 1 -t $((DUR + 5)) >/dev/null 2>&1 &
+  echo LOAD; ct; wait
+  vcgencmd measure_temp; vcgencmd get_throttled; echo DONE
+} > "$out" 2>&1
+cat "$out"
