@@ -1,0 +1,27 @@
+# Trillium Base kernel deltas on top of configs/6.18.60+rpt-rpi-v8-rt.config.
+# Proposed, not built or booted yet. Each line says why.
+# Copyright (C) 2026 Nymble. GPL-3.0-or-later.
+
+# Name the build so it can sit next to the stock RT kernel (and be told apart in /info).
+CONFIG_LOCALVERSION="-trillium-rt"
+
+# Let CPU 3 run the audio thread without the scheduler tick (needs nohz_full=3 on the
+# command line; with no nohz_full argument behaviour is the same as stock).
+CONFIG_NO_HZ_FULL=y
+# Move RCU callbacks off the audio core (rcu_nocbs=3).
+CONFIG_RCU_NOCB_CPU=y
+
+# Boot straight into the governor the cpu-performance unit sets today, so there is no
+# ondemand window before userspace starts.
+CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
+
+# Signed modules, so a signed release can refuse unsigned ones (key handling: see
+# docs/roadmap-base.md, never in git).
+CONFIG_MODULE_SIG=y
+CONFIG_MODULE_SIG_ALL=y
+CONFIG_MODULE_SIG_SHA512=y
+# CONFIG_MODULE_SIG_FORCE is left off until the key and release pipeline exist.
+
+# Keep the config readable from the running kernel (stock has it as a module).
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y

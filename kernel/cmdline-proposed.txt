@@ -1,0 +1,5 @@
+# Proposed additions to /boot/firmware/cmdline.txt (one line in the real file).
+# NOT applied. Changing the boot command line needs approval and a reboot.
+# Today CPU 3 is only kept free by systemd CPUAffinity=0-2; the kernel still schedules
+# kthreads and routes IRQs to it (49 of 53 IRQs allow CPUs 0-3).
+isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2

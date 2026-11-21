@@ -35,11 +35,13 @@ The login user is `lab` (key-only SSH, passwordless sudo). Hostname is `pilab` (
 | `packages/` | `uname -a`, `apt-mark showmanual`, and versions of the key packages |
 | `bench/` | Latest `pilab-bench` / cyclictest results pulled from the Pi |
 | `scripts/pull-from-pi.sh` | Idempotent, read-only refresh of the files above |
+| `scripts/capture-tuning.sh` | Read-only kernel/boot/RT tuning snapshot into `kernel/snapshots/` |
 | `bin/pilab-airplay`, [docs/airplay.md](./docs/airplay.md) | Optional AirPlay 2 receiver ("pilab") and AirPlay sender to LAN speakers |
 | `scripts/build-airplay.sh` | Builds nqptp and shairport-sync (AirPlay 2, PipeWire) from source on the Pi |
 | `rust/`, [docs/console.md](./docs/console.md) | Trillium Console and Trillium Synth: synth (`pilab-synth` crate), scenes and routing (`pilab-core`), service and web console (`pilabd`, `pilabctl` / `trillium-base`) |
 | `scripts/deploy-console.sh`, `scripts/install-console.sh` | Build and install the console on the Pi (run the first from the Mac) |
 | `scripts/fetch-akwf.sh` | Fetches the CC0 AKWF waveform library onto the Pi (never into git) |
+| [docs/roadmap-base.md](./docs/roadmap-base.md), [kernel/](./kernel/README.md) | Trillium Base roadmap (hardware, kernel, release tooling); captured kernel config and RT tuning |
 | [docs/discovery.md](./docs/discovery.md) | mDNS records, audit, failure modes and fallbacks |
 | [docs/console-test-plan.md](./docs/console-test-plan.md), [docs/mac-console-requirements.md](./docs/mac-console-requirements.md), [docs/zpod-convergence.md](./docs/zpod-convergence.md) | Test plan, native Mac console requirements, ZPOD reuse and proposed API changes |
 

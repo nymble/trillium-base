@@ -1,0 +1,204 @@
+# Read-only capture from the lab unit (hostname pilab), 2026-11-20, by scripts/capture-tuning.sh.
+# MAC address scrubbed; /boot/firmware file listing omitted (stock files plus kernel8_rt.img, initramfs8_rt, config.txt.pre-rt).
+## uname
+Linux pilab 6.18.60+rpt-rpi-v8-rt #1 SMP PREEMPT_RT Debian 1:6.18.60-1+rpt1 (2026-11-03) aarch64 GNU/Linux
+## cmdline
+reboot=w coherent_pool=1M 8250.nr_uarts=1 pci=pcie_bus_safe cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32  numa=fake=8 system_heap.max_order=0 smsc95xx.macaddr=<scrubbed> vc_mem.mem_base=0x3fc00000 vc_mem.mem_size=0x40000000  console=ttyAMA10,115200 console=tty1 root=PARTUUID=2471e4de-02 rootfstype=ext4 fsck.repair=yes rootwait
+## cmdline.txt
+console=serial0,115200 console=tty1 root=PARTUUID=2471e4de-02 rootfstype=ext4 fsck.repair=yes rootwait
+## config.txt
+# For more options and information see
+# http://rptl.io/configtxt
+# Some settings may impact device functionality. See link above for details
+
+# Uncomment some or all of these to enable the optional hardware interfaces
+#dtparam=i2c_arm=on
+#dtparam=i2s=on
+#dtparam=spi=on
+
+# Enable audio (loads snd_bcm2835)
+dtparam=audio=off
+
+# Additional overlays and parameters are documented
+# /boot/firmware/overlays/README
+
+# Automatically load overlays for detected cameras
+camera_auto_detect=1
+
+# Automatically load overlays for detected DSI displays
+display_auto_detect=1
+
+# Automatically load initramfs files, if found
+auto_initramfs=1
+
+# Enable DRM VC4 V3D driver
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+
+# Don't have the firmware create an initial video= setting in cmdline.txt.
+# Use the kernel's default instead.
+disable_fw_kms_setup=1
+
+# Run in 64-bit mode
+arm_64bit=1
+
+# Disable compensation for displays with overscan
+disable_overscan=1
+
+# Run as fast as firmware / board allows
+arm_boost=1
+
+[cm4]
+# Enable host mode on the 2711 built-in XHCI USB controller.
+# This line should be removed if the legacy DWC2 controller is required
+# (e.g. for USB device mode) or if USB support is not required.
+otg_mode=1
+
+[cm5]
+dtoverlay=dwc2,dr_mode=host
+
+[pi5]
+kernel=kernel8_rt.img
+dtoverlay=nospi10
+
+[all]
+# Pi Lab: ES9038Q2M DAC HAT (Katana driver)
+dtoverlay=allo-katana-dac-audio
+## autoboot/tryboot
+ls: cannot access '/boot/firmware/autoboot.txt': No such file or directory
+ls: cannot access '/boot/firmware/tryboot.txt': No such file or directory
+## kernel pkgs
+ii  linux-image-6.18.50+rpt-rpi-2712  1:6.18.50-1+rpt1 arm64        Linux 6.18.50 for Raspberry Pi 2712, Raspberry Pi
+ii  linux-image-6.18.50+rpt-rpi-v8    1:6.18.50-1+rpt1 arm64        Linux 6.18.50 for Raspberry Pi v8, Raspberry Pi
+ii  linux-image-6.18.60+rpt-rpi-2712  1:6.18.60-1+rpt1 arm64        Linux 6.18.60 for Raspberry Pi 2712, Raspberry Pi
+ii  linux-image-6.18.60+rpt-rpi-v8    1:6.18.60-1+rpt1 arm64        Linux 6.18.60 for Raspberry Pi v8, Raspberry Pi
+ii  linux-image-6.18.60+rpt-rpi-v8-rt 1:6.18.60-1+rpt1 arm64        Linux 6.18.60 for Raspberry Pi v8, Raspberry Pi
+ii  linux-image-rpi-2712              1:6.18.60-1+rpt1 arm64        Linux for Raspberry Pi 2712 (meta-package)
+ii  linux-image-rpi-v8                1:6.18.60-1+rpt1 arm64        Linux for Raspberry Pi v8 (meta-package)
+ii  linux-image-rpi-v8-rt             1:6.18.60-1+rpt1 arm64        Linux for Raspberry Pi v8 (meta-package)
+ii  raspi-firmware                    1:1.20260915-1   all          Raspberry Pi family GPU firmware and bootloaders
+ii  rpi-eeprom                        28.37-1          all          Raspberry Pi 4/5 boot EEPROM updater
+## bootloader
+2025/08/28 01:06:48
+version 000d3ca289ae790a2e46225eb11b319c67642b1a (release)
+timestamp 1756339608
+update-time 0
+capabilities 0x0000007f
+
+2025/08/28 01:06:48 
+Copyright (c) 2012 Broadcom
+version 000d3ca2 (release) (embedded)
+## isolated
+
+nohz_full: 
+## realtime
+cat: /sys/kernel/realtime: No such file or directory
+sh: 9: sysctl: not found
+## governor
+      4 performance
+2400000
+2400000
+## irq affinity (count by cpu list)
+      1 0
+     49 0-3
+      1 1
+      1 2
+      1 3
+## irq on cpu3
+ 13:   83641785  103310704   85028970   68775325    GICv2  26 Level     arch_timer
+IPI0:  95006869  100452942  102370814  123786612       Rescheduling interrupts
+IPI1:  40410572   40725546   40166891     466001       Function call interrupts
+IPI5:     69702      39698      48019      69270       IRQ work interrupts
+## default_smp_affinity
+f
+## irqbalance
+inactive
+## systemd affinity
+CPUAffinity=0-2
+ls: cannot access '/etc/systemd/user.conf.d/': No such file or directory
+/etc/systemd/system.conf.d/:
+10-cpu-affinity.conf
+## limits
+*               soft    core            0
+root            soft    core            0
+*               hard    core            infinity
+root            hard    core            infinity
+
+@pipewire   - rtprio  95
+@pipewire   - nice    -19
+@pipewire   - memlock 4194304
+@audio - rtprio 95
+@audio - memlock unlimited
+@audio - nice -19
+95
+unlimited
+uid=1000(lab) gid=1000(lab) groups=1000(lab),4(adm),20(dialout),24(cdrom),27(sudo),29(audio),44(video),46(plugdev),60(games),100(users),102(netdev),986(gpio),988(i2c),989(spi),992(render),996(input)
+## governor unit
+cpu-performance.service                      enabled         enabled
+## pipewire conf.d
+--- /home/lab/.config/pipewire/pipewire.conf.d/*
+--- /home/lab/.config/wireplumber/wireplumber.conf.d/*
+## pw settings
+Found "settings" metadata 32
+update: id:0 key:'log.level' value:'2' type:''
+update: id:0 key:'clock.rate' value:'48000' type:''
+update: id:0 key:'clock.allowed-rates' value:'[ 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000 ]' type:''
+update: id:0 key:'clock.quantum' value:'64' type:''
+update: id:0 key:'clock.min-quantum' value:'32' type:''
+update: id:0 key:'clock.max-quantum' value:'1024' type:''
+update: id:0 key:'clock.force-quantum' value:'0' type:''
+update: id:0 key:'clock.force-rate' value:'0' type:''
+## rt threads
+    PID CLS RTPRIO PSR COMMAND
+     16  FF      1   2 rcu_preempt
+     17  FF      1   1 rcub/0
+     22  FF      1   0 irq_work/0
+     25  FF      1   1 irq_work/1
+     33  FF      1   2 irq_work/2
+     41  FF      1   3 irq_work/3
+     79  FF     50   3 watchdogd
+    221  FF     50   0 card1-crtc0
+    222  FF     50   0 card1-crtc1
+    223  FF     50   0 card1-crtc2
+    224  FF     50   0 card1-crtc3
+   1092  FF     88   0 data-loop.0
+   1095  FF     83   2 data-loop.0
+   1096   B      0   2 labwc:disk$0
+   1096   B      0   0 labwc:disk$0
+   1097  FF     83   1 data-loop.0
+   1453  RR     99   0 rtkit-daemon
+   3609  FF     83   3 data-loop.0
+   3614   B      0   2 Xwaylan:disk$0
+  37162  FF      5   2 nqptp
+  40477  FF     20   1 data-loop.0
+  91861  FF     83   3 data-loop.0
+## irq threads prio
+FF 50 2 irq/105-eth%d
+FF 50 0 irq/130-xhci-hcd:usb1
+FF 50 2 irq/135-xhci-hcd:usb3
+FF 50 2 irq/139-dw_axi_dmac_platform
+FF 50 0 irq/160-mmc0
+FF 50 0 irq/160-s-mmc0
+FF 50 0 irq/161-mmc1
+FF 50 0 irq/161-s-mmc1
+FF 50 0 irq/21-DMA
+FF 50 0 irq/22-DMA
+## cyclictest
+/usr/bin/cyclictest
+/usr/local/bin/pilab-bench
+## storage
+NAME         SIZE TYPE MOUNTPOINT     FSTYPE
+loop0          2G loop                swap
+mmcblk0     29.8G disk                
+├─mmcblk0p1  512M part /boot/firmware vfat
+└─mmcblk0p2 29.3G part /              ext4
+zram0          2G disk [SWAP]         swap
+## usb
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 003 Device 002: ID 1915:1025 Nordic Semiconductor ASA USB Composite Device
+Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+## os
+Debian GNU/Linux 13 (trixie)
+Raspberry Pi 5 Model B Rev 1.1
