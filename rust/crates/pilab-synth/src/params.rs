@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Sound-slot parameters. All `Copy`, so they cross into the audio thread without allocation.
 
 use serde::{Deserialize, Serialize};

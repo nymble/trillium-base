@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Reproducible build recipe for the Trillium Base RT kernel as Debian packages.
 # Status: recipe only, not run yet. Runs on any Linux build machine (cross-compile for
 # arm64) or natively on a Pi 5 with ~10 GB free. It never installs or flashes anything.

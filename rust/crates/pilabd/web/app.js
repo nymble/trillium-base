@@ -1,4 +1,4 @@
-// Copyright (C) 2026 Nymble. SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 // Trillium Console web UI. Vanilla JS, no build step; served from the pilabd binary.
 "use strict";
 

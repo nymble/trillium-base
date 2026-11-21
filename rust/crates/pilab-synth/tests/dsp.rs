@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Oscillator, tuning, wavetable and engine-safety tests.
 
 use pilab_synth::engine::{soft_clip, MAX_MASTER_DB, START_MASTER_DB};

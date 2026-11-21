@@ -54,12 +54,17 @@ output limiter). Details in [docs/console.md](./docs/console.md); security notes
 
 ## Licence
 
-GPL-3.0-or-later ([LICENSE](./LICENSE)), with a commercial licence available
-([LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)). Third-party parts keep their own
-licences (ZPOD crates, fonts, sound libraries, system packages).
+Copyright (C) 2026 M-of-N. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-Commercial`:
+
+- **GPL-3.0-or-later**: [LICENSE](./LICENSE) (the full GPL text);
+- **LicenseRef-Commercial**: commercial terms from M-of-N, see
+  [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md).
+
+Third-party parts keep their own licences (ZPOD crates, fonts, sample libraries, system
+packages).
 
 "Trillium", "Trillium Base", "Trillium Console", "Trillium Synth" and the Rhodonea mark
-are trademarks and are not covered by the GPL or the commercial licence; see
+are trademarks of M-of-N and are not covered by the GPL or the commercial licence; see
 [rust/crates/pilabd/web/brand/README.md](./rust/crates/pilabd/web/brand/README.md).
 
 ## Refreshing from a running Pi

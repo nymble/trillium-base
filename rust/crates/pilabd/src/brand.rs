@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Product naming in one place; the web console, API, discovery records and CLI follow.
 //! Trillium Base is the device, Trillium Console the control UI, Trillium Synth the synth.
 //! Internal ids (pilabd, pilabctl, pilab-core, `_pilab._tcp`, ~/.config/pilab) are kept.

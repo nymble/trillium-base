@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Compiles scene routes against the current MIDI input assignment.
 
 use pilab_synth::{CompiledRoute, RouteTable, MAX_PORTS, PORT_AUDITION, PORT_CONSOLE, PORT_VIRTUAL};

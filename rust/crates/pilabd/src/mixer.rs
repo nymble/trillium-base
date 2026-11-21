@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Volume and mute for PipeWire nodes (sinks, capture sources, Pulse/PipeWire app streams),
 //! read with `pw-dump` and set with `wpctl`, in WirePlumber's cubic scale (the number
 //! pavucontrol and `wpctl status` show). Changes are ramped and capped at unity (1.0):

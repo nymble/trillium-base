@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Sampler sound kind: multisample instruments loaded from SFZ (a practical subset) with
 //! WAV or FLAC samples, preloaded into RAM as f32. Loading allocates and runs on the host;
 //! the engine only reads an `Arc<Instrument>`.

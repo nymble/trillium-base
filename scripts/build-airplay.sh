@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Build and install the AirPlay 2 receiver (nqptp + shairport-sync with the PipeWire
 # backend) on the Pi. Debian's shairport-sync 4.3.7 package is classic AirPlay only and
 # Debian has no nqptp package, so both are built from source.

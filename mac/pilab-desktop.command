@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Open the Trillium Base desktop from a Mac: SSH tunnel to the device's local-only VNC
 # (127.0.0.1:5900), then the TigerVNC viewer. Set TRILLIUM_HOST to use another device.
 HOST=${TRILLIUM_HOST:-lab@pilab.local}

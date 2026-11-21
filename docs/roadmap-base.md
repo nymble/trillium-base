@@ -50,7 +50,7 @@ closed derivative takes a commercial licence, as with the code. **CERN-OHL-W** (
 reciprocal) is the alternative if third parties should be able to build closed add-on
 boards around an open core. The enclosure CAD can sit under the same licence. Logos and the
 Trillium name stay trademarks and are outside the licence. Copyright line: "Copyright (C)
-2026 Nymble".
+2026 M-of-N".
 
 **Repository layout** (new top-level `hardware/`, SVG and text formats only, no rendered
 images in git):

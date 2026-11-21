@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Named sound presets. Sample presets point at a bank id in the library index
 //! (samples/index.json); applying one to a slot sets the sampler, bank and envelope.
 

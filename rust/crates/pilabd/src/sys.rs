@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Machine state: temperature, CPU, memory, DAC sink state, services, listening ports,
 //! USB devices, versions, storage, audio devices. Reads only, except `service_switch`, which
 //! runs the documented on/off commands for the services the console may switch.

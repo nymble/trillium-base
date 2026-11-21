@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # cabbage [file.csd] [-f]: open a Csound instrument in the Cabbage 2 IDE on the Pi desktop.
 #   Audio runs through JACK (PipeWire) to the DAC, pinned to the audio core (CPU 3).
 #   The instrument starts automatically (CABBAGE_AUTOPLAY=0 to just open the editor).

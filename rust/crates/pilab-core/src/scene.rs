@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Scenes: named, versioned TOML files holding sound slots and a MIDI routing map.
 
 use pilab_synth::{Env, FilterParams, SlotParams, Waveform, MAX_ROUTES, MAX_SLOTS};

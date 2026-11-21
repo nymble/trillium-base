@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Who is behind a MIDI source port: USB id, ALSA client and port number (the USB MIDI
 //! cable), or the BlueZ alias of a BLE MIDI device. Read-only: /proc/asound and
 //! `bluetoothctl` queries; nothing is changed on any device.

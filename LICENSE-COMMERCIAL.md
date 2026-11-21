@@ -1,12 +1,18 @@
 # Commercial licensing
 
+Copyright (C) 2026 M-of-N.
+
+This file is the licence reference for SPDX `LicenseRef-Commercial`. Files in this
+repository carry `SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial`:
+you may use them under either licence.
+
 Trillium Base's own code and content in this repository (Trillium Console, Trillium Synth and the Base tooling) are licensed to everyone under the
 **GNU General Public License, version 3 or (at your option) any later version**
 ([LICENSE](LICENSE)), SPDX `GPL-3.0-or-later`.
 
 ## Dual licence
 
-The copyright holder also offers the same code under **separate commercial terms**, for
+The copyright holder, M-of-N, also offers the same code under **separate commercial terms**, for
 example to build it into closed-source products, ship it without the GPL's source-code
 obligations, or get warranty and support terms.
 

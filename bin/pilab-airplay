@@ -1,6 +1,6 @@
 #!/bin/bash
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # pilab-airplay: switch the AirPlay receiver and sender on or off, send audio
 # to an AirPlay speaker, and show what is running and listening.
 #

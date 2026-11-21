@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use pilab_core::devices::{cable_from_name, default_classes};
 use pilab_core::{classify, compile_routes_with, DeviceClass, PortDevices, PortNames, Route, Scene, Settings, SourceIdentity, Transport};
 use pilab_synth::{Hit, MAX_LAYERS};

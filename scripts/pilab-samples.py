@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Install the pilab base-pack sample banks onto a device (never into git).
 
 FreePats banks come from library/samples-base.tsv (pinned URL, sha256, size). The VCSL

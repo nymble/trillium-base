@@ -1,5 +1,5 @@
-Copyright (C) 2026 Nymble
-SPDX-License-Identifier: GPL-3.0-or-later
+Copyright (C) 2026 M-of-N
+SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 2eb1253..7c5b00e 100644

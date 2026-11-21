@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Band-limited oscillators. Saw and square use the polyBLEP helpers from `zpod-voices`;
 //! pulse adds a second BLEP at the moving edge; triangle uses polyBLAMP at its corners;
 //! sine uses an f64 phase accumulator.

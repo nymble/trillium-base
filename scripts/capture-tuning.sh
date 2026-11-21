@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Read-only capture of a Trillium Base's kernel, boot and real-time tuning.
 # Run from a machine that can `ssh lab@pilab.local`:
 #   sh scripts/capture-tuning.sh [host] > kernel/snapshots/$(date +%F)-pilab.txt

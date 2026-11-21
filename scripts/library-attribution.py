@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 Nymble
-# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Generate library/ATTRIBUTION.md from library/sources.yaml.
 
 Usage: python3 scripts/library-attribution.py > library/ATTRIBUTION.md

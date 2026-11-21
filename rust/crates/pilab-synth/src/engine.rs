@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! The realtime engine: voices, MIDI handling, master gain, limiter and soft clip.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};

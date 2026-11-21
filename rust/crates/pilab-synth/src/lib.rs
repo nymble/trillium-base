@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Waveform module v0: a polyphonic, MIDI-driven synth engine.
 //!
 //! The engine is backend-free: a host feeds it MIDI bytes and asks it to fill two `f32`

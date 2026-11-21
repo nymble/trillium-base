@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Realtime MIDI routing table: (input port, channel, note range) → sound slot,
 //! with transpose and velocity scaling. Several matching routes layer.
 

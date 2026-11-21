@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 use pilab_core::{compile_routes, PortNames, Route, Scene, SceneStore, Settings};
 use pilab_synth::{Hit, MAX_LAYERS, PORT_CONSOLE, PORT_VIRTUAL};
 

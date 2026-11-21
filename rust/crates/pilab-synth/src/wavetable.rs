@@ -1,5 +1,5 @@
-// Copyright (C) 2026 Nymble
-// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 M-of-N
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Mipmapped single-cycle wavetables (built from AKWF-style WAV cycles).
 //!
 //! A cycle of any length is analysed with a DFT, then resynthesised into
