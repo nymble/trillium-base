@@ -25,7 +25,7 @@ only licence offered.
 A commercial licence covers only material whose copyright the project's copyright holder
 owns. It does not cover third-party material, which keeps its own licence:
 
-- Rust crates pulled in by `rust/Cargo.lock`, including the ZPOD crates (MIT at the pinned revision; ZPOD plans its own GPL-3.0 plus commercial relicensing separately);
+- Rust crates pulled in by `rust/Cargo.lock`, including the ZPOD crates (at the pinned tag `licenses-dual-mofn` they carry the same `GPL-3.0-or-later OR LicenseRef-Commercial` terms from M-of-N; commercial terms for them come from ZPOD's own LICENSE-COMMERCIAL.md);
 - the self-hosted fonts in `rust/crates/pilabd/web/fonts/` (SIL Open Font License 1.1);
 - sound libraries listed in `library/sources.yaml` (see `library/ATTRIBUTION.md`);
 - Linux, PipeWire and other system packages, which are separate programs.

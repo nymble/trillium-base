@@ -43,7 +43,8 @@ Crates (`rust/`):
 | `pilab-core` | Scene format and store, routing compiler, settings, globbing. No audio. |
 | `pilabd` | The service (`pilabd`) and terminal client (`pilabctl`), audio backends, API, web assets. |
 
-ZPOD crates are used unmodified from `nymble/zpod` at `525bc84` (see
+ZPOD crates are used unmodified from `nymble/zpod` at tag `licenses-dual-mofn`
+(`2dedb10`, dual licensed like this repository; see
 [zpod-convergence.md](./zpod-convergence.md)).
 
 ### Audio backend

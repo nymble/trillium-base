@@ -9,14 +9,18 @@ bases converge. Nothing in the ZPOD crates is modified here.
 `rust/Cargo.toml`:
 
 ```toml
-zpod-voices     = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
-zpod-midi       = { git = "https://github.com/nymble/zpod", rev = "525bc84..." }
-zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "525bc84..." }
+zpod-voices     = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
+zpod-midi       = { git = "https://github.com/nymble/zpod", rev = "2dedb10..." }
+zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "2dedb10..." }
 ```
 
-Branch `pipit-seq` at `525bc84`. The crates are MIT at this revision; using them from GPL
-code is fine. ZPOD plans to relicense them GPL-3.0 plus commercial in its own pass; pilab
-will move the pin when that lands, with no code change expected.
+Tag `licenses-dual-mofn` (commit `2dedb10`, branch `test8`). At this revision the crates
+are dual licensed, `GPL-3.0-or-later OR LicenseRef-Commercial`, copyright M-of-N, the same
+terms as this repository; each crate has a LICENSE file pointing at ZPOD's root LICENSE
+(GPL-3.0) and LICENSE-COMMERCIAL.md. Earlier revisions, including the previous pin
+`525bc84` (branch `pipit-seq`) and older tags, are MIT, so the pin must not move back to
+them. The move from `525bc84` needed no code change here; zpod-midi gained an `input`
+module that this repository does not use yet.
 
 The Pi has no GitHub credentials, so `scripts/deploy-console.sh` sends a git bundle of the
 pinned commit and `install-console.sh` resolves the URL to a local mirror through

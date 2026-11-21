@@ -14,10 +14,11 @@ repository = "https://github.com/nymble/trillium-base"
 rust-version = "1.80"
 
 [workspace.dependencies]
-# ZPOD shared crates, MIT, pinned read-only to branch pipit-seq at 525bc84. Not forked.
-zpod-voices = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
-zpod-midi = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
-zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "525bc8470ca63a6453eb678acb27826185804b6e" }
+# ZPOD shared crates (GPL-3.0-or-later OR LicenseRef-Commercial), pinned read-only to tag
+# licenses-dual-mofn (2dedb10, branch test8). Not forked. Older revisions are MIT; do not pin them.
+zpod-voices = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
+zpod-midi = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
+zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
 pilab-synth = { path = "crates/pilab-synth" }
 pilab-core = { path = "crates/pilab-core" }
 serde = { version = "1", features = ["derive"] }
