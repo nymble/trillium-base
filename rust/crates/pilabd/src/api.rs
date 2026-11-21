@@ -161,6 +161,7 @@ async fn auth(State(app): S, req: Request, next: Next) -> Response {
 async fn info(State(app): S) -> Json<Value> {
     Json(json!({
         "product": PRODUCT_NAME,
+        "device": crate::brand::DEVICE_NAME,
         "tagline": PRODUCT_TAGLINE,
         "version": VERSION,
         "commit": crate::brand::COMMIT,

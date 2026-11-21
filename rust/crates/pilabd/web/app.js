@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Nymble. SPDX-License-Identifier: GPL-3.0-or-later
-// pilab console web UI. Vanilla JS, no build step; served from the pilabd binary.
+// Trillium Console web UI. Vanilla JS, no build step; served from the pilabd binary.
 "use strict";
 
 const API = "/api/v1";
-const PRODUCT = document.body.dataset.product || "pilab console";
+const PRODUCT = document.body.dataset.product || "Trillium Console";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -273,7 +273,7 @@ function renderOverview() {
   }).join("");
   const ev = (s.events || []).map((e) => `<div><span class="t">${e.time}</span><span>${e.level}</span><span></span><span>${esc(e.text)}</span></div>`).join("");
   const rec = s.recording;
-  $("#main").innerHTML = head("Overview", `${esc(s.hostname)}.local · ${esc((s.addresses || []).join(" · "))} · port ${s.port}`) + `
+  $("#main").innerHTML = head("Overview", `${esc((S.info && S.info.device) || "Trillium Base")} · ${esc(s.hostname)}.local · ${esc((s.addresses || []).join(" · "))} · port ${s.port}`) + `
   <div class="grid g4">
     <div class="card">
       <div class="card-head"><h3>Machine</h3></div>
@@ -1306,11 +1306,11 @@ async function renderSettings() {
       <div class="lbl" style="margin:14px 0 6px">Network and pairing</div>
       <div class="kv">
         <span class="k">Console</span><span class="v">${urls.map(esc).join("<br>")}</span>
-        <span class="k">mDNS</span><span class="v">_pilab._tcp · _http._tcp</span>
+        <span class="k">mDNS</span><span class="v">_trillium-base._tcp · _pilab._tcp · _http._tcp</span>
         <span class="k">Device id</span><span class="v">${esc(sys.device_id || "")}</span>
       </div>
       <div class="risk caution" style="margin-top:10px"><b>!</b> The console is plain HTTP on the LAN. Anyone on this network with the pairing token can change the sound. On venue networks, prefer a direct cable.</div>
-      <div class="row" style="margin-top:10px"><button class="btn ghost small" id="forget">Forget token in this browser</button><span class="muted small">New token on the Pi: <code>pilabctl pair --rotate</code></span></div>
+      <div class="row" style="margin-top:10px"><button class="btn ghost small" id="forget">Forget token in this browser</button><span class="muted small">New token on the device: <code>trillium-base pair --rotate</code></span></div>
     </div>
   </div>`;
   $("#arc-en").addEventListener("change", (e) => toast(e.target.checked ? "Archival on: copies recordings to the NAS share once it is configured. It is not configured yet, so nothing will be copied." : "Archival off: recordings stay on this device."));

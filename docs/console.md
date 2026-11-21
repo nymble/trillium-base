@@ -1,11 +1,15 @@
-# pilab console
+# Trillium Console
 
-The console is the control surface for the Pi's sound modules. v0 ships one module,
+Trillium Console is the control surface for a **Trillium Base** (this Pi 5) and its sound
+modules. v0 ships one module,
 **Trillium Synth** (crate and service id `pilab-synth`), and is built so that other MIDI, generative and audio
 apps run beside it and are patched together through PipeWire.
 
-Product name: `pilab console` for now. It is set once in
-`rust/crates/pilabd/src/brand.rs` (`PRODUCT_NAME`) and injected into the web page.
+Names are set once in `rust/crates/pilabd/src/brand.rs`: `PRODUCT_NAME` = Trillium
+Console (page title, header, API `product`), `DEVICE_NAME` = Trillium Base (mDNS instance
+and TXT, Overview, API `device`), `SYNTH_NAME` = Trillium Synth. Internal ids keep the
+`pilab` prefix: `pilabd`, `pilabctl` (alias `trillium-base`, a symlink installed next to
+it), `pilab-core`, `pilab-synth`, `~/.config/pilab`, `_pilab._tcp`.
 
 ## Architecture
 
@@ -127,7 +131,7 @@ port name (e.g. `*Keystation*`).
 
 Common practice (Serum, Vital, Surge XT, Ableton Wavetable, Waldorf) treats a wavetable as
 an ordered set of single cycles scanned by a **position** control, followed by optional
-warp transforms, unison, then the usual filter / envelope / FX chain. pilab follows that:
+warp transforms, unison, then the usual filter / envelope / FX chain. Trillium Synth follows that:
 
 - Oscillator types per slot: sine, saw, square, pulse, triangle, **wavetable**, **sampler**.
 - Wavetable = one AKWF folder. Every cycle in it is a frame; `position` (0..1) crossfades
@@ -457,6 +461,7 @@ available · Reload" banner appears.
 ## Commands
 
 ```sh
+# `trillium-base` is the same binary as `pilabctl` (symlink); either name works.
 pilabctl pair            # print the pairing token and console URLs (terminal only)
 pilabctl pair --rotate   # new token; browsers must pair again
 pilabctl status          # voices, level, xruns

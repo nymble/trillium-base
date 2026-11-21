@@ -1,4 +1,4 @@
-# Rebuilding Pi Lab from a blank card
+# Rebuilding Trillium Base (lab unit `pilab`) from a blank card
 
 This is the path that produced the running machine on 2026-11-18, reconstructed from the files and packages that are actually on the Pi. Later this should become an Ansible playbook. Until then, follow the steps in order.
 
@@ -328,7 +328,7 @@ OSC is also enabled (UDP ports 5510–5512). Ctrl-C, or `faust-gui --stop`, quit
 
 Csound itself needs nothing extra: `pw-jack csound file.csd` with `-odac -+rtaudio=jack -b 64 -B 256` in `<CsOptions>` plays on the DAC (test file `home/csound/hello.csd`).
 
-For instrument panels, Pi Lab runs the **Cabbage 2 IDE** (2.10.7, tag `v2-master-final`, commit `fe44ff9194373c883b60f118688ead06b519714d`) built from source on JUCE 6.1.2, linked against Debian's Csound 6.18 (`libcsound64`, double samples). There is no ARM Linux package. Cabbage 3 was not used: it is a VS Code extension plus a webview server and needs Csound 7.
+For instrument panels, Trillium Base runs the **Cabbage 2 IDE** (2.10.7, tag `v2-master-final`, commit `fe44ff9194373c883b60f118688ead06b519714d`) built from source on JUCE 6.1.2, linked against Debian's Csound 6.18 (`libcsound64`, double samples). There is no ARM Linux package. Cabbage 3 was not used: it is a VS Code extension plus a webview server and needs Csound 7.
 
 Build and install (about 13 minutes with `-j3`, 850 MB of sources and objects in `~/src/cabbage2`, about 50 MB installed):
 
@@ -405,7 +405,7 @@ Notes:
 - shairport-sync must be a **user** service, because PipeWire is one. `nqptp` is a system service (UDP 319/320). The user unit waits for it, and the config pins `service_type = "airplay2"` so a race never silently produces a classic-only receiver.
 - The sender runs as its own PipeWire client process, so switching it never restarts the realtime graph.
 
-## pilab console (Trillium Synth and web console)
+## Trillium Console (Trillium Synth and web console)
 
 Needs PipeWire with `pipewire-jack` (step 6) and avahi. From the Mac, in this repo:
 
@@ -437,7 +437,7 @@ pw-jack jack_lsp -c 'Trillium Synth'   # out_l/out_r linked to the DAC, MIDI sou
 avahi-browse -rt _pilab._tcp
 ```
 
-Then pair a browser with `pilabctl pair` and follow docs/console-test-plan.md.
+Then pair a browser with `trillium-base pair` (alias of `pilabctl pair`) and follow docs/console-test-plan.md.
 Logs go to the journal (`journalctl --user -u pilabd` or
 `journalctl _SYSTEMD_USER_UNIT=pilabd.service`).
 

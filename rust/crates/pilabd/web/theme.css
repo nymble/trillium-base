@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 Nymble — SPDX-License-Identifier: GPL-3.0-or-later
  *
- * pilab console theme. Every color, font and radius comes from the Trillium brand
+ * Trillium Console theme. Every color, font and radius comes from the Trillium brand
  * tokens in brand/tokens.css (--tr-*). Swap that file to re-skin the console; this file
  * only maps tokens to roles and derives neutral tints with color-mix (no new hues).
  */

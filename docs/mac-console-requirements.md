@@ -1,29 +1,31 @@
-# Requirements for a native Mac console
+# Requirements for a native Mac console (Trillium Console for Mac)
 
-These are requirements for a native macOS app that controls the pilab console service.
+These are requirements for a native macOS app, **Trillium Console**, that controls a
+**Trillium Base** (the `pilabd` service on the device).
 They are vendor-neutral: any team or toolkit can meet them. The web console in
 `rust/crates/pilabd/web` is the reference behaviour; the native app talks to the same
 API and must not need anything the web console does not.
 
 ## 1. Discovery and connection
 
-- R1.1 Browse `_pilab._tcp` with Bonjour (`NWBrowser` or `NetServiceBrowser`). Show each
-  instance's name, host, `id` and `version` TXT values.
+- R1.1 Browse `_trillium-base._tcp` and `_pilab._tcp` (older units) with Bonjour
+  (`NWBrowser` or `NetServiceBrowser`). Show each instance's name (e.g.
+  `Trillium Base (pilab)`), host, `id` and `version` TXT values.
 - R1.2 De-duplicate by the `id` TXT record (one device can appear on IPv4, IPv6 and several
   interfaces, and its name can change after a conflict).
 - R1.3 Fallbacks when browsing finds nothing: a manual URL or address field, the last
-  working address per device id, and a QR/URL hand-off from `pilabctl pair` output.
+  working address per device id, and a QR/URL hand-off from `trillium-base pair` (`pilabctl pair`) output.
 - R1.4 Check `GET /api/v1/info` before pairing; refuse an incompatible `api` value with a
   clear message.
 - R1.5 Prefer IPv4 link addresses when both resolve; retry on the other family.
 
 ## 2. Pairing and secrets
 
-- R2.1 Ask once per device for the pairing token (printed only by `pilabctl pair` on the
-  Pi). Store it in the macOS Keychain keyed by device id, never in preferences or logs.
+- R2.1 Ask once per device for the pairing token (printed only by `trillium-base pair` on the
+  device). Store it in the macOS Keychain keyed by device id, never in preferences or logs.
 - R2.2 Send it as `Authorization: Bearer` on HTTP and `?token=` on the WebSocket.
 - R2.3 On 401, drop the stored token and return to pairing (the token may have been
-  rotated with `pilabctl pair --rotate`).
+  rotated with `trillium-base pair --rotate`).
 - R2.4 Show that the connection is plain HTTP on the LAN.
 
 ## 3. Live state

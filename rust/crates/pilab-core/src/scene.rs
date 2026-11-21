@@ -288,7 +288,7 @@ impl Scene {
         let mut v = toml::Value::try_from(self).map_err(|e| e.to_string())?;
         tidy_floats(&mut v);
         let body = toml::to_string_pretty(&v).map_err(|e| e.to_string())?;
-        Ok(format!("# pilab console scene. Edit in the console or by hand; validated on load.\n{body}"))
+        Ok(format!("# Trillium Console scene. Edit in the console or by hand; validated on load.\n{body}"))
     }
 
     pub fn from_toml(s: &str) -> Result<Scene, String> {

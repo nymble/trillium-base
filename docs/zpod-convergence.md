@@ -1,6 +1,6 @@
 # ZPOD convergence
 
-The pilab synth reuses ZPOD crates instead of forking them. This page records what is
+Trillium Synth (in this repository, nymble/pilab) reuses ZPOD crates instead of forking them. This page records what is
 used, what pilab adds on its side, and the API changes proposed to ZPOD so the two code
 bases converge. Nothing in the ZPOD crates is modified here.
 

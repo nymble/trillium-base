@@ -8,14 +8,14 @@ Tracked weaknesses (accepted for now, revisit with the console / hardening work)
 | W2 | Faust GUI | faust-gui httpd (TCP 5510) and OSC (UDP 5510-5512) have no auth, bound to 0.0.0.0 | open |
 | W3 | Host firewall | no host firewall; host has a global IPv6 address, relies on router to block inbound | open |
 | W4 | Access recovery | single SSH key authorized for user lab; root and lab passwords locked; lab has NOPASSWD sudo and desktop autologin | open |
-| W5 | pilab console | TCP 8410 on all interfaces (IPv4 and IPv6), plain HTTP: the pairing token crosses the LAN unencrypted; `/api/v1/info` and `/api/v1/endpoints` answer without a token (product, version, device id, host name) | open (2026-11-20) |
+| W5 | Trillium Console (pilabd) | TCP 8410 on all interfaces (IPv4 and IPv6), plain HTTP: the pairing token crosses the LAN unencrypted; `/api/v1/info` and `/api/v1/endpoints` answer without a token (product, version, device id, host name) | open (2026-11-20) |
 
 ## Changes
 
 - 2026-11-19: rpcbind.service and rpcbind.socket disabled and masked (TCP/UDP 111 closed; NFS not used).
   Undo: `sudo systemctl unmask rpcbind.service rpcbind.socket && sudo systemctl enable --now rpcbind.socket`
 
-## pilab console (port 8410)
+## Trillium Console (pilabd, port 8410)
 
 - Service: `pilabd` (user unit), listening on `[::]:8410` (IPv4 and IPv6, all interfaces).
   Home LAN only; nothing is forwarded from the internet. With no host firewall (W3), the

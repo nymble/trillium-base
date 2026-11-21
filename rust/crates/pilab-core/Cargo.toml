@@ -1,6 +1,6 @@
 [package]
 name = "pilab-core"
-description = "Scenes, sound slots, MIDI routing maps and settings for the pilab console (serde models, validation, storage)"
+description = "Scenes, sound slots, MIDI routing maps and settings for Trillium Base and Trillium Console (serde models, validation, storage)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

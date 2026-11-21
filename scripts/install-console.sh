@@ -1,5 +1,6 @@
 #!/bin/sh
-# Build and install the pilab console (pilabd + pilabctl) on the Pi, as user lab.
+# Build and install the Trillium Base service (pilabd + pilabctl, plus the `trillium-base`
+# alias for pilabctl) on the Pi, as user lab.
 #   sh scripts/install-console.sh [path/to/zpod-pin.bundle]
 # Run from the repo root on the Pi (scripts/deploy-console.sh does this from the Mac).
 # - installs a minimal Rust toolchain in ~/.rustup and ~/.cargo if cargo is missing
@@ -37,6 +38,7 @@ GIT_CONFIG_KEY_0="url.file://$MIRROR.insteadOf" GIT_CONFIG_VALUE_0=https://githu
 
 mkdir -p "$BIN" "$HOME/.config/systemd/user"
 install -m 755 "$CARGO_TARGET_DIR/release/pilabd" "$CARGO_TARGET_DIR/release/pilabctl" "$BIN"/
+ln -sf pilabctl "$BIN/trillium-base"
 install -m 644 "$REPO/home/.config/systemd/user/pilabd.service" "$HOME/.config/systemd/user/pilabd.service"
 
 TMP=$(mktemp)
@@ -53,4 +55,4 @@ systemctl --user enable pilabd.service >/dev/null 2>&1
 systemctl --user restart pilabd.service
 sleep 2
 systemctl --user --no-pager --lines=0 status pilabd.service | head -5
-echo "console: http://$(hostname).local:8410/   pairing token: run 'pilabctl pair' on the Pi"
+echo "Trillium Console: http://$(hostname).local:8410/   pairing token: run 'trillium-base pair' on the Pi"

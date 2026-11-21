@@ -1,9 +1,15 @@
 // Copyright (C) 2026 Nymble
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Product naming in one place. The product name is not decided yet; change it here and
-//! the web console, API, discovery TXT records and CLI all follow.
+//! Product naming in one place; the web console, API, discovery records and CLI follow.
+//! Trillium Base is the device, Trillium Console the control UI, Trillium Synth the synth.
+//! Internal ids (pilabd, pilabctl, pilab-core, `_pilab._tcp`, ~/.config/pilab) are kept.
 
-pub const PRODUCT_NAME: &str = "pilab console";
+/// The control UI (web console now; the Mac app later).
+pub const PRODUCT_NAME: &str = "Trillium Console";
+/// The device this runs on.
+pub const DEVICE_NAME: &str = "Trillium Base";
+/// mDNS service types: the original one (kept for existing clients) and the product one.
+pub const MDNS_TYPES: [&str; 2] = ["_pilab._tcp", "_trillium-base._tcp"];
 pub const PRODUCT_TAGLINE: &str = "Trillium, an Ambient Lab project";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Git commit of the deployed tree (set by scripts/install-console.sh from COMMIT).

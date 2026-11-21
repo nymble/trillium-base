@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Nymble
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! pilabctl: local command line for the pilab console service.
+//! pilabctl: local command line for the Trillium Base service (also installed as
+//! `trillium-base`, a symlink to this binary).
 //!
 //! ```text
 //! pilabctl pair [--rotate]      show (or replace) the pairing token and console URLs
@@ -141,8 +142,13 @@ fn main() {
         ["save", name] => out(http("POST", &format!("/scenes/{}/save", name.replace(' ', "%20")), Some("{}".into()))),
         ["record", v] => out(http("POST", "/record", Some(format!("{{\"on\":{}}}", *v == "on")))),
         _ => {
-            eprintln!("usage: pilabctl pair [--rotate] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off");
+            eprintln!("usage: {} pair [--rotate] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off", prog());
             std::process::exit(2);
         }
     }
+}
+
+/// Name this binary was run as (`pilabctl` or the `trillium-base` alias).
+fn prog() -> String {
+    std::env::args().next().and_then(|a| std::path::Path::new(&a).file_name().map(|f| f.to_string_lossy().to_string())).unwrap_or_else(|| "pilabctl".into())
 }

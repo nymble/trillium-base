@@ -17,7 +17,7 @@ layers, channels, transpose, globs, audition bypass), scene round trip, settings
 
 ## 2. Discovery
 
-- Mac: `dns-sd -B _pilab._tcp local.` lists `pilab console on pilab` within 2 s;
+- Mac: `dns-sd -B _pilab._tcp local.` lists `Trillium Base (pilab)` within 2 s (also under `_trillium-base._tcp`);
   `dns-sd -L` shows port 8410 and the TXT `id`.
 - Open `http://pilab.local:8410/`. The pairing screen shows the host and device id.
 - Pass: found by name; the IP fallback (`http://192.168.1.244:8410/`) also loads.

@@ -1,6 +1,6 @@
-# AirPlay on Pi Lab
+# AirPlay on Trillium Base
 
-Pi Lab can optionally be an AirPlay **receiver** (Macs, iPhones and iPads play through the DAC) and an AirPlay **sender** (anything in the PipeWire graph, such as a Faust or Cabbage patch, plays on AirPlay speakers on the LAN). Both are off on a fresh build, and each has its own on/off switch.
+Trillium Base can optionally be an AirPlay **receiver** (Macs, iPhones and iPads play through the DAC) and an AirPlay **sender** (anything in the PipeWire graph, such as a Faust or Cabbage patch, plays on AirPlay speakers on the LAN). Both are off on a fresh build, and each has its own on/off switch.
 
 AirPlay is for listening, not for playing live. Both directions add about 1.5 to 2 seconds of buffering. Keep monitoring live synthesis on the DAC.
 
@@ -55,13 +55,13 @@ A headless playback test was not possible. PipeWire's RAOP client speaks classic
 
 ## Sender
 
-PipeWire ships `libpipewire-module-raop-discover` and `libpipewire-module-raop-sink`. These find AirPlay speakers over mDNS and create one PipeWire sink per speaker. On Pi Lab they run in a **separate PipeWire client process** (`pipewire -c pilab-airplay-sender.conf`, user unit `pilab-airplay-sender.service`), not as a drop-in in the main `pipewire.conf.d`. That way, turning the sender on or off never restarts the main realtime graph, so running synths keep playing.
+PipeWire ships `libpipewire-module-raop-discover` and `libpipewire-module-raop-sink`. These find AirPlay speakers over mDNS and create one PipeWire sink per speaker. On Trillium Base they run in a **separate PipeWire client process** (`pipewire -c pilab-airplay-sender.conf`, user unit `pilab-airplay-sender.service`), not as a drop-in in the main `pipewire.conf.d`. That way, turning the sender on or off never restarts the main realtime graph, so running synths keep playing.
 
 Speaker sinks get `priority.session = 100`, so WirePlumber never picks a network speaker as the default sink. The DAC stays the default. The Pi's own receiver is excluded (`raop.discover-local` defaults to false), so it cannot loop to itself.
 
 ### HomePod User-Agent fix
 
-PipeWire 1.4.2 hardcodes `User-Agent: PipeWire/1.4.2` in its RAOP client. HomePods on HomePodOS 27.x answer `403 Forbidden` without a `CSeq` header, and PipeWire then waits forever after `OPTIONS`. With an Apple-style User-Agent the same request gets `200 OK`. Newer PipeWire adds a `raop.user-agent` property for this. Until Pi Lab has one, `pilab-airplay sender on` builds a private module directory:
+PipeWire 1.4.2 hardcodes `User-Agent: PipeWire/1.4.2` in its RAOP client. HomePods on HomePodOS 27.x answer `403 Forbidden` without a `CSeq` header, and PipeWire then waits forever after `OPTIONS`. With an Apple-style User-Agent the same request gets `200 OK`. Newer PipeWire adds a `raop.user-agent` property for this. Until Trillium Base has one, `pilab-airplay sender on` builds a private module directory:
 
 - `~/.local/lib/pilab-pw-modules/` holds symlinks to every system PipeWire module.
 - It also holds a copy of `libpipewire-module-raop-sink.so` with the User-Agent string changed to `AirPlay/366.0`, with the same byte length and NUL padding.
@@ -108,11 +108,11 @@ Risks to show in a console:
 | Component | License | How it is used |
 | --- | --- | --- |
 | shairport-sync | Mostly **MIT** (core files; see the header of `shairport.c`). Bundled parts carry their own licenses: ALAC decoder (BSD-style), tinysvcmdns (BSD-3), tinyhttp, FFTConvolver (MIT), pair_ap and evrtsp (BSD-3 and per-file). The top-level `COPYING` says "refer to the individual source files". | Built unmodified from tag 5.6.3 and run as a separate service |
-| nqptp | **GPL-2.0** | Built unmodified from tag 1.2.9 and run as a separate service. Shared memory is the only interface to shairport-sync. Redistributing a Pi Lab image that includes the binary means offering its source (pin the tag and ship or link it). |
-| PipeWire RAOP modules | MIT | System package. Pi Lab ships a one-string User-Agent patch of a copy, generated on the device rather than distributed. |
+| nqptp | **GPL-2.0** | Built unmodified from tag 1.2.9 and run as a separate service. Shared memory is the only interface to shairport-sync. Redistributing a Trillium Base image that includes the binary means offering its source (pin the tag and ship or link it). |
+| PipeWire RAOP modules | MIT | System package. Trillium Base ships a one-string User-Agent patch of a copy, generated on the device rather than distributed. |
 | FFmpeg libraries (libavcodec etc.) | LGPL-2.1+ as packaged by Debian | dynamically linked |
 
-None of these are linked into Pi Lab's own code. They run as separate processes behind `pilab-airplay`. That wrapper is the pattern to keep for third-party services, especially GPL ones.
+None of these are linked into Trillium Base's own code. They run as separate processes behind `pilab-airplay`. That wrapper is the pattern to keep for third-party services, especially GPL ones.
 
 ## Recovering from an xrun storm (seen during this work)
 

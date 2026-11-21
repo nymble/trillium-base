@@ -1,6 +1,6 @@
 #!/bin/sh
 # From the Mac: copy this repo and the pinned ZPOD crates to the Pi, then build and install
-# the pilab console there. A few ssh sessions; nothing is pushed anywhere else.
+# Trillium Base (pilabd, Trillium Console) there. A few ssh sessions; nothing is pushed anywhere else.
 #   sh scripts/deploy-console.sh [zpod-checkout-or-bundle]
 # The ZPOD source is a local zpod clone (bundled at the pinned commit) or a ready bundle.
 set -eu

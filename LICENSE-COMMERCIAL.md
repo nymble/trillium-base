@@ -1,6 +1,6 @@
 # Commercial licensing
 
-Pi Lab's own code and content in this repository are licensed to everyone under the
+Trillium Base's own code and content in this repository (Trillium Console, Trillium Synth and the Base tooling) are licensed to everyone under the
 **GNU General Public License, version 3 or (at your option) any later version**
 ([LICENSE](LICENSE)), SPDX `GPL-3.0-or-later`.
 

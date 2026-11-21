@@ -1,6 +1,8 @@
-# Pi Lab
+# Trillium Base
 
-Config and rebuild notes for a Raspberry Pi 5 lab machine used for low-latency sound synthesis, with a later path toward packet radio, security tools (own gear only), and local AI.
+**Trillium Base** is a Raspberry Pi 5 sound module in the Trillium family (Trillium, an Ambient Lab project): a tuned real-time Linux machine running **Trillium Synth**, controlled from **Trillium Console** (the web console now; a Mac app later). This repository holds its config, rebuild notes and software, with a later path toward packet radio, security tools (own gear only), and local AI. Roadmap: [docs/roadmap-base.md](./docs/roadmap-base.md).
+
+Names that stay as they are (infrastructure and compatibility): the repository `nymble/pilab`, the lab unit's hostname `pilab` (`pilab.local`) and user `lab`, the paths `~/.config/pilab` and `~/.local/share/pilab`, the binaries `pilabd` and `pilabctl` (`trillium-base` is an alias of `pilabctl`), the crates `pilab-core` and `pilab-synth`, the mDNS type `_pilab._tcp` (now alongside `_trillium-base._tcp`), and the AirPlay receiver name "pilab".
 
 This repository is the versioned record of the process. It is not a disk image. Image snapshots, if taken later, stay out of git.
 
@@ -35,16 +37,16 @@ The login user is `lab` (key-only SSH, passwordless sudo). Hostname is `pilab` (
 | `scripts/pull-from-pi.sh` | Idempotent, read-only refresh of the files above |
 | `bin/pilab-airplay`, [docs/airplay.md](./docs/airplay.md) | Optional AirPlay 2 receiver ("pilab") and AirPlay sender to LAN speakers |
 | `scripts/build-airplay.sh` | Builds nqptp and shairport-sync (AirPlay 2, PipeWire) from source on the Pi |
-| `rust/`, [docs/console.md](./docs/console.md) | pilab console: Trillium Synth (`pilab-synth` crate), scenes and routing (`pilab-core`), service and web console (`pilabd`, `pilabctl`) |
+| `rust/`, [docs/console.md](./docs/console.md) | Trillium Console and Trillium Synth: synth (`pilab-synth` crate), scenes and routing (`pilab-core`), service and web console (`pilabd`, `pilabctl` / `trillium-base`) |
 | `scripts/deploy-console.sh`, `scripts/install-console.sh` | Build and install the console on the Pi (run the first from the Mac) |
 | `scripts/fetch-akwf.sh` | Fetches the CC0 AKWF waveform library onto the Pi (never into git) |
 | [docs/discovery.md](./docs/discovery.md) | mDNS records, audit, failure modes and fallbacks |
 | [docs/console-test-plan.md](./docs/console-test-plan.md), [docs/mac-console-requirements.md](./docs/mac-console-requirements.md), [docs/zpod-convergence.md](./docs/zpod-convergence.md) | Test plan, native Mac console requirements, ZPOD reuse and proposed API changes |
 
-## pilab console
+## Trillium Console
 
 `http://pilab.local:8410/` on the home LAN. Get the pairing token in a terminal on the Pi
-with `pilabctl pair`. The synth starts quiet (−18 dBFS at most, with a fade-in and an
+with `trillium-base pair` (same as `pilabctl pair`). The synth starts quiet (−18 dBFS at most, with a fade-in and an
 output limiter). Details in [docs/console.md](./docs/console.md); security notes in
 [docs/security.md](./docs/security.md) (W5).
 
@@ -74,4 +76,4 @@ The script does not change anything on the Pi. It scrubs SSH public keys out of 
 
 ## Status
 
-The machine is running with the RT kernel, DAC, PipeWire, SuperCollider (chord confirmed through the DAC), and a labwc desktop reachable over the SSH-tunneled VNC session. Since 2026-11-20 the pilab console v0 runs as a user service on port 8410, advertised as `_pilab._tcp`. Ansible roles and image snapshots are later work, not in this tree.
+The machine is running with the RT kernel, DAC, PipeWire, SuperCollider (chord confirmed through the DAC), and a labwc desktop reachable over the SSH-tunneled VNC session. Since 2026-11-20 the console runs as a user service on port 8410; since v0.2.0 it is Trillium Console on Trillium Base, advertised as `_trillium-base._tcp` and `_pilab._tcp`. Ansible roles and image snapshots are later work, not in this tree.

@@ -4,7 +4,7 @@
 
 use std::sync::OnceLock;
 
-use crate::brand::{COMMIT, PRODUCT_NAME, PRODUCT_TAGLINE, VERSION};
+use crate::brand::{COMMIT, DEVICE_NAME, PRODUCT_NAME, PRODUCT_TAGLINE, VERSION};
 
 macro_rules! files {
     ($($path:literal => $mime:literal),* $(,)?) => {
@@ -68,6 +68,7 @@ pub fn build_id() -> &'static str {
 pub fn index_html() -> String {
     let raw = get("/index.html").map(|(_, b)| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
     raw.replace("{{PRODUCT_NAME}}", PRODUCT_NAME)
+        .replace("{{DEVICE_NAME}}", DEVICE_NAME)
         .replace("{{TAGLINE}}", PRODUCT_TAGLINE)
         .replace("{{VERSION}}", VERSION)
         .replace("{{COMMIT}}", COMMIT)

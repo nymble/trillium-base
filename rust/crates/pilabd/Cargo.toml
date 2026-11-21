@@ -1,6 +1,6 @@
 [package]
 name = "pilabd"
-description = "pilab console service: HTTP/WebSocket API, embedded web console, Waveform synth host (JACK API via PipeWire), discovery, recording"
+description = "Trillium Base service: Trillium Console HTTP/WebSocket API and embedded web UI, Trillium Synth host (JACK API via PipeWire), discovery, recording"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
