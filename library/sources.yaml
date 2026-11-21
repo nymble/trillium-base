@@ -19,7 +19,7 @@
 #                 not-allowed          must not be packed or redistributed (reason given)
 #   verified      date the licence/size were checked against the source page, or
 #                 "unverified" with what is still missing
-#   dc            Dublin Core hints for the kb catalog crosswalk (docs/ontology.md in kb)
+#   dc            Dublin Core hints for the catalog crosswalk (docs/library.md)
 
 schema: pilab.sources/v1
 updated: 2026-11-19
@@ -286,7 +286,7 @@ sources:
     attribution:
       required: true
       credit: "Per archive; ZIM files carry their own source and licence metadata."
-    size: { upstream: "unverified; the kb catalog already has a 37.6 GB 2018 English no-pictures dump (record wikipedia-zim-2018)" }
+    size: { upstream: "unverified; a 2018 English no-pictures dump was about 37.6 GB" }
     tier: drive
     status: allowed-not-shipped
     verified: "unverified this run"

@@ -2,11 +2,11 @@
 
 **Trillium Base** is a Raspberry Pi 5 sound module in the Trillium family (Trillium, an Ambient Lab project): a tuned real-time Linux machine running **Trillium Synth**, controlled from **Trillium Console** (the web console now; a Mac app later). This repository holds its config, rebuild notes and software, with a later path toward packet radio, security tools (own gear only), and local AI. Roadmap: [docs/roadmap-base.md](./docs/roadmap-base.md).
 
-Names that stay as they are (infrastructure and compatibility): the repository `nymble/pilab`, the lab unit's hostname `pilab` (`pilab.local`) and user `lab`, the paths `~/.config/pilab` and `~/.local/share/pilab`, the binaries `pilabd` and `pilabctl` (`trillium-base` is an alias of `pilabctl`), the crates `pilab-core` and `pilab-synth`, the mDNS type `_pilab._tcp` (now alongside `_trillium-base._tcp`), and the AirPlay receiver name "pilab".
+Names that stay as they are (infrastructure and compatibility): the lab unit's hostname `pilab` (`pilab.local`) and user `lab`, the paths `~/.config/pilab` and `~/.local/share/pilab`, the binaries `pilabd` and `pilabctl` (`trillium-base` is an alias of `pilabctl`), the crates `pilab-core` and `pilab-synth`, the mDNS type `_pilab._tcp` (now alongside `_trillium-base._tcp`), and the AirPlay receiver name "pilab".
 
 This repository is the versioned record of the process. It is not a disk image. Image snapshots, if taken later, stay out of git.
 
-Private remote: [nymble/pilab](https://github.com/nymble/pilab).
+Repository: [github.com/nymble/trillium-base](https://github.com/nymble/trillium-base) (formerly `nymble/pilab`; the old URL redirects).
 
 ## Hardware and software (as of 2026-11-18)
 
@@ -50,13 +50,17 @@ The login user is `lab` (key-only SSH, passwordless sudo). Hostname is `pilab` (
 `http://pilab.local:8410/` on the home LAN. Get the pairing token in a terminal on the Pi
 with `trillium-base pair` (same as `pilabctl pair`). The synth starts quiet (−18 dBFS at most, with a fade-in and an
 output limiter). Details in [docs/console.md](./docs/console.md); security notes in
-[docs/security.md](./docs/security.md) (W5).
+[docs/security.md](./docs/security.md).
 
 ## Licence
 
 GPL-3.0-or-later ([LICENSE](./LICENSE)), with a commercial licence available
 ([LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)). Third-party parts keep their own
 licences (ZPOD crates, fonts, sound libraries, system packages).
+
+"Trillium", "Trillium Base", "Trillium Console", "Trillium Synth" and the Rhodonea mark
+are trademarks and are not covered by the GPL or the commercial licence; see
+[rust/crates/pilabd/web/brand/README.md](./rust/crates/pilabd/web/brand/README.md).
 
 ## Refreshing from a running Pi
 
@@ -72,7 +76,7 @@ The script does not change anything on the Pi. It scrubs SSH public keys out of 
 
 - No radio transmitting, and no flashing of cards, without explicit approval.
 - Security tools only against this lab's own gear.
-- GitHub only as `nymble`. This repo stays **private**.
+- GitHub only as `nymble`.
 - No personal names in code, comments, config, or docs (an optional copyright line is the only exception).
 - Never commit secrets, private keys, SSH host keys, passwords, or disk images.
 

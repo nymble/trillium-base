@@ -25,15 +25,15 @@ is what clients should key on.
 
 ## Audit, 2026-11-20 (v0.1.0 names)
 
-Pi, `avahi-browse -art` (6 s): the home LAN shows about 40 service types, all on `eth0`,
+Pi, `avahi-browse -art` (6 s): the test LAN shows about 40 service types, all on `eth0`,
 IPv4 and IPv6. `pilab console on pilab` resolves to `pilab.local`, port 8410, on
-192.168.1.244 (IPv4), the global IPv6 address, and loopback, with the TXT above. The
+its LAN IPv4 address, the global IPv6 address, and loopback, with the TXT above. The
 AirPlay receiver ("pilab", `_raop`) is visible as before.
 
 Mac, `dns-sd -B _services._dns-sd._udp local.` (5 s, killed with a timeout): 39 types,
 including `_pilab._tcp` and `_http._tcp`. `dns-sd -L "pilab console on pilab" _pilab._tcp`
 resolves to `pilab.local.:8410` with all five TXT keys. `_http._tcp` lists
-`pilab console on pilab` next to the NAS and printer. `curl http://pilab.local:8410/api/v1/info`
+`pilab console on pilab` next to other LAN devices. `curl http://pilab.local:8410/api/v1/info`
 answers; `/api/v1/status` without a token answers 401.
 
 ## What is robust
@@ -64,7 +64,7 @@ answers; `/api/v1/status` without a token answers 401.
 1. **Printed URL and token.** `trillium-base pair` (alias of `pilabctl pair`) on the Pi prints `http://pilab.local:8410/`
    and each LAN address. A QR code of the URL (never the token) is planned for the
    console's Settings page.
-2. **Static or reserved IP.** Reserve 192.168.1.244 for the Pi in the router's DHCP
+2. **Static or reserved IP.** Reserve a fixed address (e.g. 192.0.2.10) for the Pi in the router's DHCP
    table. Controllers remember the last address per `id`.
 3. **USB gadget networking** (Pi 5 USB-C as `g_ether`/NCM): a point-to-point link for
    stages with no usable network. Not set up yet; needs a boot config change and approval.

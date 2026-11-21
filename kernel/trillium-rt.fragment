@@ -1,6 +1,7 @@
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Trillium Base kernel deltas on top of configs/6.18.60+rpt-rpi-v8-rt.config.
 # Proposed, not built or booted yet. Each line says why.
-# Copyright (C) 2026 Nymble. GPL-3.0-or-later.
 
 # Name the build so it can sit next to the stock RT kernel (and be told apart in /info).
 CONFIG_LOCALVERSION="-trillium-rt"

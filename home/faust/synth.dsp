@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Nymble
+// SPDX-License-Identifier: GPL-3.0-or-later
 import("stdfaust.lib");
 
 freq      = hslider("[0] freq[style:knob][unit:Hz]", 220, 40, 2000, 0.1);

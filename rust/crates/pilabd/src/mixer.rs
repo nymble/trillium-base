@@ -191,7 +191,7 @@ mod tests {
         let v: Value = serde_json::json!([
             {"id": 72, "type": "PipeWire:Interface:Node", "info": {"state": "running", "props": {"media.class": "Audio/Sink", "node.name": "alsa_output.x", "node.description": "Built-in Audio Stereo"},
               "params": {"Props": [{"volume": 1.0, "mute": false, "channelVolumes": [0.343, 0.343]}]}}},
-            {"id": 92, "type": "PipeWire:Interface:Node", "info": {"state": "suspended", "props": {"media.class": "Audio/Sink", "node.name": "raop_sink.Yurt.local", "node.description": "Yurt"},
+            {"id": 92, "type": "PipeWire:Interface:Node", "info": {"state": "suspended", "props": {"media.class": "Audio/Sink", "node.name": "raop_sink.Speaker-A.local", "node.description": "Speaker A"},
               "params": {"Props": [{"volume": 1.0, "mute": false, "channelVolumes": []}]}}},
             {"id": 138, "type": "PipeWire:Interface:Node", "info": {"state": "running", "props": {"client.api": "jack", "node.name": "pilab-synth", "node.description": "pilab-synth"}, "params": {}}},
             {"id": 30, "type": "PipeWire:Interface:Node", "info": {"props": {"node.name": "Dummy-Driver"}}}

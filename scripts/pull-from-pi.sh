@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Re-sync live files from the Pi into this repo. Read-only on the Pi.
 # Usage (from anywhere):
 #   scripts/pull-from-pi.sh

@@ -29,5 +29,4 @@ may ask for a contributor licence agreement first.
 
 ## Contact
 
-Commercial licensing enquiries: support@m-of-n.com (placeholder address until a dedicated
-one is set up).
+Commercial licensing enquiries: support@m-of-n.com.

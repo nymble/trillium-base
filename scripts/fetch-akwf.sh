@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Fetch the Adventure Kid Waveforms (AKWF, CC0 1.0) single-cycle library for the pilab
 # synth's wavetable oscillator. The library is never committed to this repo.
 # Run on the Pi as user lab:  sh scripts/fetch-akwf.sh        (about 60 MB, one time)

@@ -208,7 +208,7 @@ Actions builds:
 - the image.
 
 A separate, manual signing step uses the offline key, so the key never lives in CI
-secrets. Releases are private while the repo is private. Update metadata (version,
+secrets. Update metadata (version,
 SHA-256, signature, minimum version) is a small JSON file signed the same way.
 
 **Fixed image vs loadable packs.**
@@ -249,24 +249,13 @@ key and where it lives; making a release public; the update channel policy.
    shared with ZPOD from the start.
 6. Signing: offline minisign key now. Secure boot / OTP later or never.
 7. QR content: one-time code (suggested) or the raw token.
-8. Repo name: keep `nymble/pilab` for now, or rename to `nymble/trillium-base` (see below).
-9. Hostname for new images: `trillium-<4 hex>` (suggested) or keep `pilab`. The lab unit
+8. Hostname for new images: `trillium-<4 hex>` (suggested) or keep `pilab`. The lab unit
    keeps `pilab` either way.
 
 ## Repository name
 
-Recommendation: **keep `nymble/pilab` until the first image or public release, then
-rename to `nymble/trillium-base`** in one planned step. GitHub redirects the old URL for
-web, clone, fetch and push after a rename, as long as no new repo called `pilab` is
-created later. What would need updating:
-
-- `rust/Cargo.toml` `repository` field; README links; local remotes (`git remote set-url`)
-  on the Mac and anywhere else it is cloned;
-- any GitHub Actions, deploy keys or tokens scoped by repo name;
-- update-client URLs once releases exist. This is the strongest reason to rename
-  *before* the first signed release, because devices in the field would keep the URL.
-
-What would **not** break: ZPOD. The pinned `nymble/zpod` crates (525bc84) contain no
-reference to `pilab` or Trillium Base; the dependency only runs from this repo to `zpod`.
-The internal ids (`pilabd`, `pilab-core`, `pilab-synth`, `_pilab._tcp`, `~/.config/pilab`)
-are independent of the repo name and can stay.
+Renamed on 2026-11-20 from `nymble/pilab` to `nymble/trillium-base` and made public after a
+history and HEAD audit. GitHub redirects the old URL for web, clone, fetch and push as long
+as no new repository named `pilab` is created. ZPOD is unaffected: the pinned `nymble/zpod`
+crates contain no reference to this repository. The internal ids (`pilabd`, `pilab-core`,
+`pilab-synth`, `_pilab._tcp`, `~/.config/pilab`) are independent of the repo name and stay.

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Latency benchmark: cyclictest idle and under load
 out=/var/lib/pilab/bench/$(date +%Y%m%d-%H%M)-$(uname -r).txt
 { uname -rv; echo IDLE; cyclictest -m -S -p 95 -i 1000 -D 45 -q | grep -E "Max|Avg|Min";

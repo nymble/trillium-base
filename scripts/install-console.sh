@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Build and install the Trillium Base service (pilabd + pilabctl, plus the `trillium-base`
 # alias for pilabctl) on the Pi, as user lab.
 #   sh scripts/install-console.sh [path/to/zpod-pin.bundle]

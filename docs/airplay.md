@@ -11,10 +11,10 @@ pilab-airplay status                  # services, listening ports, discovered sp
 pilab-airplay receiver on|off         # "pilab" appears in Apple AirPlay menus
 pilab-airplay sender on|off           # AirPlay speakers appear as PipeWire sinks
 pilab-airplay speakers                # list them
-pilab-airplay send Office             # 6 s, 440 Hz, -20 dBFS test tone at speaker volume 0.25
-pilab-airplay send Office synth-gui   # link a running node's outputs to the speaker
-pilab-airplay send Office JUCEJack --volume 0.4
-pilab-airplay unsend Office [node]    # remove those links
+pilab-airplay send "Speaker A"             # 6 s, 440 Hz, -20 dBFS test tone at speaker volume 0.25
+pilab-airplay send "Speaker A" synth-gui   # link a running node's outputs to the speaker
+pilab-airplay send "Speaker A" JUCEJack --volume 0.4
+pilab-airplay unsend "Speaker A" [node]    # remove those links
 ```
 
 Every subcommand is idempotent. `on` also enables the unit so the choice survives a reboot, and `off` disables it. `send` leaves the node's existing links (for example to the DAC) in place, so the DAC plays live and the speaker plays the same audio about 2 s later. Speaker names match the AirPlay name, exactly or by prefix, without regard to case. Node names are the PipeWire port prefixes shown by `pw-link -o`.
@@ -61,29 +61,29 @@ Speaker sinks get `priority.session = 100`, so WirePlumber never picks a network
 
 ### HomePod User-Agent fix
 
-PipeWire 1.4.2 hardcodes `User-Agent: PipeWire/1.4.2` in its RAOP client. HomePods on HomePodOS 27.x answer `403 Forbidden` without a `CSeq` header, and PipeWire then waits forever after `OPTIONS`. With an Apple-style User-Agent the same request gets `200 OK`. Newer PipeWire adds a `raop.user-agent` property for this. Until Trillium Base has one, `pilab-airplay sender on` builds a private module directory:
+PipeWire 1.4.2 hardcodes `User-Agent: PipeWire/1.4.2` in its RAOP client. Some HomePod software versions answer `403 Forbidden` without a `CSeq` header, and PipeWire then waits forever after `OPTIONS`. With an Apple-style User-Agent the same request gets `200 OK`. Newer PipeWire adds a `raop.user-agent` property for this. Until Trillium Base has one, `pilab-airplay sender on` builds a private module directory:
 
 - `~/.local/lib/pilab-pw-modules/` holds symlinks to every system PipeWire module.
 - It also holds a copy of `libpipewire-module-raop-sink.so` with the User-Agent string changed to `AirPlay/366.0`, with the same byte length and NUL padding.
 - The sender unit sets `PIPEWIRE_MODULE_DIR` to that directory. The system module and the main PipeWire are untouched.
 - The copy is rebuilt automatically whenever the system module is newer, for example after a PipeWire upgrade. If a future PipeWire changes the string, the patch step fails loudly. In that case, switch to `raop.user-agent` in `create-stream` instead.
 
-### Test result: Office (2026-11-19)
+### Test result (2026-11-19)
 
-- Discovery: 6 speakers (`Office`, `Office (2)`, `Kitchen`, `Media`, `Yurt`, and a Mac). `Office` and `Office (2)` are first-generation HomePods (`AudioAccessory1,1`, AirTunes 1005.13.2, OS 27.2.1), probably a stereo pair with `Office` as leader.
+- Target: a first-generation HomePod on the LAN, found among several AirPlay speakers and a Mac.
 - Stock PipeWire: TCP connect, then `OPTIONS` was never answered (403 to the PipeWire UA). No audio.
 - With the UA fix, the full session completed: `OPTIONS 200`, `ANNOUNCE 200`, `SETUP 200` (server, control and timing ports), `RECORD 200`, `SET_PARAMETER 200`. RTP audio flowed for the whole tone. Encryption: none (`et=0` is offered). Password or PIN: none needed.
 - The receiver latency negotiated was 66150 frames at 44.1 kHz = **1.5 s**, plus PipeWire's queue. Expect 1.5 to 2 s from the graph to the room.
-- Audibility needs a person in the room. Some HomePodOS 27.0 builds accepted unencrypted RAOP but stayed silent, and 27.2 reportedly fixed that. If Office stays silent while the session runs, the next step is AirPlay 2 with encryption (HAP pairing). PipeWire 1.4 cannot do that; it needs a newer PipeWire or a different client.
+- Audibility needs a person in the room. Some HomePod software builds accept unencrypted RAOP but stay silent. If a speaker stays silent while the session runs, the next step is AirPlay 2 with encryption (HAP pairing). PipeWire 1.4 cannot do that; it needs a newer PipeWire or a different client.
 - The realtime graph was unaffected. DAC xruns were +0 during sender discovery, sends and links, the quantum stayed 64 at 48 kHz, and the speaker sink joined as a resampled 44.1 kHz follower.
 
 ### Volume
 
 `send` sets the speaker sink volume (default 0.25 on WirePlumber's cubic scale, about -36 dB) and re-applies it 1 s and 3 s after the stream starts, because HomePods can ignore a volume sent before audio starts. PipeWire forwards sink volume to the speaker as AirPlay volume.
 
-## Ports and services (for IT Department and the console security view)
+## Ports and services (for network admins and the console security view)
 
-The Pi has no host firewall (no nftables rules, no ufw), so the LAN can reach everything below. Nothing is forwarded at the router.
+A default build has no host firewall (no nftables rules, no ufw), so the LAN can reach everything below (see [security.md](./security.md) for hardening). Nothing is forwarded at the router.
 
 | Mode | Process | Listens on | Notes |
 | --- | --- | --- | --- |

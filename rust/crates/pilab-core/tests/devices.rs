@@ -57,7 +57,7 @@ fn trillium_ble_by_bluez_alias() {
     let m = classify(&c, &ble(&["Trillium 7F2A"])).unwrap();
     assert_eq!((m.rule, m.routable), ("ble", true));
     assert!(classify(&c, &ble(&[])).is_none(), "'BLE MIDI 1' alone is not Trillium");
-    assert!(classify(&c, &ble(&["Office Speaker"])).is_none());
+    assert!(classify(&c, &ble(&["Living Room Speaker"])).is_none());
     assert!(classify(&c, &ble(&["Trillium"])).is_none(), "glob needs 'Trillium <suffix>'");
     // A BLE node in client role named after the device.
     let id = SourceIdentity { transport: Transport::Ble, ..SourceIdentity::new("Trillium 7F2A:out") };

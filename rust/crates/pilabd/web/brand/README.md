@@ -11,3 +11,12 @@ nymble/trillium repository (brand kit pull request #27).
 PNG versions of the marks are left out on purpose (the repo carries no raster images).
 Fonts in `../fonts/` are Outfit, Inter and IBM Plex Mono WOFF2 files, SIL OFL 1.1, with
 their licence texts beside them.
+
+## Trademarks
+
+"Trillium", "Trillium Base", "Trillium Console", "Trillium Synth", "Ambient Lab" and the
+Rhodonea mark are trademarks of Nymble. They are not covered by the GPL or by the
+commercial software licence: the licences cover the code, not the names and marks. You
+may say a build is "based on Trillium Base", but a modified or redistributed build must
+not use these names or marks as its own product name or logo without permission. Contact:
+support@m-of-n.com.

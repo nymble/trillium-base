@@ -44,9 +44,9 @@ roots:
 
   - id: nas-media
     kind: smb
-    host: NAS-4x12.local
+    host: nas.local
     share: Media
-    subpaths: [Sounds, Books]        # Music: browse only, no mirroring until the tagged FLAC tree exists
+    subpaths: [Sounds, Books]        # example layout; adjust to your share
     path: /mnt/net/nas-media
     types: [samples, soundfont, books, music]
     read_only: true
@@ -60,13 +60,13 @@ roots:
 
   - id: nas-archive-recordings
     kind: smb
-    host: NAS-4x12.local
+    host: nas.local
     share: Archive
-    subpaths: [topics/pilab/recordings]
+    subpaths: [recordings]
     path: /mnt/net/nas-archive-recordings
     types: [recordings]
-    read_only: false                 # push only, into topics/pilab/recordings/{record-id}/
-    enabled: false                   # needs its own NAS account limited to that folder; not yet approved
+    read_only: false                 # push only, into recordings/{record-id}/
+    enabled: false                   # needs its own NAS account limited to that folder; off by default
     trust: home
     mount: on-demand
     network_profiles: [home]

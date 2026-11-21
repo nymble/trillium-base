@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # faust-gui <file.dsp> [--no-qt|--no-web]
 # Build a Faust patch as a JACK app with a Qt window and a browser
 # control page, then run it on the DAC.

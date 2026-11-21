@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Install the pilab base-pack sample banks (CC0 only) onto this device, never into git:
 # 28 small FreePats SFZ banks and the VCSL starter drum kit with a General MIDI map.
 # Run on the Pi as user lab:  sh scripts/fetch-samples.sh      (about 120 MiB download)

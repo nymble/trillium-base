@@ -1,39 +1,48 @@
-# Security notes and known weaknesses
+# Security: deployment notes and defaults
 
-Tracked weaknesses (accepted for now, revisit with the console / hardening work).
+Trillium Base is meant for a trusted LAN (a home or studio network behind a router, no
+ports forwarded from the internet). These notes describe what a default build exposes,
+the risks worth knowing, and how to harden a unit. They are guidance, not a guarantee.
 
-| ID | Area | Weakness | Status |
+## Exposure in a default build
+
+| Area | Default | Risk | Hardening |
 | --- | --- | --- | --- |
-| W1 | AirPlay receiver | shairport-sync (AirPlay 2 mode) accepts any LAN client, no password; TCP 7000, UDP 319/320 open on all interfaces | accepted (2026-11-19) |
-| W2 | Faust GUI | faust-gui httpd (TCP 5510) and OSC (UDP 5510-5512) have no auth, bound to 0.0.0.0 | open |
-| W3 | Host firewall | no host firewall; host has a global IPv6 address, relies on router to block inbound | open |
-| W4 | Access recovery | single SSH key authorized for user lab; root and lab passwords locked; lab has NOPASSWD sudo and desktop autologin | open |
-| W5 | Trillium Console (pilabd) | TCP 8410 on all interfaces (IPv4 and IPv6), plain HTTP: the pairing token crosses the LAN unencrypted; `/api/v1/info` and `/api/v1/endpoints` answer without a token (product, version, device id, host name) | open (2026-11-20) |
-
-## Changes
-
-- 2026-11-19: rpcbind.service and rpcbind.socket disabled and masked (TCP/UDP 111 closed; NFS not used).
-  Undo: `sudo systemctl unmask rpcbind.service rpcbind.socket && sudo systemctl enable --now rpcbind.socket`
+| Trillium Console (`pilabd`) | TCP 8410 on all interfaces (IPv4 and IPv6), plain HTTP, pairing token required for everything except `/api/v1/info`, `/api/v1/endpoints` and the static web files | The token crosses the LAN unencrypted; `info` reveals product, version, device id and host name | Keep it on a trusted LAN; rotate the token after sharing it; TLS with a pinned device certificate is planned |
+| AirPlay receiver (optional, off by default) | shairport-sync AirPlay 2, TCP 7000 and UDP 319/320 on all interfaces | Any LAN client can play through the DAC | Set a shairport-sync `password` or access list, or leave it off |
+| Faust web controls (optional) | faust-gui httpd TCP 5510, OSC UDP 5510-5512, no authentication, all interfaces | Anyone on the LAN can change parameters | Run only when needed; bind to localhost and tunnel over SSH |
+| SuperCollider server (optional) | `scsynth` UDP 57110 bound to 127.0.0.1 | Local only | Keep the localhost bind |
+| Desktop (VNC, optional) | wayvnc bound to 127.0.0.1:5900 | Local only; reach it through an SSH tunnel | Keep the localhost bind |
+| Host firewall | none configured | With a global IPv6 address, only the router blocks inbound traffic | Add nftables rules allowing SSH, 8410 and mDNS from the LAN only |
+| Unused RPC | rpcbind is not needed (no NFS) | TCP/UDP 111 open if left enabled | `sudo systemctl disable --now rpcbind.service rpcbind.socket && sudo systemctl mask rpcbind.service rpcbind.socket` |
 
 ## Trillium Console (pilabd, port 8410)
 
-- Service: `pilabd` (user unit), listening on `[::]:8410` (IPv4 and IPv6, all interfaces).
-  Home LAN only; nothing is forwarded from the internet. With no host firewall (W3), the
-  router is what keeps the global IPv6 address unreachable from outside.
+- `pilabd` runs as a user service, listening on `[::]:8410`. Do not forward it from the
+  internet; use a VPN such as Tailscale for remote access if you need it.
 - Auth: a 48-hex-character pairing token in `~/.config/pilab/console-token` (mode 0600),
-  checked in constant time. It is printed only by `pilabctl pair` in a terminal on the Pi,
-  never logged, never in mDNS, never in the web page. Browsers keep it in local storage.
-  Rotate with `pilabctl pair --rotate`.
-- Unauthenticated: `GET /api/v1/info`, `GET /api/v1/endpoints`, and the static web files.
-- What a token holder can do: change sounds, routing, scenes, master level (capped at
-  −6 dBFS), start/stop the synth, record locally, link/unlink audio and MIDI ports,
-  change settings. Not possible from the console: shell access, switching AirPlay, VNC,
-  SSH or other services, reading the NAS credentials file.
-- Planned: TLS with a self-signed device certificate pinned by `id`, and a QR pairing flow.
+  checked in constant time. It is printed only by `trillium-base pair` (`pilabctl pair`)
+  in a terminal on the device: never logged, never in mDNS, never in the web page.
+  Browsers keep it in local storage. Rotate with `trillium-base pair --rotate`.
+- What a token holder can do: change instruments, routing, scenes and the master level
+  (capped at −6 dBFS); start and stop the synth; record locally; link and unlink audio and
+  MIDI ports; change settings. Not possible from the console: shell access, reading
+  credential files. Service switches for SSH and other system services need passwordless
+  sudo for the service user and report it when that is missing.
+- Audio safety defaults: the synth starts at −18 dBFS at most, fades in, and has an
+  output limiter, because the DAC drives headphones.
+- Planned: TLS with a self-signed device certificate pinned by device `id`, and a QR
+  pairing flow that never puts the token itself in the QR code.
 
-## Access model (2026-11-19)
+## Access model guidance
 
-- Users: root (password locked, no SSH keys), lab (password locked, key-only SSH, passwordless sudo).
-- sshd: PasswordAuthentication no, KbdInteractive no, PermitRootLogin without-password.
-- Fallbacks: local keyboard + monitor (desktop autologins as lab), or add a key to
-  /home/lab/.ssh/authorized_keys by mounting the boot media on another machine.
+- Key-only SSH: `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, root login
+  disabled or key-only, passwords locked for root and the service user.
+- Authorize at least two SSH keys (or keep a second recovery path) so one lost key does
+  not lock you out. Recovery without SSH: local keyboard and monitor, or add a key to
+  `~/.ssh/authorized_keys` by mounting the boot media on another machine.
+- Passwordless sudo and desktop autologin are convenient on a lab unit. Turn them off on
+  a unit that leaves a trusted space.
+- Credentials for optional services (for example a NAS account for recordings) belong in
+  root-only files that the console never reads; the console shows only the file path.
+- Never commit secrets, private keys, SSH host keys or disk images to this repository.

@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # pilab-airplay: switch the AirPlay receiver and sender on or off, send audio
 # to an AirPlay speaker, and show what is running and listening.
 #
@@ -21,7 +23,7 @@ SENDER_UNIT=pilab-airplay-sender.service      # user unit
 NQPTP_UNIT=nqptp.service                      # system unit (PTP clock for AirPlay 2)
 PW_MODDIR_SYS=/usr/lib/aarch64-linux-gnu/pipewire-0.3
 PW_MODDIR_LOCAL="$HOME/.local/lib/pilab-pw-modules"
-# HomePods on HomePodOS 27 answer 403 to the "PipeWire/x.y.z" User-Agent that
+# Some HomePod software versions answer 403 to the "PipeWire/x.y.z" User-Agent that
 # PipeWire 1.4 hardcodes; newer PipeWire has raop.user-agent for this.
 RAOP_UA="AirPlay/366.0"
 TEST_WAV=/usr/local/share/pilab/airplay-test.wav

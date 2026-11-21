@@ -331,7 +331,7 @@ jack centre to jack centre.
   location, with a `record.toml` card per take (role master, `filed = false`,
   rights `LicenseRef-proprietary`). It stops at 3.5 GB per take or when free space falls
   below the configured floor. The console warns when takes stay unfiled past a limit.
-- **Archive to NAS** (off by default): target `//192.168.1.2/PilabRecordings` as account
+- **Archive to NAS** (off by default): target share set in the console (e.g. `//<nas-host>/Recordings`, empty by default) as account
   `pilab-rec`, credentials in a root-only file the service never reads into the UI. v0
   reports **not configured** and mounts nothing. Local may be enough for many uses.
 

@@ -1270,7 +1270,7 @@ async function renderSettings() {
       <div class="risk ${st.archive.enabled ? "caution" : ""}">${st.archive.enabled ? "<b>!</b> " : ""}${esc(r.archive_text)}</div>
       <div class="row" style="margin-top:10px">
         <div class="field"><label>Mode</label><select id="arc-mode"><option value="manual" ${st.archive.mode === "manual" ? "selected" : ""}>Manual (file from the console)</option><option value="after-each" ${st.archive.mode === "after-each" ? "selected" : ""}>After each recording</option></select></div>
-        <div class="field" style="flex:1"><label>Target share</label><input class="input mono" id="arc-target" value="${esc(st.archive.target)}"></div>
+        <div class="field" style="flex:1"><label>Target share</label><input class="input mono" id="arc-target" value="${esc(st.archive.target)}" placeholder="//nas-host/Recordings"></div>
       </div>
       <div class="kv" style="margin-top:10px">
         <span class="k">Account</span><span class="v">${esc(st.archive.account)} (write-only to that share)</span>

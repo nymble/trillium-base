@@ -98,7 +98,7 @@ impl Default for Archive {
         Archive {
             enabled: false,
             mode: "manual".into(),
-            target: "//192.168.1.2/PilabRecordings".into(),
+            target: String::new(), // e.g. "//<nas-host>/Recordings"; set in the console
             account: "pilab-rec".into(),
             credentials_file: "/etc/pilab/secrets/nas-rec.cred".into(),
             configured: false,
@@ -149,6 +149,10 @@ impl Settings {
         let a = &self.archive;
         match (a.enabled, a.configured) {
             (false, _) => ("off", "Off. Recordings stay on this device only.".into()),
+            (true, _) if a.target.trim().is_empty() => (
+                "not-configured",
+                "Not configured: set a target share (for example //nas-host/Recordings). Nothing is mounted or copied.".into(),
+            ),
             (true, false) => (
                 "not-configured",
                 format!(

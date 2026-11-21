@@ -1,14 +1,15 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Read-only capture of a Trillium Base's kernel, boot and real-time tuning.
 # Run from a machine that can `ssh lab@pilab.local`:
 #   sh scripts/capture-tuning.sh [host] > kernel/snapshots/$(date +%F)-pilab.txt
 # Changes nothing on the device. Scrubs the MAC address the firmware puts on the kernel
-# command line and global IPv6 addresses. Prints no secrets (no token, no keys).
-# Copyright (C) 2026 Nymble. GPL-3.0-or-later.
+# command line, the root PARTUUID and global IPv6 addresses. Prints no secrets (no token, no keys).
 set -eu
 HOST=${1:-lab@pilab.local}
 echo "# Read-only capture from $HOST, $(date +%F), by scripts/capture-tuning.sh."
-ssh "$HOST" 'sh -s' <<'REMOTE' | tr -d '\000' | sed -E 's/smsc95xx\.macaddr=[^ ]+/smsc95xx.macaddr=<scrubbed>/; s/2[0-9a-f]{3}:[0-9a-f:]{4,}/<ipv6>/g'
+ssh "$HOST" 'sh -s' <<'REMOTE' | tr -d '\000' | sed -E 's/smsc95xx\.macaddr=[^ ]+/smsc95xx.macaddr=<scrubbed>/; s/root=PARTUUID=[^ ]+/root=PARTUUID=<scrubbed>/; s/2[0-9a-f]{3}:[0-9a-f:]{4,}/<ipv6>/g'
 echo "## uname"; uname -a
 echo "## cmdline"; cat /proc/cmdline
 echo "## cmdline.txt"; cat /boot/firmware/cmdline.txt

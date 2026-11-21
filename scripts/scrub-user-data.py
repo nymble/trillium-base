@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Replace SSH public keys in a cloud-init user-data file with a placeholder."""
 import re
 import sys

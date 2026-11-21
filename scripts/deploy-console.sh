@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # From the Mac: copy this repo and the pinned ZPOD crates to the Pi, then build and install
 # Trillium Base (pilabd, Trillium Console) there. A few ssh sessions; nothing is pushed anywhere else.
 #   sh scripts/deploy-console.sh [zpod-checkout-or-bundle]

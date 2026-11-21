@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Nymble
+// SPDX-License-Identifier: GPL-3.0-or-later
 // First patch: short FM chord through the DAC (expects scsynth already running on UDP 57110)
 s = Server.remote(\lab, NetAddr("127.0.0.1", 57110));
 s.doWhenBooted {

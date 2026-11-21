@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Build and install the Cabbage 2 IDE (JUCE 6.1.2) on the Pi against Debian's Csound 6.18.
 # Run on the Pi as user lab:  sh build-cabbage.sh /path/to/cabbage-linux-aarch64.patch
 # Takes about 13 minutes on a Pi 5 with -j3 and about 850 MB in ~/src/cabbage2.

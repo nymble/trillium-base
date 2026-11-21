@@ -1,10 +1,11 @@
 #!/bin/sh
+# Copyright (C) 2026 Nymble
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Reproducible build recipe for the Trillium Base RT kernel as Debian packages.
 # Status: recipe only, not run yet. Runs on any Linux build machine (cross-compile for
 # arm64) or natively on a Pi 5 with ~10 GB free. It never installs or flashes anything.
 #   sh kernel/build-deb.sh /path/to/workdir
 # Output: linux-image-*-trillium-rt_*.deb and linux-headers-*.deb in the workdir.
-# Copyright (C) 2026 Nymble. GPL-3.0-or-later.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=${1:-$PWD/kbuild}

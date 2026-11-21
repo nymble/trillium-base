@@ -3,6 +3,8 @@
 -odac -+rtaudio=jack -b 64 -B 256 -d -m0
 </CsOptions>
 <CsInstruments>
+; Copyright (C) 2026 Nymble
+; SPDX-License-Identifier: GPL-3.0-or-later
 sr = 48000
 ksmps = 32
 nchnls = 2

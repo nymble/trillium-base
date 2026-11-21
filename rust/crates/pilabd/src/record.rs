@@ -178,7 +178,7 @@ impl Recorder {
         act.card.bytes = data as u64 + 44;
         act.card.dropped_frames = self.shared.rec_dropped.load(Ordering::Relaxed);
         let body = toml::to_string_pretty(&act.card).map_err(|e| e.to_string())?;
-        fs::write(act.dir.join("record.toml"), format!("# pilab recording card (kb-compatible fields)\n{body}")).map_err(|e| e.to_string())?;
+        fs::write(act.dir.join("record.toml"), format!("# pilab recording card (Dublin Core-style catalog fields)\n{body}")).map_err(|e| e.to_string())?;
         Ok(act.card)
     }
 

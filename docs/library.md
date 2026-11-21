@@ -2,7 +2,7 @@
 
 pilab is a fixed-size distribution and also a small local archive. This document says
 what ships in the image, where bigger collections live, how content moves on and off a
-unit, and how pilab fits the kb catalog (kb `docs/ontology.md` and `docs/file-archive.md`).
+unit, and how manifests map to Dublin Core catalog records.
 
 Files:
 
@@ -22,8 +22,8 @@ Files:
 3. The base image is CC0-only (plus our own repo content), so its credits are short and
    carry no personal names. Attribution-licensed packs install their own CREDITS file.
 4. A pilab copy is a working mirror, never the master, and never counts as a backup.
-   The NAS is canonical for anything mirrored from Media. The one exception: recordings
-   made on pilab are masters until they are filed on NAS Archive, and only until then.
+   A NAS (or other archive) is canonical for anything mirrored from it. The one exception:
+   recordings made on the unit are masters until they are filed to an archive, and only until then.
 5. Masters are never evicted. Mirrors and cache copies can be deleted at any time because
    the canonical copy is elsewhere.
 6. Nothing on the network is mounted automatically. Discovery suggests; the console adds.
@@ -59,7 +59,7 @@ winds, mallets, drums, pads, leads) plus the wavetable oscillator. Anything bigg
 
 ### b. Local drive (existing, non-empty disk)
 
-The drive is one of the owner's existing disks with other data on it. It is not empty and
+The drive can be an existing disk with other data on it. It is not empty and
 is never reformatted. Rules:
 
 - Mounted by filesystem UUID at `/mnt/pilab-drive` with `nofail,noexec,nodev,nosuid,noatime`.
@@ -76,18 +76,18 @@ is never reformatted. Rules:
   writing when free space falls below a floor (default 10 % of the disk or 20 GiB,
   whichever is smaller) so the owner's other data always has room.
 
-Layout inside `pilab-library/` mirrors the NAS Media shelves so content moves between them
+Layout inside `pilab-library/` can mirror a NAS media share so content moves between them
 without renaming:
 
 ```text
 /srv/library/  (= /mnt/pilab-drive/pilab-library/)
   manifest/                  # one manifest per installed pack or mirrored collection
-  sounds/{library}/          # mirrors NAS Media/Sounds/{library}/ (VCSL, FreePats, ...)
+  sounds/{library}/          # e.g. mirrors a NAS Media/Sounds/{library}/ (VCSL, FreePats, ...)
   waveforms/{source-id}/
   datasets/{source-id}/
-  books/                     # flat per-pack folders for now; NAS Media/Books layout is unconfirmed
+  books/                     # flat per-pack folders
   music/                     # empty for now; see "Music" below
-  recordings/{record-id}/    # unique masters until filed on NAS Archive
+  recordings/{record-id}/    # unique masters until filed to an archive
   presets/                   # user presets and scenes
   cache/                     # evictable copies of network items
 ```
@@ -100,23 +100,26 @@ recordings go to `/var/lib/pilab/recordings/` on the SD card with a size warning
 pilab and its sources can be anywhere on the same network. Supported root kinds:
 
 - `smb`: NAS shares, read-only, SMB 3.1.1 with signing and encryption. Mounted on demand
-  by systemd automount under `/mnt/net/{root-id}` and unmounted after idle. Approved:
-  NAS `Media` read-only through a separate read-only NAS account (never the owner's own
-  login), on the `home` profile only. This is the main remote-files use case.
+  by systemd automount under `/mnt/net/{root-id}` and unmounted after idle. Recommended:
+  a media share mounted read-only through a separate read-only NAS account (never the
+  owner's own login), on the `home` profile only.
 - `nfs`: NFSv4 only (no rpcbind needed), read-only, for NAS exports when available.
 - `ssh`: rsync over SSH from a Mac or Linux host. Nothing is mounted; files are fetched.
   Host key pinned. Preferred for laptops.
 - `pilab`: another pilab or a ZPOD serving its manifests and files read-only over HTTPS
   with a pinned certificate after pairing.
 
-### NAS shelves pilab uses
+### Example NAS layout
 
-| NAS path | pilab use | notes |
+The paths below are an example; any share layout works because roots name their own
+subpaths.
+
+| NAS path (example) | pilab use | notes |
 | --- | --- | --- |
-| `Media/Sounds/{library}/` | read-only source; mirror into `sounds/{library}/` | approved shelf for third-party sample libraries (VCSL, FreePats). One kb collection card per library with `dc.rights` and source URL. Lowest backup priority: re-downloadable. |
-| `Media/Books/` | read-only browsing only | layout unconfirmed (intended Calibre `Author/Title/`). Nothing in pilab depends on its shape; treat it as a tree of files and read metadata from the files. |
-| `Media/Music/` | not mirrored yet | currently unsorted. Mirror slices only once the clean MusicBrainz-tagged `Artist/Album/` FLAC tree exists. Until then the console can browse it read-only but offers no mirror action. |
-| `Archive/topics/pilab/recordings/{record-id}/` | push target for recordings | the only NAS path pilab writes to; separate account, disabled until approved |
+| `Media/Sounds/{library}/` | read-only source; mirror into `sounds/{library}/` | third-party sample libraries (VCSL, FreePats), one catalog record per library with `dc.rights` and source URL; lowest backup priority because they can be downloaded again |
+| `Media/Books/` | read-only browsing | nothing depends on its shape; treat it as a tree of files and read metadata from the files |
+| `Media/Music/` | read-only browsing | mirror slices only from a clean, tagged tree |
+| `Archive/.../recordings/{record-id}/` | push target for recordings | the only NAS path pilab writes to; separate account limited to that folder, off by default |
 
 ### d. External sources
 
@@ -170,12 +173,12 @@ when switched on, same style as other service toggles.
 ## Content manifest
 
 One manifest per pack or mirrored collection, at `{root}/manifest/{id}.yaml`. One manifest
-is one bundle, matching kb's "one card per bundle, never one card per file". Per-file data
+is one bundle: one catalog record per bundle, never one per file. Per-file data
 goes in a sidecar TSV so the YAML stays readable.
 
 ```yaml
 schema: pilab.manifest/v1
-id: freepats-upright-piano-kw-small        # kebab-case, matches the kb record id if catalogued
+id: freepats-upright-piano-kw-small        # kebab-case, matches the catalog record id if catalogued
 title: Upright Piano KW (small)
 source: freepats-cc0                        # id in library/sources.yaml
 upstream: https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html
@@ -191,8 +194,8 @@ bytes: 3460000
 file_count: 92
 files: files.tsv                            # path<TAB>bytes<TAB>sha256<TAB>media-type
 sha256_of_files_tsv: "<hex>"
-kb_record: ""                               # kb library/{id}, set when Librarian catalogues it
-canonical: nas://NAS-4x12/Media/Sounds/freepats/upright-piano-kw-small   # the master; empty only for unfiled recordings
+catalog_record: ""                          # external catalog record id, if any
+canonical: nas://nas.local/Media/Sounds/freepats/upright-piano-kw-small   # the master; empty only for unfiled recordings
 holdings:                                   # other verified copies (pilab copies are never backups)
   - pilab://pilab.local/base/samples/freepats/upright-piano-kw-small
 dc:
@@ -203,13 +206,13 @@ dc:
   source: https://freepats.zenvoid.org/
   identifier: pilab://pilab.local/base/samples/freepats/upright-piano-kw-small
   date: "2019"
-  subject: [sound, redownloadable, media]   # kb concept ids
-topics: [pilab]                             # kb topic
+  subject: [sound, redownloadable, media]   # catalog subject terms
+topics: [pilab]                             # catalog topic
 ```
 
-Crosswalk to kb record fields (kb `docs/ontology.md`):
+Crosswalk to generic catalog record fields:
 
-| pilab manifest | kb record | Dublin Core |
+| pilab manifest | catalog record | Dublin Core |
 | --- | --- | --- |
 | `id` | `id` | |
 | `title` | `title` | `dc:title` |
@@ -230,25 +233,22 @@ Rights values: an SPDX id when the licence is known (`CC0-1.0`, `CC-BY-4.0`,
 when nobody has checked. Never guess. The pack installer refuses `LicenseRef-unknown`
 items, and the console filters on this field.
 
-`pilab://` is an accepted kb holding scheme next to `file://` and `nas://`, in the form
+`pilab://` is the holding scheme for copies on a unit, next to `file://` and `nas://`, in the form
 `pilab://{host}/{root-id}/{path}`. A `pilab://` holding is a working mirror: it is never the
-master and never counts toward the 3-2-1 copies. Dedup is by sha256, as in kb.
+master and never counts toward the 3-2-1 copies. Dedup is by sha256.
 
-### pilab as a partial store and archive customer
+### pilab as a partial store and archive client
 
-- **kb topic.** pilab records link to the kb topic `pilab` (related to
-  `generative-music-languages`).
-- **Partial store.** pilab holds working mirrors of some collections (base packs, sound
-  libraries mirrored from `Media/Sounds`). Its manifests list what it holds with a sha256
-  per file. kb may list pilab as a holding; the NAS stays canonical.
-- **Archive customer.** Recordings made on pilab are the one kind of master pilab holds,
-  and only until filed. Each recording gets a record id and is pushed promptly to
-  `nas://NAS-4x12/Archive/topics/pilab/recordings/{record-id}/`. After the remote checksum
-  matches, its role becomes `mirror` and it may be evicted. Until then pilab holds the only
-  copy, and the console says so.
-- **Third-party sample libraries** on `Media/Sounds/{library}/` get one kb collection card
-  each, with `dc.rights` and the source URL. They are the lowest backup priority because
-  they can be downloaded again.
+- **Partial store.** A unit holds working mirrors of some collections (base packs, sample
+  libraries mirrored from a NAS). Its manifests list what it holds with a sha256 per file.
+  A catalog may list the unit as a holding; the NAS stays canonical.
+- **Archive client.** Recordings made on the unit are the one kind of master it holds,
+  and only until filed. Each recording gets a record id and is pushed to an archive path
+  such as `nas://nas.local/Archive/recordings/{record-id}/`. After the remote checksum
+  matches, its role becomes `mirror` and it may be evicted. Until then the unit holds the
+  only copy, and the console says so.
+- **Third-party sample libraries** get one catalog record each, with `dc.rights` and the
+  source URL. They are the lowest backup priority because they can be downloaded again.
 
 ### Unfiled masters
 
@@ -268,7 +268,7 @@ All moves use rsync (installed on the Pi) with checksums verified against the ma
 | `pilab lib fetch <id> [--to drive]` | rsync from the best available root (drive, then LAN, then internet pack), verify sha256, write manifest |
 | `pilab lib pin <id>` / `unpin` | keep or release a copy against eviction |
 | `pilab lib evict <id>` | delete a local copy if it is `mirror` or `cache`, unpinned, and the canonical copy is verified |
-| `pilab lib push <id> --to nas-archive` | rsync a recording to `Archive/topics/pilab/recordings/{record-id}/`; mark `mirror` after the remote checksum matches |
+| `pilab lib push <id> --to nas-archive` | rsync a recording to the archive root's `recordings/{record-id}/`; mark `mirror` after the remote checksum matches |
 | `pilab lib unfiled` | list recordings still held only on this unit |
 | `pilab lib verify [<id>]` | re-hash files against manifests; report drift |
 | `pilab lib gc` | evict least-recently-used cache items until under `cache_budget_gib` |
@@ -337,22 +337,20 @@ ZPOD uses the same `pilab.manifest/v1` format and sources list. Differences:
   NAS Archive the same way.
 - Firmware and app packs can share the pack index and signature format later.
 
-## Decisions log
+## Design decisions
 
-- 2026-11-19: `pilab://` accepted as a kb holding scheme; pilab copies are working mirrors,
-  never masters, never backups. Recordings are masters only until filed.
-- 2026-11-19: `dc.rights` optional, SPDX id; `LicenseRef-proprietary` or
-  `LicenseRef-unknown` otherwise; never guessed.
-- 2026-11-19: kb topic `pilab`, related to `generative-music-languages`.
-- 2026-11-19: recordings filed to `Archive/topics/pilab/recordings/{record-id}/`.
-- 2026-11-19: `Media/Sounds/{library}/` approved for third-party sample libraries.
-- 2026-11-19: `Media/Books` layout unconfirmed; do not depend on it.
-- 2026-11-19: do not mirror `Media/Music` until the clean tagged FLAC tree exists.
-- 2026-11-19: pilab may mount NAS `Media` read-only with a separate read-only account.
-- 2026-11-19: the drive is an existing non-empty disk; use `pilab-library/`, never format.
+- `pilab://` copies are working mirrors, never masters, never backups. Recordings are
+  masters only until filed.
+- `dc.rights` is optional and holds an SPDX id; otherwise `LicenseRef-proprietary` or
+  `LicenseRef-unknown`. Never guessed.
+- Recordings are filed under a per-record folder, `recordings/{record-id}/`.
+- Network media shares are mounted read-only with a separate read-only account.
+- An attached drive may be an existing non-empty disk: use `pilab-library/`, never format.
 
 ## Open questions
 
-- Which existing disk goes on pilab, and its filesystem (ext4, exFAT, NTFS, APFS).
-- A NAS account for the recordings push, limited to `Archive/topics/pilab/recordings/`.
-- Repo licence for presets and our own content: decided 2026-11-20, GPL-3.0-or-later with a commercial option (LICENSE, LICENSE-COMMERCIAL.md). Recordings stay `LicenseRef-proprietary` unless filed otherwise.
+- Supported drive filesystems and their read-write safety (ext4, exFAT, NTFS; APFS read-only).
+- The recordings push account model: one account per unit, limited to its recordings folder.
+- Licence for presets and our own content: GPL-3.0-or-later with a commercial option
+  (LICENSE, LICENSE-COMMERCIAL.md). Recordings stay `LicenseRef-proprietary` unless the
+  owner chooses otherwise.
