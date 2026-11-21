@@ -1,0 +1,17 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# Trillium Base image: per-unit setup at boot (SSH keys from the boot partition, mDNS record
+# with this unit's device id). See /usr/local/sbin/trillium-firstboot.
+[Unit]
+Description=Trillium Base: per-unit setup (SSH keys from bootfs, mDNS record)
+After=local-fs.target tbase-hostname.service systemd-machine-id-commit.service
+Before=ssh.service avahi-daemon.service
+RequiresMountsFor=/boot/firmware
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/trillium-firstboot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

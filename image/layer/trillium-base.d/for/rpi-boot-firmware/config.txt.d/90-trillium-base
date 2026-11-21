@@ -1,0 +1,7 @@
+
+# Trillium Base: ES9038Q2M DAC HAT (Allo Katana driver)
+dtoverlay=allo-katana-dac-audio
+
+[pi5]
+# Trillium Base: PREEMPT_RT kernel (linux-image-rpi-v8-rt)
+kernel=kernel8_rt.img

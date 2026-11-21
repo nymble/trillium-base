@@ -2,7 +2,7 @@
 
 This is the path that produced the running machine on 2026-11-18, reconstructed from the files and packages that are actually on the Pi. Later this should become an Ansible playbook. Until then, follow the steps in order.
 
-Do not flash a card from this document until that work is approved. This repo does not contain an image.
+Do not flash a card from this document until that work is approved. This repo does not contain an image file; the recipe for the Trillium Base SD card image (rpi-image-gen) is in `image/`, with flashing and first-boot instructions in `docs/image.md`.
 
 The login user is `lab`. SSH is key-only. The Pi is reached as `lab@pilab.local`.
 

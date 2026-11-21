@@ -1,0 +1,95 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+#
+# METABEGIN
+# X-Env-Layer-Name: trillium-base
+# X-Env-Layer-Category: app
+# X-Env-Layer-Desc: Trillium Base sound module for Raspberry Pi 5: PREEMPT_RT
+#  kernel, Allo Katana DAC, PipeWire at 48 kHz / quantum 64, CPU 3 isolated for
+#  audio, pilabd (Trillium Console + Trillium Synth) as a user service of lab,
+#  mDNS discovery, first-boot tbase-xxxx hostname and pairing QR, BLE MIDI tool
+#  (Bluetooth off by default). Reproduces BUILD.md without the desktop extras.
+# X-Env-Layer-Version: 0.3.0
+# X-Env-Layer-Requires: device-user-admin,openssh-server,systemd-net-min,rpi-boot-firmware,linux-base
+#
+# X-Env-VarPrefix: tbase
+#
+# X-Env-Var-stage:
+# X-Env-Var-stage-Desc: Directory prepared by image/build.sh holding rootfs/,
+#  the overlay copied into the image (binaries, units, configs, wavetables).
+# X-Env-Var-stage-Required: y
+# X-Env-Var-stage-Valid: dir
+# X-Env-Var-stage-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # PREEMPT_RT kernel (kernel8_rt.img, selected under [pi5] in config.txt)
+    - linux-image-rpi-v8-rt
+    # Audio
+    - pipewire
+    - pipewire-bin
+    - pipewire-jack
+    - pipewire-pulse
+    - wireplumber
+    - libspa-0.2-bluetooth
+    - rtkit
+    - alsa-utils
+    - dbus-user-session
+    - libpam-systemd
+    # Discovery, pairing, tools
+    - avahi-daemon
+    - libnss-mdns
+    - qrencode
+    - python3
+    - python3-dbus
+    - python3-gi
+    - rt-tests
+    - stress-ng
+    - curl
+    - less
+    - nano
+    # Bluetooth (BLE MIDI); off by default
+    - bluez
+    - bluez-firmware
+    # Per-unit provisioning from the boot partition (Raspberry Pi Imager or user-data),
+    # and growing the root filesystem to the card on first boot
+    - cloud-init
+    - cloud-guest-utils
+  customize-hooks:
+    - test -d "$IGconf_tbase_stage/rootfs"
+    - tar -C "$IGconf_tbase_stage/rootfs" --owner=0 --group=0 -cf - . | tar -C "$1" --no-overwrite-dir -xpf -
+    - |-
+      set -eu
+      U="$IGconf_device_user1"
+      # pilabd runs as a user service of lab, started at boot (linger).
+      mkdir -p "$1/var/lib/systemd/linger"
+      touch "$1/var/lib/systemd/linger/$U"
+      mkdir -p "$1/home/$U/.config/systemd/user/default.target.wants"
+      ln -sf /etc/systemd/user/pilabd.service "$1/home/$U/.config/systemd/user/default.target.wants/pilabd.service"
+      mkdir -p "$1/home/$U/.config/pilab" "$1/home/$U/.local/share/pilab"
+      chmod 700 "$1/home/$U/.config/pilab"
+      chroot "$1" chown -R "$U:$U" "/home/$U/.config" "/home/$U/.local"
+      chroot "$1" systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service
+      mkdir -p "$1/var/lib/pilab/bench" "$1/var/lib/trillium"
+    - $BDEBSTRAP_HOOKS/enable-units "$1" cpu-performance trillium-cpu-isolation tbase-hostname trillium-firstboot trillium-pair-qr avahi-daemon bluetooth
+    - |-
+      set -eu
+      # Bluetooth stays off until asked for (trillium-ble-midi powers it on).
+      printf '\n[Policy]\nAutoEnable=false\n' >> "$1/etc/bluetooth/main.conf"
+      # avahi answers mDNS; keep systemd-resolved from competing for it.
+      mkdir -p "$1/etc/systemd/resolved.conf.d"
+      printf '[Resolve]\nMulticastDNS=no\nLLMNR=no\n' > "$1/etc/systemd/resolved.conf.d/10-trillium-avahi.conf"
+      # Local console banner (\n = hostname)
+      cat >> "$1/etc/issue" <<'EOI'
+      Trillium Base (see /etc/trillium-release)
+      Trillium Console: http://\n.local:8410/   pair a browser: trillium-base pair --qr
+
+      EOI
+    - |-
+      set -eu
+      # Image sanity: the RT kernel and Katana overlay are present; nothing secret is baked in.
+      ls "$1"/boot/vmlinuz-*-rpi-v8-rt
+      test -e "$1/boot/firmware/overlays/allo-katana-dac-audio.dtbo"
+      test ! -e "$1/home/$IGconf_device_user1/.config/pilab/console-token"
+      test ! -s "$1/home/$IGconf_device_user1/.ssh/authorized_keys"

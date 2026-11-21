@@ -1,0 +1,40 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+#
+# Trillium Base SD card image for Raspberry Pi 5 (Debian 13 trixie, arm64).
+# Built by image/build.sh with rpi-image-gen:  rpi-image-gen build -S image -c trillium-base.yaml
+# No keys, passwords, tokens or network credentials are set here or anywhere in the image.
+
+device:
+  layer: rpi5
+  # Image default; tbase-hostname.service renames the unit tbase-xxxx on first boot.
+  hostname: tbase
+  user1: lab
+  # lab has no password (locked). SSH is public-key only; keys are provisioned per unit
+  # at first boot (see docs/image.md). Passwordless sudo, as on the reference build.
+  user1sudo: nopasswd
+  user1groups: adm,dialout,cdrom,audio,users,video,games,plugdev,input,spi,i2c,gpio,render,netdev,bluetooth
+
+image:
+  layer: image-rpios
+  name: trillium-base
+  boot_part_size: 512M
+  root_part_size: 200%
+  # PARTUUID on the kernel command line and in fstab, as Raspberry Pi OS does; works with
+  # or without an initramfs and with kernel/cpu-isolation.sh.
+  devid_scheme: partuuid
+
+fs:
+  # The RT kernel (kernel8_rt.img) uses 4K pages, so the root filesystem must use 4K blocks
+  # (the rpi5 device layer defaults to 16K for the 2712 kernel).
+  ext4_mkfs_args: "-F -b 4096"
+
+ssh:
+  pubkey_only: y
+
+layer:
+  base: trixie-minbase
+  app: trillium-base
+
+tbase:
+  stage: ${@SRCROOT}/stage

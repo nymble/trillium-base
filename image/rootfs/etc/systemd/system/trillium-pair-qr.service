@@ -1,0 +1,24 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# Trillium Base image: at boot, show a one-time pairing QR code for Trillium Console on the
+# local console (HDMI, tty1). The code is valid for 5 minutes and works once; it is never
+# written to the journal. The token itself is never shown. New code any time:
+#   trillium-base pair --qr
+[Unit]
+Description=Trillium Base: show a one-time console pairing QR code on HDMI
+After=tbase-hostname.service trillium-firstboot.service getty@tty1.service
+
+[Service]
+Type=oneshot
+User=lab
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/local/bin/trillium-base pair --qr
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=no
+TTYVHangup=no
+TTYVTDisallocate=no
+
+[Install]
+WantedBy=multi-user.target

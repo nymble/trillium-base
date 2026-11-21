@@ -1,0 +1,3 @@
+
+# Trillium Base: onboard audio off (the Katana DAC HAT is the output)
+dtparam=audio=off

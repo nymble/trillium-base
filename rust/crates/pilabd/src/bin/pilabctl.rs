@@ -98,6 +98,10 @@ fn pair_qr() {
     let path = config_dir().join("pair-code");
     let tmp = path.with_extension("tmp");
     {
+        use std::os::unix::fs::DirBuilderExt;
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(config_dir());
+    }
+    {
         use std::os::unix::fs::OpenOptionsExt;
         let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).expect("write pairing code");
         writeln!(f, "{code} {}", now + TTL).unwrap();

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+#
+# Trillium Base image: per-unit setup that must not be baked into the image. Runs at every
+# boot from trillium-firstboot.service and is safe to rerun.
+#
+# 1. SSH public keys: if the boot partition holds `authorized_keys` (or
+#    `trillium/authorized_keys`), its key lines are added to ~lab/.ssh/authorized_keys and the
+#    file is removed from the boot partition. Public keys only; nothing secret is read.
+# 2. mDNS: writes /etc/avahi/services/pilab-console.service from `pilabd mdns-service`, which
+#    carries this unit's device id (derived from /etc/machine-id, created on first boot).
+#
+# The console pairing token is created by pilabd itself the first time it starts, and SSH
+# host keys by ssh-hostkeys-generate.service, so every unit gets its own.
+set -eu
+USER_NAME=lab
+HOME_DIR=/home/$USER_NAME
+BOOT=/boot/firmware
+
+log() { echo "trillium-firstboot: $*"; }
+
+add_keys() {
+    src=$1
+    [ -s "$src" ] || return 0
+    install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/.ssh"
+    ak=$HOME_DIR/.ssh/authorized_keys
+    [ -e "$ak" ] || install -m 600 -o "$USER_NAME" -g "$USER_NAME" /dev/null "$ak"
+    n=0
+    # Only lines that look like public keys (optionally with options in front).
+    grep -E '(^|[[:space:]])(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp[0-9]+|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+' "$src" | tr -d '\r' |
+    while IFS= read -r line; do
+        grep -qxF "$line" "$ak" || { printf '%s\n' "$line" >> "$ak"; echo added; }
+    done | wc -l | { read -r n; log "$n SSH key(s) added for $USER_NAME from $src"; }
+    chown "$USER_NAME:$USER_NAME" "$ak"; chmod 600 "$ak"
+    rm -f "$src"; sync
+}
+
+for f in "$BOOT/authorized_keys" "$BOOT/trillium/authorized_keys"; do add_keys "$f"; done
+
+if [ -x /usr/local/bin/pilabd ]; then
+    tmp=$(mktemp)
+    if runuser -u "$USER_NAME" -- env HOME="$HOME_DIR" /usr/local/bin/pilabd mdns-service > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+        if ! cmp -s "$tmp" /etc/avahi/services/pilab-console.service 2>/dev/null; then
+            install -D -m 644 "$tmp" /etc/avahi/services/pilab-console.service
+            log "mDNS service file written"
+        fi
+    else
+        log "pilabd mdns-service failed; mDNS records for the console are missing"
+    fi
+    rm -f "$tmp"
+fi

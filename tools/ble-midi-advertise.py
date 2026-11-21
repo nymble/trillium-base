@@ -12,7 +12,9 @@ the time runs out or on Ctrl-C / SIGTERM.
     sudo tools/ble-midi-advertise.py [--minutes 10] [--name "Trillium Base"]
 
 While it runs, anyone in radio range can pair and send MIDI, which is why it is time-boxed
-and off by default. Bluetooth itself must be powered (bluetoothctl power on).
+and off by default. If the Bluetooth adapter is off (the Trillium Base image boots with
+Bluetooth off), it is powered on and stays on after the window closes, so a paired Mac or
+iPhone keeps its MIDI connection; `bluetoothctl power off` or a reboot turns it off again.
 """
 import argparse
 import signal
@@ -95,7 +97,8 @@ def main():
     adapter = bus.get_object(BLUEZ, a.adapter)
     props = dbus.Interface(adapter, dbus.PROPERTIES_IFACE)
     if not props.Get("org.bluez.Adapter1", "Powered"):
-        sys.exit("bluetooth adapter is off: run `bluetoothctl power on` first")
+        print("bluetooth adapter was off: powering it on (stays on until `bluetoothctl power off` or reboot)")
+        props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
     props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
 
     adv = Advertisement(bus, a.name)

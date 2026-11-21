@@ -1,0 +1,1 @@
+isolcpus=managed_irq,domain,3 irqaffinity=0-2
