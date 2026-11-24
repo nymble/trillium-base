@@ -212,6 +212,10 @@ function onStatus(d) {
   $("#st-scene").textContent = d.scene;
   $("#st-dirty").classList.toggle("hidden", !d.dirty);
   S.dirty = d.dirty;
+  if (d.input && $("#in-l")) {
+    $("#in-l").style.width = pct(d.input.peak_db[0]) + "%";
+    $("#in-r").style.width = pct(d.input.peak_db[1]) + "%";
+  }
   const m = $("#master");
   if (document.activeElement !== m) { m.value = d.master_db; $("#master-v").textContent = fmtDb(d.master_db); }
   const rec = $("#btn-rec");
@@ -257,7 +261,7 @@ window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) ||
 
 function render() {
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === S.view));
-  const views = { overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, settings: renderSettings };
+  const views = { overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
   (views[S.view] || renderOverview)();
 }
 
@@ -1269,6 +1273,95 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("resize", () => { if (S.view === "signals" && SP.model) drawCables(); });
 
 // ------------------------------------------------------------------ settings
+// ------------------------------------------------------------------ devices
+// USB and Bluetooth devices, the audio input strip, and Trillium Zero profiles.
+// Re-applying a stored profile always needs an explicit click and a confirm.
+async function renderDevices() {
+  let d, inp;
+  try { [d, inp] = await Promise.all([get("/devices"), get("/input")]); } catch (e) { fail(e); return; }
+  if (S.view !== "devices") return;
+  const usb = (d.usb || []).map((u) => `<tr><td class="mono">${esc(u.id)}</td><td>${esc(u.product)}</td><td class="muted">${esc(u.vendor)}</td><td>${u.midi ? '<span class="badge ok">MIDI</span> ' : ""}${u.audio ? '<span class="badge ok">audio</span>' : ""}</td></tr>`).join("");
+  const ble = (d.ble_connected || []).map((b) => `<span class="badge ok">${esc(b)}</span>`).join(" ") || '<span class="muted">none connected</span>';
+  const zeros = (d.zeros || []).map(zeroCard).join("") || `<div class="card"><div class="card-head"><h3>Trillium Zero</h3><span class="spacer"></span><span class="badge off">not connected</span></div></div>`;
+  const src = inp.connected.length ? inp.connected.map(esc).join(", ") : "not connected";
+  $("#main").innerHTML = head("Devices", "What is plugged in, the audio input strip, and per-device Trillium Zero profiles") + `
+    <div class="card">
+      <div class="card-head"><h3>Audio input strip</h3><span class="spacer"></span><span class="badge ${inp.connected.length ? "ok" : "off"}">${inp.connected.length ? "connected" : "idle"}</span></div>
+      <div class="row">
+        <div class="field" style="flex:1"><label>Source (port name, * wildcards)</label><input class="input mono" id="in-src" value="${esc(inp.source)}" list="in-cands"><datalist id="in-cands">${(inp.candidates || []).map((c) => `<option value="${esc(c)}">`).join("")}</datalist></div>
+        <div class="field"><label>Gain (dB)</label><input class="input mono" id="in-gain" type="number" min="-60" max="24" step="0.5" value="${inp.gain_db}" style="width:90px"></div>
+        <div class="field"><label>Record</label><label class="switch"><input type="checkbox" id="in-rec" ${inp.record ? "checked" : ""}><span></span></label></div>
+        <div class="field"><label>Monitor to DAC</label><label class="switch"><input type="checkbox" id="in-mon" ${inp.monitor ? "checked" : ""}><span></span></label></div>
+        <div class="meters" style="align-self:center"><div class="meter"><div class="fill" id="in-l"></div></div><div class="meter"><div class="fill" id="in-r"></div></div></div>
+      </div>
+      <div class="muted" style="margin-top:6px">Linked: <span class="mono">${src}</span> → <span class="mono">${esc((inp.ports || []).join(", "))}</span></div>
+      <div class="risk ${inp.monitor ? "caution" : ""}" style="margin-top:8px">${inp.monitor ? "<b>!</b> Monitoring is on: the input plays through the DAC. A microphone near the speakers can feed back." : "Monitoring is off: the input goes to recordings only, never to the DAC."} There is no synth effect input yet; effects come later.</div>
+      <div style="margin-top:10px"><button class="btn small" id="in-save">Save input</button></div>
+    </div>
+    ${zeros}
+    <div class="card">
+      <div class="card-head"><h3>USB devices</h3></div>
+      <table><tbody>${usb || '<tr><td class="muted">none</td></tr>'}</tbody></table>
+      <div class="lbl" style="margin:14px 0 4px">Bluetooth</div><div>${ble}</div>
+    </div>`;
+  $("#in-save").onclick = async () => {
+    const mon = $("#in-mon").checked;
+    const body = { source: $("#in-src").value, gain_db: parseFloat($("#in-gain").value), record: $("#in-rec").checked, monitor: mon };
+    if (mon && !inp.monitor) {
+      if (!confirm("Send the input to the DAC? A microphone near the speakers can feed back.")) return;
+      body.confirm = true;
+    }
+    try { await post("/input", body); toast("Input saved"); renderDevices(); } catch (e) { fail(e); }
+  };
+  $$("[data-snap]").forEach((b) => b.onclick = async () => {
+    try { b.disabled = true; await post(`/devices/${encodeURIComponent(b.dataset.snap)}/snapshot`); toast("Profile stored from the device"); renderDevices(); } catch (e) { fail(e); b.disabled = false; }
+  });
+  $$("[data-reapply]").forEach((b) => b.onclick = async () => {
+    const n = b.dataset.n;
+    if (!confirm(`Send ${n} stored setting(s) to this Trillium Zero? Settings live in its RAM until it restarts.`)) return;
+    try { b.disabled = true; const r = await post(`/devices/${encodeURIComponent(b.dataset.reapply)}/reapply`, { confirm: true }); toast(`Re-applied ${r.changed.length} setting(s)`); renderDevices(); } catch (e) { fail(e); b.disabled = false; }
+  });
+  $$("[data-tele]").forEach((b) => b.onclick = async () => {
+    try {
+      b.disabled = true;
+      const r = await get(`/devices/${encodeURIComponent(b.dataset.tele)}/telemetry?hz=20&ms=1000`);
+      const f = r.frames[r.frames.length - 1];
+      $(`#tele-${CSS.escape(b.dataset.tele)}`).textContent = f ? `${r.frames.length} frames · pitch ${f.pitch.toFixed(1)}° · roll ${f.roll.toFixed(1)}° · accel ${f.accel.join(", ")} mg · touch ${f.touching ? (f.touch_pos * 100).toFixed(0) + "%" : "off"} · taps ${f.taps}` : "no frames";
+    } catch (e) { fail(e); } finally { b.disabled = false; }
+  });
+}
+
+function zeroCard(z) {
+  const h = z.hello || {}, st = z.status || {};
+  const batt = st.battery === "present" ? `${st.charge_pct ?? "?"}% · ${st.battery_mv} mV${st.charging ? " · charging" : ""}` : (st.battery || "—");
+  const rows = (z.params || []).map((p) => {
+    const diff = p.stored != null && p.stored !== p.value;
+    return `<tr><td class="mono muted">${p.id}</td><td>${esc(p.name)}</td><td class="mono">${p.value}</td><td class="mono ${diff ? "" : "muted"}">${p.stored ?? "—"}</td><td>${diff ? '<span class="badge caution">differs</span>' : ""}</td></tr>`;
+  }).join("");
+  const nd = (z.differs || []).length;
+  const state = { stored: ["ok", "profile stored"], matches: ["ok", "matches profile"], differs: ["caution", "differs from profile"], none: ["off", "no profile"] }[z.profile_state] || ["off", z.profile_state || "—"];
+  return `<div class="card">
+    <div class="card-head"><h3>Trillium Zero</h3><span class="muted mono" style="margin-left:8px">${esc(z.key)}</span><span class="spacer"></span>
+      ${z.found ? "" : '<span class="badge off">disconnected</span> '}<span class="badge ${state[0]}">${esc(state[1])}</span></div>
+    ${z.error ? `<div class="risk caution"><b>!</b> ${esc(z.error)}</div>` : ""}
+    <div class="row">
+      <div class="field"><label>Firmware</label><div class="mono">${esc(h.firmware || "—")}</div></div>
+      <div class="field"><label>Battery</label><div class="mono">${esc(batt)}</div></div>
+      <div class="field"><label>Link</label><div class="mono">${esc(st.link || "—")}</div></div>
+      <div class="field"><label>Read</label><div class="mono">${esc(z.read_at_text || "—")}</div></div>
+      <div class="field"><label>Profile</label><div class="mono">${z.profile ? esc(z.profile.captured_text) + " · " + z.profile.count + " settings" : "—"}</div></div>
+    </div>
+    ${z.reconnected && nd ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Nothing is sent until you re-apply.</div>` : ""}
+    <div style="margin:10px 0;display:flex;gap:8px;align-items:center">
+      <button class="btn small ghost" data-snap="${esc(z.key)}" ${z.found ? "" : "disabled"}>Store current settings as profile</button>
+      ${nd && z.found ? `<button class="btn small" data-reapply="${esc(z.key)}" data-n="${nd}">Re-apply ${nd} stored setting(s)…</button>` : ""}
+      <button class="btn small ghost" data-tele="${esc(z.key)}" ${z.found ? "" : "disabled"}>Sample sensors</button>
+      <span class="muted mono" id="tele-${esc(z.key)}"></span>
+    </div>
+    <table><thead><tr><th>#</th><th>Setting</th><th>Device</th><th>Stored</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+}
+
 async function renderSettings() {
   let r, recs;
   try { r = await get("/settings"); recs = await get("/recordings"); } catch (e) { fail(e); return; }

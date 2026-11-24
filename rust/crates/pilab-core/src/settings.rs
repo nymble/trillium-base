@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Settings {
     pub audio: Audio,
+    pub input: Input,
     pub midi: Midi,
     pub recording: Recording,
     pub archive: Archive,
@@ -32,6 +33,32 @@ impl Default for Audio {
             dac_sink: "alsa_output.platform-soc_107c000000_sound.stereo-fallback".into(),
             start_engine: true,
         }
+    }
+}
+
+/// The console's audio input strip: an external source (a USB microphone, an audio
+/// interface) connected to the synth node's `input_l`/`input_r` ports. It never reaches
+/// the DAC unless `monitor` is on, so a microphone near the speakers cannot feed back.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Input {
+    /// Glob on graph port names for the source, e.g. "Yeti Nano*:capture_*". The first
+    /// two matching audio outputs feed left and right (a mono source feeds both).
+    /// Empty: nothing is connected automatically.
+    pub source: String,
+    /// Connect the source whenever it appears (at start, after a replug).
+    pub autoconnect: bool,
+    /// Input gain in dB (-60..=+24).
+    pub gain_db: f32,
+    /// Mix the input into the synth output (and so the DAC). Off by default.
+    pub monitor: bool,
+    /// Include the input in local recordings even when it is not monitored.
+    pub record: bool,
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        Input { source: String::new(), autoconnect: true, gain_db: 0.0, monitor: false, record: true }
     }
 }
 
@@ -129,6 +156,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             audio: Audio::default(),
+            input: Input::default(),
             midi: Midi::default(),
             recording: Recording::default(),
             archive: Archive::default(),

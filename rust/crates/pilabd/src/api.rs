@@ -83,6 +83,12 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("PUT", "/api/v1/settings", "Replace settings (archive 'configured' is not settable here)"),
     ("POST", "/api/v1/record", "{on:bool} start/stop local recording"),
     ("GET", "/api/v1/recordings", "Recording cards, newest first"),
+    ("GET", "/api/v1/input", "Audio input strip: source glob, connected ports, gain, monitor (off by default), record"),
+    ("POST", "/api/v1/input", "{source?, gain_db?, monitor?, record?, autoconnect?, confirm?} change the input strip; monitor on needs confirm"),
+    ("GET", "/api/v1/devices", "USB and Bluetooth devices, and Trillium Zero controllers with identity, status, settings and stored profile"),
+    ("POST", "/api/v1/devices/{key}/snapshot", "Re-read a Trillium Zero and store its settings as its profile (read-only towards the device)"),
+    ("POST", "/api/v1/devices/{key}/reapply", "{confirm:true} send the stored profile's differing settings to the device, then read it back"),
+    ("GET", "/api/v1/devices/{key}/telemetry?hz=&ms=", "Sensor frames from a short telemetry lease (read-only)"),
     ("GET", "/api/v1/endpoints", "This list"),
 ];
 
@@ -131,6 +137,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/settings", get(settings_get).put(settings_put))
         .route("/record", post(record_toggle))
         .route("/recordings", get(recordings))
+        .route("/input", get(input_get).post(input_set))
+        .route("/devices", get(devices_list))
+        .route("/devices/{key}/snapshot", post(device_snapshot))
+        .route("/devices/{key}/reapply", post(device_reapply))
+        .route("/devices/{key}/telemetry", get(device_telemetry))
         .route("/endpoints", get(endpoints))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
     Router::new().nest(API_PREFIX, api).fallback(static_file).with_state(app)
@@ -587,6 +598,78 @@ async fn akwf_frames(State(app): S, Path(group): Path<String>, Query(q): Query<P
     let a = app.clone();
     let v = tokio::task::spawn_blocking(move || a.library.group_frames(&group, pts)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     ok(json!({ "frames": v.into_iter().map(|(f, p)| json!({ "file": f, "points": p })).collect::<Vec<_>>() }))
+}
+
+async fn input_get(State(app): S) -> R {
+    ok(tokio::task::spawn_blocking(move || app.input_json()).await.map_err(|e| bad(e.to_string()))?)
+}
+
+#[derive(Deserialize)]
+struct InputSet {
+    source: Option<String>,
+    gain_db: Option<f32>,
+    monitor: Option<bool>,
+    record: Option<bool>,
+    autoconnect: Option<bool>,
+    #[serde(default)]
+    confirm: bool,
+}
+
+async fn input_set(State(app): S, Json(b): Json<InputSet>) -> R {
+    let v = tokio::task::spawn_blocking(move || app.set_input(b.source, b.gain_db, b.monitor, b.record, b.autoconnect, b.confirm)).await.map_err(|e| bad(e.to_string()))?;
+    ok(v.map_err(bad)?)
+}
+
+async fn devices_list(State(app): S) -> R {
+    let v = tokio::task::spawn_blocking(move || {
+        let s = app.system_json();
+        json!({
+            "usb": s.get("usb").cloned().unwrap_or(Value::Null),
+            "ble_connected": crate::identity::ble_connected_aliases(),
+            "zeros": app.devmgr.zeros_json(),
+            "midi_inputs": app.midi_inputs_json(),
+        })
+    })
+    .await
+    .map_err(|e| bad(e.to_string()))?;
+    ok(v)
+}
+
+async fn device_snapshot(State(app): S, Path(key): Path<String>) -> R {
+    let a = app.clone();
+    let v = tokio::task::spawn_blocking(move || a.devmgr.snapshot(&key)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    if let Some(ev) = v.get("events").and_then(|e| e.as_array()) {
+        for t in ev.iter().filter_map(|t| t.as_str()) {
+            app.event("info", t.to_string());
+        }
+    }
+    ok(v)
+}
+
+#[derive(Deserialize, Default)]
+struct Confirm {
+    #[serde(default)]
+    confirm: bool,
+}
+
+async fn device_reapply(State(app): S, Path(key): Path<String>, Json(b): Json<Confirm>) -> R {
+    let a = app.clone();
+    let k = key.clone();
+    let v = tokio::task::spawn_blocking(move || a.devmgr.reapply(&k, b.confirm)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    let n = v.get("changed").and_then(|c| c.as_array()).map(|c| c.len()).unwrap_or(0);
+    app.event("warn", format!("Trillium Zero ({key}): re-applied {n} stored setting(s) from the console"));
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct TelemetryQ {
+    hz: Option<u8>,
+    ms: Option<u64>,
+}
+
+async fn device_telemetry(State(app): S, Path(key): Path<String>, Query(q): Query<TelemetryQ>) -> R {
+    let v = tokio::task::spawn_blocking(move || app.devmgr.telemetry(&key, q.hz.unwrap_or(20), q.ms.unwrap_or(1000))).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    ok(json!({ "frames": v }))
 }
 
 async fn midi_inputs(State(app): S) -> R {

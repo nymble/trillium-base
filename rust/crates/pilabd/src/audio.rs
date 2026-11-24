@@ -31,6 +31,8 @@ fn is_meter_port(name: &str) -> bool {
     name.strip_prefix(CLIENT_NAME).and_then(|r| r.strip_prefix(':')).is_some_and(|p| p.starts_with(METER_PREFIX))
 }
 /// JACK MIDI input ports, by input slot. Slot 0 is the virtual port other apps connect to.
+/// Audio input strip ports (an external source such as a USB microphone).
+pub const INPUT_PORTS: [&str; 2] = ["input_l", "input_r"];
 pub const MIDI_PORTS: [&str; 8] = ["midi_in", "in_1", "in_2", "in_3", "in_4", "in_5", "in_6", "in_7"];
 
 #[derive(Clone, Copy)]
@@ -61,10 +63,21 @@ pub struct RtShared {
     pub rt_prio: AtomicI32,
     /// Peak (f32 bits, max-hold until read) of each meter input.
     pub meters: [AtomicU32; METER_PORTS],
+    /// Input strip: gain (linear, f32 bits), monitor to the output, include in recordings.
+    pub in_gain: AtomicU32,
+    pub in_monitor: AtomicBool,
+    pub in_record: AtomicBool,
+    /// Input peak per side (f32 bits, max-hold until read), after gain.
+    pub in_peak: [AtomicU32; 2],
 }
 
 impl RtShared {
     /// Reads and resets the meter peaks (linear).
+    /// Reads and resets the input strip peaks (linear, after gain).
+    pub fn take_input_peaks(&self) -> [f32; 2] {
+        [f32::from_bits(self.in_peak[0].swap(0, Ordering::Relaxed)), f32::from_bits(self.in_peak[1].swap(0, Ordering::Relaxed))]
+    }
+
     pub fn take_meters(&self) -> [f32; METER_PORTS] {
         let mut v = [0.0; METER_PORTS];
         for (i, m) in self.meters.iter().enumerate() {
@@ -138,14 +151,41 @@ impl RtHost {
         let _ = self.mon_tx.push(MidiEv { port, len: bytes.len() as u8, b });
     }
 
+    /// Renders one block. `input` is the input strip's source (left, right), if any:
+    /// it is metered, mixed into the output only when monitoring is on, and into the
+    /// recording when recording of the input is on. Sums are clamped to ±1.
     #[inline]
-    fn render(&mut self, l: &mut [f32], r: &mut [f32]) {
+    fn render(&mut self, l: &mut [f32], r: &mut [f32], input: Option<(&[f32], &[f32])>) {
         self.engine.process(l, r);
+        let g = f32::from_bits(self.shared.in_gain.load(Ordering::Relaxed));
+        let monitor = self.shared.in_monitor.load(Ordering::Relaxed);
+        let rec_in = self.shared.in_record.load(Ordering::Relaxed);
+        let input = input.filter(|(a, b)| a.len() >= l.len() && b.len() >= l.len() && g.is_finite() && g > 0.0);
+        if let Some((il, ir)) = input {
+            let (mut pl, mut pr) = (0.0f32, 0.0f32);
+            for i in 0..l.len() {
+                pl = pl.max((il[i] * g).abs());
+                pr = pr.max((ir[i] * g).abs());
+            }
+            self.shared.in_peak[0].fetch_max(pl.to_bits(), Ordering::Relaxed);
+            self.shared.in_peak[1].fetch_max(pr.to_bits(), Ordering::Relaxed);
+            if monitor {
+                for i in 0..l.len() {
+                    l[i] = (l[i] + il[i] * g).clamp(-1.0, 1.0);
+                    r[i] = (r[i] + ir[i] * g).clamp(-1.0, 1.0);
+                }
+            }
+        }
         if self.shared.rec_armed.load(Ordering::Relaxed) {
             if self.rec_tx.slots() >= l.len() * 2 {
+                let extra = if !monitor && rec_in { input } else { None };
                 for i in 0..l.len() {
-                    let _ = self.rec_tx.push(l[i]);
-                    let _ = self.rec_tx.push(r[i]);
+                    let (a, b) = match extra {
+                        Some((il, ir)) => ((l[i] + il[i] * g).clamp(-1.0, 1.0), (r[i] + ir[i] * g).clamp(-1.0, 1.0)),
+                        None => (l[i], r[i]),
+                    };
+                    let _ = self.rec_tx.push(a);
+                    let _ = self.rec_tx.push(b);
                 }
             } else {
                 self.shared.rec_dropped.fetch_add(l.len() as u64, Ordering::Relaxed);
@@ -188,6 +228,10 @@ pub trait AudioBackend: Send + Sync {
     fn meter_port(&self, _k: usize) -> Option<String> {
         None
     }
+    /// Full names of the input strip's ports (left, right), if the backend has them.
+    fn input_strip_ports(&self) -> Option<[String; 2]> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------- JACK
@@ -198,6 +242,8 @@ struct Proc {
     out_l: jack::Port<jack::AudioOut>,
     out_r: jack::Port<jack::AudioOut>,
     meters: Vec<jack::Port<jack::AudioIn>>,
+    in_l: jack::Port<jack::AudioIn>,
+    in_r: jack::Port<jack::AudioIn>,
 }
 
 impl jack::ProcessHandler for Proc {
@@ -210,7 +256,8 @@ impl jack::ProcessHandler for Proc {
         }
         let l = self.out_l.as_mut_slice(ps);
         let r = self.out_r.as_mut_slice(ps);
-        self.host.render(l, r);
+        let (il, ir) = (self.in_l.as_slice(ps), self.in_r.as_slice(ps));
+        self.host.render(l, r, Some((il, ir)));
         // Meters: peak per block, max-held until pilabd reads it. No allocation, no locks.
         for (k, p) in self.meters.iter().enumerate() {
             let pk = p.as_slice(ps).iter().fold(0.0f32, |a, &x| a.max(x.abs()));
@@ -256,11 +303,13 @@ impl JackBackend {
         for k in 0..METER_PORTS {
             meters.push(client.register_port(&format!("{METER_PREFIX}{}", k + 1), jack::AudioIn::default()).map_err(|e| format!("meter: {e:?}"))?);
         }
+        let in_l = client.register_port(INPUT_PORTS[0], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
+        let in_r = client.register_port(INPUT_PORTS[1], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
         let engine = Engine::new(sr);
         let (host, links) = rt_pair(engine, shared.clone(), audio_cpu, sr);
         let stats = host.stats();
         let active = client
-            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters })
+            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters, in_l, in_r })
             .map_err(|e| format!("activate: {e:?}"))?;
         Ok((JackBackend { client: Mutex::new(Some(active)), sr, bufsize }, links, stats))
     }
@@ -328,6 +377,9 @@ impl AudioBackend for JackBackend {
     }
     fn meter_port(&self, k: usize) -> Option<String> {
         (k < METER_PORTS).then(|| format!("{CLIENT_NAME}:{METER_PREFIX}{}", k + 1))
+    }
+    fn input_strip_ports(&self) -> Option<[String; 2]> {
+        Some(INPUT_PORTS.map(|n| format!("{CLIENT_NAME}:{n}")))
     }
     fn connect(&self, from: &str, to: &str) -> Result<(), String> {
         self.with(|c| c.connect_ports_by_name(from, to).map_err(|e| format!("{e:?}"))).unwrap_or(Err("client closed".into()))
@@ -414,7 +466,7 @@ impl NullBackend {
                 let mut next = std::time::Instant::now();
                 while !st.load(Ordering::Relaxed) {
                     host.begin();
-                    host.render(&mut l, &mut r);
+                    host.render(&mut l, &mut r, None);
                     next += period;
                     let now = std::time::Instant::now();
                     if next > now {

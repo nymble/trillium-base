@@ -53,6 +53,8 @@ struct Persist {
 }
 
 struct Inner {
+    /// Links the input strip made itself (source port, our port), so only those are undone.
+    input_links: Vec<(String, String)>,
     /// Which output port each meter input is linked to (client label, port name).
     meter_map: Vec<(String, String)>,
     meter_poll: Option<Instant>,
@@ -121,6 +123,7 @@ pub struct App {
     pub recorder: Recorder,
     pub library: Library,
     pub mixer: crate::mixer::Mixer,
+    pub devmgr: crate::devices::Manager,
     pub samples: SampleLib,
     aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
@@ -257,12 +260,14 @@ impl App {
         ports[PORT_AUDITION as usize] = Some("audition".into());
         let (tx, _) = broadcast::channel(64);
         let sr = backend.sample_rate() as u32;
+        let devmgr = crate::devices::Manager::new(&paths.config);
         let app = Arc::new(App {
             device_id: paths::device_id(),
             hostname: paths::hostname(),
             library: Library::new(paths.akwf_root()),
             samples: SampleLib::new(paths.samples_root()),
             mixer: crate::mixer::Mixer::new(),
+            devmgr,
             aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
@@ -309,9 +314,114 @@ impl App {
                 ble_cache: None,
                 sent_inst: Default::default(),
                 sent_set: Default::default(),
+                input_links: vec![],
             }),
         });
+        app.apply_input_rt(&app.settings().input);
         Ok(app)
+    }
+
+    /// Pushes the input strip settings to the realtime side.
+    fn apply_input_rt(&self, i: &pilab_core::settings::Input) {
+        let g = if i.gain_db <= -60.0 { 0.0 } else { 10f32.powf(i.gain_db.clamp(-60.0, 24.0) / 20.0) };
+        self.shared.in_gain.store(g.to_bits(), Ordering::Relaxed);
+        self.shared.in_monitor.store(i.monitor, Ordering::Relaxed);
+        self.shared.in_record.store(i.record, Ordering::Relaxed);
+    }
+
+    /// Connects the input strip to its configured source when it is in the graph.
+    /// Mono sources feed both sides. Only links made here are ever removed here.
+    pub fn connect_input(&self) {
+        let s = self.settings().input;
+        let Some(ours) = self.backend.input_strip_ports() else { return };
+        let graph = self.backend.graph();
+        let want: Vec<(String, String)> = if s.autoconnect && !s.source.trim().is_empty() {
+            let mut src: Vec<String> = graph
+                .iter()
+                .filter(|p| p.kind == "audio" && p.dir == "out" && p.client != crate::brand::SYNTH_NAME && !p.short.starts_with("monitor_"))
+                .filter(|p| glob::matches(s.source.trim(), &p.name))
+                .map(|p| p.name.clone())
+                .collect();
+            src.sort();
+            match src.len() {
+                0 => vec![],
+                1 => vec![(src[0].clone(), ours[0].clone()), (src[0].clone(), ours[1].clone())],
+                _ => vec![(src[0].clone(), ours[0].clone()), (src[1].clone(), ours[1].clone())],
+            }
+        } else {
+            vec![]
+        };
+        let have: Vec<(String, String)> = graph.iter().filter(|p| p.dir == "out").flat_map(|p| p.connections.iter().filter(|c| ours.contains(c)).map(move |c| (p.name.clone(), c.clone()))).collect();
+        let made = self.inner.lock().unwrap().input_links.clone();
+        let mut now = vec![];
+        for l in &made {
+            if !want.contains(l) && have.contains(l) {
+                let _ = self.backend.disconnect(&l.0, &l.1);
+            }
+        }
+        let mut connected = vec![];
+        for l in &want {
+            if have.contains(l) || self.backend.connect(&l.0, &l.1).is_ok() {
+                if !have.contains(l) {
+                    connected.push(l.0.clone());
+                }
+                now.push(l.clone());
+            }
+        }
+        let lost = !made.is_empty() && now.is_empty();
+        self.inner.lock().unwrap().input_links = now;
+        if !connected.is_empty() {
+            connected.dedup();
+            self.event("info", format!("audio input connected: {} -> input strip (monitor {})", connected.join(", "), if s.monitor { "on" } else { "off" }));
+        } else if lost {
+            self.event("info", "audio input source gone");
+        }
+    }
+
+    pub fn input_json(&self) -> Value {
+        let s = self.settings().input;
+        let links = self.inner.lock().unwrap().input_links.clone();
+        let mut sources: Vec<String> = links.iter().map(|l| l.0.clone()).collect();
+        sources.dedup();
+        json!({
+            "source": s.source, "autoconnect": s.autoconnect, "gain_db": s.gain_db,
+            "monitor": s.monitor, "record": s.record, "connected": sources,
+            "ports": self.backend.input_strip_ports(),
+            "candidates": self.backend.graph().iter()
+                .filter(|p| p.kind == "audio" && p.dir == "out" && p.client != crate::brand::SYNTH_NAME && !p.short.starts_with("monitor_"))
+                .map(|p| p.name.clone()).collect::<Vec<_>>(),
+        })
+    }
+
+    /// Changes the input strip. Turning monitoring on needs `confirm` (feedback risk).
+    pub fn set_input(&self, source: Option<String>, gain_db: Option<f32>, monitor: Option<bool>, record: Option<bool>, autoconnect: Option<bool>, confirm: bool) -> Result<Value, String> {
+        let mut st = self.settings();
+        if monitor == Some(true) && !st.input.monitor && !confirm {
+            return Err("monitoring sends the input to the DAC; with a microphone near the speakers this can feed back. Send confirm: true to turn it on".into());
+        }
+        if let Some(v) = source {
+            st.input.source = v.trim().to_string();
+        }
+        if let Some(v) = gain_db {
+            if !v.is_finite() {
+                return Err("gain must be a number".into());
+            }
+            st.input.gain_db = v.clamp(-60.0, 24.0);
+        }
+        if let Some(v) = monitor {
+            st.input.monitor = v;
+        }
+        if let Some(v) = record {
+            st.input.record = v;
+        }
+        if let Some(v) = autoconnect {
+            st.input.autoconnect = v;
+        }
+        let input = st.input.clone();
+        self.put_settings(st)?;
+        self.apply_input_rt(&input);
+        self.connect_input();
+        Ok(self.input_json())
     }
 
     pub fn send(&self, c: Cmd) -> Result<(), String> {
@@ -1186,10 +1296,13 @@ impl App {
     pub fn status_json(&self) -> Value {
         let (pl, pr) = self.stats.take_peaks();
         let rec = self.recorder.state();
+        let ip = self.shared.take_input_peaks();
         let mut g = self.inner.lock().unwrap();
         let midi = std::mem::take(&mut g.midi_pending);
+        let input_on = !g.input_links.is_empty();
         json!({
             "t": "status",
+            "input": { "connected": input_on, "peak_db": [gain_to_db(ip[0]), gain_to_db(ip[1])], "monitor": self.shared.in_monitor.load(Ordering::Relaxed) },
             "voices": self.stats.voices.load(Ordering::Relaxed),
             "peak_db": [gain_to_db(pl), gain_to_db(pr)],
             "limiter_db": Stats::f32(&self.stats.limiter_db),
@@ -1260,6 +1373,20 @@ impl App {
 
 /// Background loops: realtime ring draining + status at 15 Hz; machine state every 2 s.
 pub fn spawn_loops(app: Arc<App>) {
+    let d = app.clone();
+    std::thread::Builder::new()
+        .name("devices".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_secs(3));
+            loop {
+                let classes = d.settings().midi.devices;
+                for (level, text) in d.devmgr.poll(&classes) {
+                    d.event(level, text);
+                }
+                std::thread::sleep(Duration::from_secs(5));
+            }
+        })
+        .expect("spawn devices loop");
     let a = app.clone();
     std::thread::Builder::new()
         .name("status".into())
@@ -1346,6 +1473,7 @@ pub fn spawn_loops(app: Arc<App>) {
                     }
                 }
                 app.refresh_midi_inputs(false);
+                app.connect_input();
                 if tick % 15 == 0 {
                     app.scan_unfiled();
                 }
