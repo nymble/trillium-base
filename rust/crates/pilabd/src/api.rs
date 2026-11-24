@@ -657,7 +657,8 @@ async fn device_reapply(State(app): S, Path(key): Path<String>, Json(b): Json<Co
     let k = key.clone();
     let v = tokio::task::spawn_blocking(move || a.devmgr.reapply(&k, b.confirm)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     let n = v.get("changed").and_then(|c| c.as_array()).map(|c| c.len()).unwrap_or(0);
-    app.event("warn", format!("Trillium Zero ({key}): re-applied {n} stored setting(s) from the console"));
+    let level = if n == 0 { "info" } else { "warn" };
+    app.event(level, format!("Trillium Zero ({key}): re-applied {n} stored setting(s) from the console"));
     ok(v)
 }
 

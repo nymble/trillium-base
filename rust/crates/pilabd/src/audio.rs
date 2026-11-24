@@ -34,6 +34,8 @@ fn is_meter_port(name: &str) -> bool {
 /// Audio input strip ports (an external source such as a USB microphone).
 pub const INPUT_PORTS: [&str; 2] = ["input_l", "input_r"];
 pub const MIDI_PORTS: [&str; 8] = ["midi_in", "in_1", "in_2", "in_3", "in_4", "in_5", "in_6", "in_7"];
+/// MIDI output: live Trillium Zero motion and touch, for the patch panel (not auto-routed).
+pub const ZERO_MOTION_PORT: &str = "zero_motion";
 
 #[derive(Clone, Copy)]
 pub struct MidiEv {
@@ -69,6 +71,9 @@ pub struct RtShared {
     pub in_record: AtomicBool,
     /// Input peak per side (f32 bits, max-hold until read), after gain.
     pub in_peak: [AtomicU32; 2],
+    /// Packed Trillium Zero motion CCs for the `zero_motion` MIDI port: pitch, roll, touch, flags.
+    pub zero_cc: AtomicU32,
+    pub zero_cc_gen: AtomicU32,
 }
 
 impl RtShared {
@@ -76,6 +81,17 @@ impl RtShared {
     /// Reads and resets the input strip peaks (linear, after gain).
     pub fn take_input_peaks(&self) -> [f32; 2] {
         [f32::from_bits(self.in_peak[0].swap(0, Ordering::Relaxed)), f32::from_bits(self.in_peak[1].swap(0, Ordering::Relaxed))]
+    }
+
+    /// pitch/roll in degrees, touch 0..1. Written from the devices thread; read in the process callback.
+    pub fn set_zero_motion(&self, pitch: f32, roll: f32, touch: f32, touching: bool) {
+        let p = ((pitch + 90.0) / 180.0 * 127.0).clamp(0.0, 127.0) as u32;
+        let r = ((roll + 90.0) / 180.0 * 127.0).clamp(0.0, 127.0) as u32;
+        let t = if touching { (touch.clamp(0.0, 1.0) * 127.0) as u32 } else { 0 };
+        let f = u32::from(touching);
+        let packed = p | (r << 8) | (t << 16) | (f << 24);
+        self.zero_cc.store(packed, Ordering::Relaxed);
+        self.zero_cc_gen.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn take_meters(&self) -> [f32; METER_PORTS] {
@@ -244,6 +260,8 @@ struct Proc {
     meters: Vec<jack::Port<jack::AudioIn>>,
     in_l: jack::Port<jack::AudioIn>,
     in_r: jack::Port<jack::AudioIn>,
+    zero_motion: jack::Port<jack::MidiOut>,
+    zero_cc_seen: u32,
 }
 
 impl jack::ProcessHandler for Proc {
@@ -258,6 +276,19 @@ impl jack::ProcessHandler for Proc {
         let r = self.out_r.as_mut_slice(ps);
         let (il, ir) = (self.in_l.as_slice(ps), self.in_r.as_slice(ps));
         self.host.render(l, r, Some((il, ir)));
+        // Live Zero motion as CC 16/17/18 on a patch-panel MIDI output (only when the value changes).
+        {
+            let mut w = self.zero_motion.writer(ps);
+            let gen = self.host.shared.zero_cc_gen.load(Ordering::Relaxed);
+            if gen != self.zero_cc_seen {
+                self.zero_cc_seen = gen;
+                let packed = self.host.shared.zero_cc.load(Ordering::Relaxed);
+                let (p, r, t) = ((packed & 0xff) as u8, ((packed >> 8) & 0xff) as u8, ((packed >> 16) & 0xff) as u8);
+                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 16, p] });
+                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 17, r] });
+                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 18, t] });
+            }
+        }
         // Meters: peak per block, max-held until pilabd reads it. No allocation, no locks.
         for (k, p) in self.meters.iter().enumerate() {
             let pk = p.as_slice(ps).iter().fold(0.0f32, |a, &x| a.max(x.abs()));
@@ -305,11 +336,12 @@ impl JackBackend {
         }
         let in_l = client.register_port(INPUT_PORTS[0], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
         let in_r = client.register_port(INPUT_PORTS[1], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
+        let zero_motion = client.register_port(ZERO_MOTION_PORT, jack::MidiOut::default()).map_err(|e| format!("{e:?}"))?;
         let engine = Engine::new(sr);
         let (host, links) = rt_pair(engine, shared.clone(), audio_cpu, sr);
         let stats = host.stats();
         let active = client
-            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters, in_l, in_r })
+            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters, in_l, in_r, zero_motion, zero_cc_seen: 0 })
             .map_err(|e| format!("activate: {e:?}"))?;
         Ok((JackBackend { client: Mutex::new(Some(active)), sr, bufsize }, links, stats))
     }
@@ -511,6 +543,7 @@ impl AudioBackend for NullBackend {
         for n in ["out_l", "out_r"] {
             v.push(GraphPort { name: format!("{CLIENT_NAME}:{n}"), client: CLIENT_NAME.into(), short: n.into(), kind: "audio".into(), dir: "out", physical: false, connections: vec![] });
         }
+        v.push(GraphPort { name: format!("{CLIENT_NAME}:{ZERO_MOTION_PORT}"), client: CLIENT_NAME.into(), short: ZERO_MOTION_PORT.into(), kind: "midi".into(), dir: "out", physical: false, connections: vec![] });
         v
     }
     fn connect(&self, from: &str, to: &str) -> Result<(), String> {

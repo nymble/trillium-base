@@ -56,3 +56,35 @@ CLI: `trillium-base devices`.
 The SysEx codec is `pilab_core::zero` (fresh code; protocol notes in
 [trillium-zero.md](trillium-zero.md)). The diagnostics serial port is never
 opened by pilabd.
+
+
+## Profiles and USB ports
+
+Profiles are files named `zero-<usb path>.toml`. If the same Zero is plugged into a
+new socket and that socket has no profile yet, the Base reuses the only stored
+profile with the same USB id whose device is not currently connected. Two Zeros
+at once are not guessed between.
+
+A daemon restart no longer counts as a reconnect. A replug (new ALSA client) or a
+device reset (new boot id) is logged as such. Unplugged devices stay in the Devices
+list with their last settings.
+
+## Live sensors and the patch panel
+
+While a Zero is connected, the Base keeps a 20 Hz telemetry lease (read-only,
+5 s, refreshed). The Devices view plots pitch and roll live. The same values
+are offered on the Signals patch panel as the MIDI output
+`Trillium Synth:zero_motion` (CC 16 = pitch, 17 = roll, 18 = touch), not
+connected to the synth automatically.
+
+The Zero's own microphone is a 16 kHz mono test stream on `/dev/trillium-zero-pcm`,
+off by default. Turning it on requires a write (an ACTION) to the device, so this
+build leaves it off and does not expose it as a source. The usual USB microphone
+path is the input strip (Yeti Nano, or the Nordic `1915:1025` capture, selected
+from Devices or `[input] source`).
+
+## Battery
+
+GET_STATUS reports the pack as `absent` when its on/off switch is off, or when
+the pack is unplugged, even if a voltage is still visible. `present` means the
+switch is on and the pack is attached.

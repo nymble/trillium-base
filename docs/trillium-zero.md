@@ -54,5 +54,14 @@ SysEx v1 on cable 1: `F0 7D 54 52 01 <type> <req> <payload> F7`, at most 64
 bytes. Read-only requests: HELLO (`01`), GET_CONFIG (`02`, pages 0–2),
 GET_STATUS (`07`). TELEMETRY_START (`05`, 1–100 Hz, 5 s lease) streams 54-byte
 IMU/touch frames. Settings are RAM only on this firmware; a replug restores
-defaults. Writes (`03` SET_CONFIG, `04` ACTION) are for a later console module
-and should always show what changes.
+defaults. Writes (`03` SET_CONFIG, `04` ACTION): the console can send a stored profile
+with SET_CONFIG only from an explicit, confirmed Devices action. ACTION is unused
+here (it would be needed to enable the 16 kHz test mic, which stays off).
+
+
+## Battery and the pack switch
+
+GET_STATUS can report the battery as `absent` while a millivolt reading is still
+present. On this hardware that means the pack's on/off switch is off, or the pack
+is unplugged — not that the controller lacks a battery. With the switch on, the
+same device reports `present` and a charge percentage.

@@ -14,7 +14,7 @@
 //! configuration port is used alongside PipeWire's MIDI bridge without opening the raw
 //! MIDI device. The diagnostics serial port is never opened.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -43,6 +43,7 @@ pub struct Found {
 
 #[derive(Clone, Debug, Serialize, Default)]
 pub struct ZeroState {
+    pub key: String,
     pub found: Option<Found>,
     pub hello: Option<Hello>,
     pub status: Option<Status>,
@@ -65,6 +66,11 @@ pub struct Manager {
     dir: PathBuf,
     zeros: Mutex<HashMap<String, ZeroState>>,
     io: Mutex<()>,
+    /// Live telemetry frames (newest at the back), filled while a Zero is connected.
+    frames: Mutex<HashMap<String, VecDeque<Telemetry>>>,
+    /// Long-lived sequencer sessions used only to harvest telemetry (port 1).
+    telem: Mutex<HashMap<String, Session>>,
+    lease_until: Mutex<HashMap<String, Instant>>,
 }
 
 /// One aseqdump/aseqsend session on a device's configuration port.
@@ -128,6 +134,14 @@ impl Session {
     }
 
     /// Replies until `want` have arrived or `timeout` passes.
+    fn try_drain(&self) -> Vec<Vec<u8>> {
+        let mut v = vec![];
+        while let Ok(b) = self.rx.try_recv() {
+            v.push(b);
+        }
+        v
+    }
+
     fn collect(&self, want: usize, timeout: Duration) -> Vec<Message> {
         let end = Instant::now() + timeout;
         let mut v = vec![];
@@ -249,7 +263,7 @@ fn read_full(f: &Found) -> Result<(Hello, Option<Status>, u16, Vec<(u8, u16)>), 
 
 impl Manager {
     pub fn new(config_dir: &std::path::Path) -> Manager {
-        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()) }
+        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()), frames: Mutex::new(HashMap::new()), telem: Mutex::new(HashMap::new()), lease_until: Mutex::new(HashMap::new()) }
     }
 
     fn profile_path(&self, key: &str) -> PathBuf {
@@ -276,8 +290,10 @@ impl Manager {
             let _io = self.io.lock().unwrap();
             read_full(f)
         };
+        let adopted = self.adopt_profile_if_needed(f, &mut ev);
         let mut z = self.zeros.lock().unwrap();
         let st = z.entry(f.key.clone()).or_default();
+        st.key = f.key.clone();
         st.found = Some(f.clone());
         st.last_hello = Some(Instant::now());
         match r {
@@ -304,8 +320,8 @@ impl Manager {
                         let d = zero::diff(&p, &st.params);
                         st.differs = d.iter().map(|&(id, want)| (id, want, st.params.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or(0))).collect();
                         st.profile_state = if d.is_empty() { "matches".into() } else { "differs".into() };
-                        if !d.is_empty() && reconnected {
-                            ev.push(("warn", format!("Trillium Zero ({}) reconnected: {} setting(s) differ from its stored profile; re-apply from Devices", f.usb_path, d.len())));
+                        if !d.is_empty() && (reconnected || adopted) {
+                            ev.push(("warn", format!("Trillium Zero ({}): {} setting(s) differ from its stored profile; re-apply from Devices", f.usb_path, d.len())));
                         }
                     }
                 }
@@ -333,30 +349,34 @@ impl Manager {
             for k in gone {
                 if z.get(&k).is_some_and(|s| s.found.is_some()) {
                     ev.push(("info", format!("Trillium Zero unplugged ({k})")));
+                    if let Some(s) = z.get_mut(&k) {
+                        s.found = None;
+                        s.reconnected = false;
+                    }
+                    self.close_telem(&k);
                 }
-                z.remove(&k);
             }
         }
         for f in &found {
-            let (known, same_client, due, last_boot) = {
+            let (known, was_connected, same_client, due, last_boot) = {
                 let z = self.zeros.lock().unwrap();
                 match z.get(&f.key) {
                     Some(s) => (
                         true,
+                        s.found.is_some(),
                         s.found.as_ref().is_some_and(|o| o.client == f.client),
                         s.last_hello.map_or(true, |t| t.elapsed() >= Duration::from_secs(30)),
                         s.hello.as_ref().map(|h| h.boot_id),
                     ),
-                    None => (false, false, true, None),
+                    None => (false, false, false, true, None),
                 }
             };
-            if !known {
+            if !known || !was_connected {
                 ev.push(("info", format!("Trillium Zero connected ({}, ALSA client {})", f.usb_path, f.client)));
-                // A device that was seen before this service started counts as reconnected
-                // when it already has a profile.
-                let had = self.load_profile(&f.key).is_some();
-                ev.extend(self.refresh(f, had));
+                // First sight in this process, including after a daemon restart, is not a reconnect.
+                ev.extend(self.refresh(f, false));
             } else if !same_client {
+                ev.push(("info", format!("Trillium Zero ({}) replugged (new ALSA client {})", f.usb_path, f.client)));
                 ev.extend(self.refresh(f, true));
             } else if due {
                 let boot = {
@@ -364,7 +384,10 @@ impl Manager {
                     Session::open(f.client).and_then(|s| s.ask(&zero::hello(0x10)))
                 };
                 match boot {
-                    Ok(Reply::Hello(h)) if Some(h.boot_id) != last_boot => ev.extend(self.refresh(f, true)),
+                    Ok(Reply::Hello(h)) if Some(h.boot_id) != last_boot => {
+                        ev.push(("info", format!("Trillium Zero ({}) reset (boot id {} → {})", f.usb_path, last_boot.unwrap_or(0), h.boot_id)));
+                        ev.extend(self.refresh(f, true));
+                    }
                     Ok(_) => {
                         if let Some(s) = self.zeros.lock().unwrap().get_mut(&f.key) {
                             s.last_hello = Some(Instant::now());
@@ -474,11 +497,13 @@ impl Manager {
     pub fn zeros_json(&self) -> Vec<Value> {
         let z = self.zeros.lock().unwrap();
         let mut v: Vec<&ZeroState> = z.values().collect();
-        v.sort_by_key(|s| s.found.as_ref().map(|f| f.key.clone()));
+        v.sort_by_key(|s| s.key.clone());
+        let frames = self.frames.lock().unwrap();
         v.into_iter()
             .map(|s| {
-                let key = s.found.as_ref().map(|f| f.key.clone()).unwrap_or_default();
+                let key = if s.key.is_empty() { s.found.as_ref().map(|f| f.key.clone()).unwrap_or_default() } else { s.key.clone() };
                 let profile = self.load_profile(&key);
+                let live = frames.get(&key).map(|q| q.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
                 json!({
                     "key": key,
                     "found": s.found,
@@ -496,10 +521,137 @@ impl Manager {
                         json!({ "id": id, "page": zero::page_of(*id), "name": zero::param_name(*id), "value": v, "stored": stored })
                     }).collect::<Vec<_>>(),
                     "differs": s.differs.iter().map(|(id, want, have)| json!({ "id": id, "name": zero::param_name(*id), "stored": want, "device": have })).collect::<Vec<_>>(),
+                    "frames": live,
                 })
             })
             .collect()
     }
+
+    /// If this USB socket has no profile yet, reuse the only stored profile for the same
+    /// USB id whose device is not currently connected (the Zero was moved to another port).
+    fn adopt_profile_if_needed(&self, f: &Found, ev: &mut Vec<(&'static str, String)>) -> bool {
+        if self.load_profile(&f.key).is_some() {
+            return false;
+        }
+        let Some(src) = self.adopt_candidate(&f.key, &f.usb_id) else { return false };
+        let Some(mut p) = self.load_profile(&src) else { return false };
+        let from = p.key.clone();
+        p.key = f.key.clone();
+        if let Err(e) = self.save_profile(&p) {
+            ev.push(("warn", format!("Trillium Zero: could not adopt the profile from {from}: {e}")));
+            return false;
+        }
+        ev.push(("info", format!("Trillium Zero moved from {from} to {} (same USB id {}); using the stored profile", f.key, f.usb_id)));
+        true
+    }
+
+    fn adopt_candidate(&self, new_key: &str, usb_id: &str) -> Option<String> {
+        adopt_candidate(new_key, usb_id, &self.list_profile_keys_and_ids(), &self.connected_keys())
+    }
+
+    fn list_profile_keys_and_ids(&self) -> Vec<(String, String)> {
+        let mut v = vec![];
+        let Ok(rd) = std::fs::read_dir(&self.dir) else { return v };
+        for e in rd.flatten() {
+            if e.path().extension().and_then(|x| x.to_str()) != Some("toml") {
+                continue;
+            }
+            if let Ok(s) = std::fs::read_to_string(e.path()) {
+                if let Ok(p) = Profile::from_toml(&s) {
+                    v.push((p.key, p.usb_id));
+                }
+            }
+        }
+        v
+    }
+
+    fn connected_keys(&self) -> Vec<String> {
+        self.zeros.lock().unwrap().values().filter(|s| s.found.is_some()).map(|s| if s.key.is_empty() { s.found.as_ref().unwrap().key.clone() } else { s.key.clone() }).collect()
+    }
+
+    fn close_telem(&self, key: &str) {
+        if let Some(mut s) = self.telem.lock().unwrap().remove(key) {
+            s.close();
+        }
+        self.lease_until.lock().unwrap().remove(key);
+    }
+
+    /// Keep a 20 Hz telemetry lease on each connected Zero, drain new frames into the
+    /// live ring, and return the latest frame for the motion MIDI port.
+    pub fn harvest_motion(&self) -> Option<Telemetry> {
+        let connected: Vec<Found> = self.zeros.lock().unwrap().values().filter_map(|s| s.found.clone()).collect();
+        let live: Vec<String> = connected.iter().map(|f| f.key.clone()).collect();
+        {
+            let stale: Vec<String> = self.telem.lock().unwrap().keys().filter(|k| !live.contains(k)).cloned().collect();
+            for k in stale {
+                self.close_telem(&k);
+            }
+        }
+        let mut latest = None;
+        for f in &connected {
+            if let Some(t) = self.harvest_one(f) {
+                latest = Some(t);
+            }
+        }
+        latest
+    }
+
+    fn harvest_one(&self, f: &Found) -> Option<Telemetry> {
+        let _io = self.io.lock().ok()?;
+        let need_open = !self.telem.lock().unwrap().contains_key(&f.key);
+        if need_open {
+            match Session::open(f.client) {
+                Ok(s) => { self.telem.lock().unwrap().insert(f.key.clone(), s); }
+                Err(_) => return None,
+            }
+        }
+        let due = self.lease_until.lock().unwrap().get(&f.key).map(|t| Instant::now() >= *t).unwrap_or(true);
+        if due {
+            let ok = {
+                let map = self.telem.lock().unwrap();
+                map.get(&f.key).and_then(|s| s.send(&zero::telemetry_start(0x40, 20)).ok()).is_some()
+            };
+            if ok {
+                self.lease_until.lock().unwrap().insert(f.key.clone(), Instant::now() + Duration::from_secs(4));
+            }
+        }
+        let raw = {
+            let map = self.telem.lock().unwrap();
+            map.get(&f.key).map(|s| s.try_drain()).unwrap_or_default()
+        };
+        let mut last = None;
+        {
+            let mut rings = self.frames.lock().unwrap();
+            let q = rings.entry(f.key.clone()).or_default();
+            for b in raw {
+                if let Some(Message { reply: Reply::Telemetry(t), .. }) = zero::parse(&b) {
+                    let t = (*t).clone();
+                    q.push_back(t.clone());
+                    last = Some(t);
+                }
+            }
+            while q.len() > 120 {
+                q.pop_front();
+            }
+        }
+        last
+    }
+}
+
+/// Picks a stored profile to reuse when a Zero appears on a new USB socket.
+/// Only when there is exactly one other profile with the same USB id whose device is not connected.
+pub fn adopt_candidate(new_key: &str, usb_id: &str, profiles: &[(String, String)], connected: &[String]) -> Option<String> {
+    if profiles.iter().any(|(k, _)| k == new_key) {
+        return None;
+    }
+    let mut cands: Vec<&str> = profiles
+        .iter()
+        .filter(|(k, id)| k != new_key && id.eq_ignore_ascii_case(usb_id) && !connected.iter().any(|c| c == k))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    cands.sort();
+    cands.dedup();
+    if cands.len() == 1 { Some(cands[0].to_string()) } else { None }
 }
 
 #[cfg(test)]
@@ -526,5 +678,16 @@ mod tests {
         let m = Manager::new(std::path::Path::new("/tmp/x"));
         assert_eq!(m.profile_path("zero-1-1.2"), PathBuf::from("/tmp/x/devices/zero-1-1.2.toml"));
         assert_eq!(m.profile_path("../evil"), PathBuf::from("/tmp/x/devices/.._evil.toml"));
+    }
+
+    #[test]
+    fn adopts_the_only_disconnected_profile_for_the_same_usb_id() {
+        let profiles = vec![("zero-1-1".into(), "1209:0003".into())];
+        assert_eq!(adopt_candidate("zero-3-1", "1209:0003", &profiles, &[]).as_deref(), Some("zero-1-1"));
+        assert_eq!(adopt_candidate("zero-1-1", "1209:0003", &profiles, &[]), None);
+        assert_eq!(adopt_candidate("zero-3-1", "1209:0003", &profiles, &["zero-1-1".into()]), None);
+        let two = vec![("zero-1-1".into(), "1209:0003".into()), ("zero-3-2".into(), "1209:0003".into())];
+        assert_eq!(adopt_candidate("zero-4-1", "1209:0003", &two, &[]), None);
+        assert_eq!(adopt_candidate("zero-4-1", "1209:0003", &two, &["zero-3-2".into()]).as_deref(), Some("zero-1-1"));
     }
 }

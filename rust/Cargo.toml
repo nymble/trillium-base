@@ -7,7 +7,7 @@ resolver = "2"
 members = ["crates/pilab-synth", "crates/pilab-core", "crates/pilabd"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.4.0-beta.1"
 edition = "2021"
 license = "GPL-3.0-or-later OR LicenseRef-Commercial"
 repository = "https://github.com/nymble/trillium-base"

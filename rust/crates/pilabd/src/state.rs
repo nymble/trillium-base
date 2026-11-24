@@ -1056,7 +1056,13 @@ impl App {
             if free < s.recording.min_free_mb {
                 return Err(format!("only {free} MB free at {} (minimum {} MB)", dir.display(), s.recording.min_free_mb));
             }
-            let id = self.recorder.start(&dir, &self.scene().0.name)?;
+            let rec_in = self.settings().input.record && self.shared.in_record.load(Ordering::Relaxed);
+            let source = if rec_in {
+                "Trillium Synth output (post master, limiter) and the audio input strip"
+            } else {
+                "Trillium Synth output (post master, limiter)"
+            };
+            let id = self.recorder.start(&dir, &self.scene().0.name, source)?;
             self.event("info", format!("recording {id} started in {}", dir.display()));
             Ok(json!({ "recording": true, "id": id }))
         } else {
@@ -1378,12 +1384,19 @@ pub fn spawn_loops(app: Arc<App>) {
         .name("devices".into())
         .spawn(move || {
             std::thread::sleep(Duration::from_secs(3));
+            let mut last_poll = Instant::now() - Duration::from_secs(5);
             loop {
-                let classes = d.settings().midi.devices;
-                for (level, text) in d.devmgr.poll(&classes) {
-                    d.event(level, text);
+                if last_poll.elapsed() >= Duration::from_secs(5) {
+                    let classes = d.settings().midi.devices;
+                    for (level, text) in d.devmgr.poll(&classes) {
+                        d.event(level, text);
+                    }
+                    last_poll = Instant::now();
                 }
-                std::thread::sleep(Duration::from_secs(5));
+                if let Some(t) = d.devmgr.harvest_motion() {
+                    d.shared.set_zero_motion(t.pitch, t.roll, t.touch_pos, t.touching);
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
         })
         .expect("spawn devices loop");

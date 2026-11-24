@@ -174,6 +174,11 @@ fn main() {
         ["save", name] => out(http("POST", &format!("/scenes/{}/save", name.replace(' ', "%20")), Some("{}".into()))),
         ["record", v] => out(http("POST", "/record", Some(format!("{{\"on\":{}}}", *v == "on")))),
         ["devices"] => out(http("GET", "/devices", None)),
+        ["devices", "snapshot", key] => out(http("POST", &format!("/devices/{}/snapshot", key.replace(' ', "%20")), Some("{}".into()))),
+        ["devices", "reapply", key] => out(http("POST", &format!("/devices/{}/reapply", key.replace(' ', "%20")), Some("{\"confirm\":true}".into()))),
+        ["devices", "telemetry", key] => out(http("GET", &format!("/devices/{}/telemetry?hz=20&ms=1000", key.replace(' ', "%20")), None)),
+        ["devices", "telemetry", key, hz] => out(http("GET", &format!("/devices/{}/telemetry?hz={}&ms=1000", key.replace(' ', "%20"), hz), None)),
+        ["devices", "telemetry", key, hz, ms] => out(http("GET", &format!("/devices/{}/telemetry?hz={}&ms={}", key.replace(' ', "%20"), hz, ms), None)),
         ["inputs"] => out(http("GET", "/midi/inputs", None)),
         ["input"] => out(http("GET", "/input", None)),
         ["input", "source", glob] => out(http("POST", "/input", Some(format!("{{\"source\":{}}}", json_str(glob))))),
@@ -181,7 +186,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]]] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
             std::process::exit(2);
         }
     }

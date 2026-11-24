@@ -1280,7 +1280,13 @@ async function renderDevices() {
   let d, inp;
   try { [d, inp] = await Promise.all([get("/devices"), get("/input")]); } catch (e) { fail(e); return; }
   if (S.view !== "devices") return;
-  const usb = (d.usb || []).map((u) => `<tr><td class="mono">${esc(u.id)}</td><td>${esc(u.product)}</td><td class="muted">${esc(u.vendor)}</td><td>${u.midi ? '<span class="badge ok">MIDI</span> ' : ""}${u.audio ? '<span class="badge ok">audio</span>' : ""}</td></tr>`).join("");
+  const usb = (d.usb || []).map((u) => {
+    const canIn = u.audio && !/trill/i.test(u.product || "");
+    const glob = inputGlobFor(u);
+    const on = glob && inp.source && glob === inp.source;
+    const btn = canIn ? `<button class="btn small ghost" data-as-input="${esc(glob)}">${on ? "Current input" : "Use as input"}</button>` : "";
+    return `<tr><td class="mono">${esc(u.id)}</td><td>${esc(u.product)}</td><td class="muted">${esc(u.vendor)}</td><td>${u.midi ? '<span class="badge ok">MIDI</span> ' : ""}${u.audio ? '<span class="badge ok">audio</span>' : ""}</td><td>${btn}</td></tr>`;
+  }).join("");
   const ble = (d.ble_connected || []).map((b) => `<span class="badge ok">${esc(b)}</span>`).join(" ") || '<span class="muted">none connected</span>';
   const zeros = (d.zeros || []).map(zeroCard).join("") || `<div class="card"><div class="card-head"><h3>Trillium Zero</h3><span class="spacer"></span><span class="badge off">not connected</span></div></div>`;
   const src = inp.connected.length ? inp.connected.map(esc).join(", ") : "not connected";
@@ -1329,11 +1335,79 @@ async function renderDevices() {
       $(`#tele-${CSS.escape(b.dataset.tele)}`).textContent = f ? `${r.frames.length} frames · pitch ${f.pitch.toFixed(1)}° · roll ${f.roll.toFixed(1)}° · accel ${f.accel.join(", ")} mg · touch ${f.touching ? (f.touch_pos * 100).toFixed(0) + "%" : "off"} · taps ${f.taps}` : "no frames";
     } catch (e) { fail(e); } finally { b.disabled = false; }
   });
+  $$("[data-as-input]").forEach((b) => b.onclick = async () => {
+    try { await post("/input", { source: b.dataset.asInput }); toast("Input source saved"); renderDevices(); } catch (e) { fail(e); }
+  });
+  (d.zeros || []).forEach((z) => drawZeroPlot($("#plot-" + z.key), z.frames || []));
+  if (!S.devTimer) S.devTimer = setInterval(tickDevices, 400);
+}
+
+function inputGlobFor(u) {
+  const p = u.product || "";
+  if (/yeti/i.test(p)) return "Yeti Nano*:capture_*";
+  if (u.id === "1915:1025" || /composite/i.test(p)) return "USB Composite Device*:capture_*";
+  return p ? `${p}*:capture_*` : "";
+}
+
+function tickDevices() {
+  if (S.view !== "devices") { clearInterval(S.devTimer); S.devTimer = null; return; }
+  get("/devices").then((d) => {
+    for (const z of d.zeros || []) {
+      const c = $("#plot-" + z.key);
+      if (c) drawZeroPlot(c, z.frames || []);
+      const live = $("#tele-live-" + z.key);
+      const f = (z.frames || [])[(z.frames || []).length - 1];
+      if (live && f) live.textContent = `pitch ${f.pitch.toFixed(1)}° · roll ${f.roll.toFixed(1)}° · ${f.touching ? "touch " + (f.touch_pos * 100).toFixed(0) + "%" : "no touch"}`;
+    }
+  }).catch(() => {});
+}
+
+function drawZeroPlot(canvas, frames) {
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = Math.max(200, canvas.clientWidth || 600);
+  const h = canvas.height = 140;
+  const cs = getComputedStyle(document.body);
+  const ink = cs.getPropertyValue("--text") || "#ddd";
+  const dim = cs.getPropertyValue("--muted") || "#888";
+  const acc = cs.getPropertyValue("--accent") || "#6cf";
+  const met = cs.getPropertyValue("--meter") || "#e8a54b";
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = dim;
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  if (!frames.length) {
+    ctx.fillStyle = dim;
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.fillText("Waiting for sensor frames…", 8, 20);
+    return;
+  }
+  const n = frames.length;
+  const line = (key, color, scale) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    frames.forEach((f, i) => {
+      const x = n === 1 ? w / 2 : i / (n - 1) * (w - 2) + 1;
+      const y = h / 2 - (scale(f) / 90) * (h / 2 - 4);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  line("pitch", acc.trim() || "#6cf", (f) => f.pitch);
+  line("roll", met.trim() || "#e8a54b", (f) => f.roll);
+  ctx.fillStyle = dim;
+  ctx.font = "11px ui-monospace, monospace";
+  ctx.fillText("pitch", 8, 14);
+  ctx.fillStyle = (met.trim() || "#e8a54b");
+  ctx.fillText("roll", 52, 14);
 }
 
 function zeroCard(z) {
   const h = z.hello || {}, st = z.status || {};
-  const batt = st.battery === "present" ? `${st.charge_pct ?? "?"}% · ${st.battery_mv} mV${st.charging ? " · charging" : ""}` : (st.battery || "—");
+  const batt = st.battery === "present" ? `${st.charge_pct ?? "?"}% · ${st.battery_mv} mV${st.charging ? " · charging" : ""}` : (st.battery === "absent" ? "absent (switch off or unplugged)" : (st.battery || "—"));
   const rows = (z.params || []).map((p) => {
     const diff = p.stored != null && p.stored !== p.value;
     return `<tr><td class="mono muted">${p.id}</td><td>${esc(p.name)}</td><td class="mono">${p.value}</td><td class="mono ${diff ? "" : "muted"}">${p.stored ?? "—"}</td><td>${diff ? '<span class="badge caution">differs</span>' : ""}</td></tr>`;
@@ -1352,6 +1426,8 @@ function zeroCard(z) {
       <div class="field"><label>Profile</label><div class="mono">${z.profile ? esc(z.profile.captured_text) + " · " + z.profile.count + " settings" : "—"}</div></div>
     </div>
     ${z.reconnected && nd ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Nothing is sent until you re-apply.</div>` : ""}
+    <canvas id="plot-${esc(z.key)}" width="600" height="140" style="width:100%;height:140px;margin-top:10px;border-radius:6px;background:rgba(0,0,0,0.2)"></canvas>
+    <div class="muted" style="margin-top:4px">Live sensors at 20 Hz · <span class="mono" id="tele-live-${esc(z.key)}"></span>. Pitch and roll also leave the patch panel as <span class="mono">Trillium Synth:zero_motion</span> (MIDI CC 16 / 17 / 18), not connected automatically. The Zero's own 16 kHz test mic stays off; enabling it would write to the device, so it is not a source yet.</div>
     <div style="margin:10px 0;display:flex;gap:8px;align-items:center">
       <button class="btn small ghost" data-snap="${esc(z.key)}" ${z.found ? "" : "disabled"}>Store current settings as profile</button>
       ${nd && z.found ? `<button class="btn small" data-reapply="${esc(z.key)}" data-n="${nd}">Re-apply ${nd} stored setting(s)…</button>` : ""}
@@ -1375,7 +1451,7 @@ async function renderSettings() {
   <div class="grid g2">
     <div class="card">
       <div class="card-head"><h3>Local recording</h3><span class="spacer"></span><label class="switch"><input type="checkbox" id="rec-en" ${st.recording.enabled ? "checked" : ""}><span></span></label></div>
-      <div class="risk">Records the synth output (post limiter) as 32-bit float WAV with a record card. Local may be enough; recordings are masters until filed to the NAS Archive.</div>
+      <div class="risk">Records the synth output (post limiter) as 32-bit float WAV with a record card, and the audio input strip when recording of the input is on. Local may be enough; recordings are masters until filed to the NAS Archive.</div>
       <div class="row" style="margin-top:10px">
         <div class="field" style="flex:1"><label>Location</label><select id="rec-loc">${locs.map((l) => `<option ${l === st.recording.location ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
         <div class="field"><label>Stop below (MB free)</label><input class="input mono" id="rec-min" type="number" min="256" value="${st.recording.min_free_mb}" style="width:110px"></div>
