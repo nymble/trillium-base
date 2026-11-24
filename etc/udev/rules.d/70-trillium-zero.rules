@@ -1,0 +1,17 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+#
+# Trillium Zero (development USB ids 1209:0003 and 1209:0002, pid.codes test PIDs).
+# The device has two CDC ACM serial ports next to its class-compliant USB MIDI:
+#   interface 00  diagnostics (text; single-key commands, some change the RAM mapping)
+#   interface 04  microphone test PCM stream (off unless asked for over SysEx)
+#
+# - ModemManager must never probe them (its AT probes would be read as keys).
+# - A tty opened with the kernel default ECHO on sends the device's own status text
+#   back to it as keystrokes; letters such as "t" or "k" in that text toggle the
+#   mapping. Set the ports to raw, no echo, as soon as they appear.
+# - Stable names: /dev/trillium-zero-diag and /dev/trillium-zero-pcm.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0003|0002", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0003|0002", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="trillium-zero-diag", RUN+="/bin/stty -F /dev/%k raw -echo -echoe -echok -echoctl -echoke -hupcl"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0003", ENV{ID_USB_INTERFACE_NUM}=="04", SYMLINK+="trillium-zero-pcm", RUN+="/bin/stty -F /dev/%k raw -echo -echoe -echok -echoctl -echoke -hupcl"

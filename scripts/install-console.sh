@@ -43,6 +43,14 @@ install -m 755 "$CARGO_TARGET_DIR/release/pilabd" "$CARGO_TARGET_DIR/release/pil
 ln -sf pilabctl "$BIN/trillium-base"
 install -m 644 "$REPO/home/.config/systemd/user/pilabd.service" "$HOME/.config/systemd/user/pilabd.service"
 
+# Trillium Zero serial ports: no ModemManager probing, raw/no-echo, stable names.
+UDEV_RULE="$REPO/etc/udev/rules.d/70-trillium-zero.rules"
+if [ -f "$UDEV_RULE" ] && ! cmp -s "$UDEV_RULE" /etc/udev/rules.d/70-trillium-zero.rules 2>/dev/null; then
+  sudo install -m 644 "$UDEV_RULE" /etc/udev/rules.d/70-trillium-zero.rules
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --subsystem-match=tty --attr-match=idVendor=1209 || true
+fi
+
 TMP=$(mktemp)
 "$BIN/pilabd" mdns-service > "$TMP"
 if ! cmp -s "$TMP" /etc/avahi/services/pilab-console.service 2>/dev/null; then

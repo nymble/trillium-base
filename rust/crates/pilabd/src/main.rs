@@ -43,7 +43,7 @@ fn parse() -> Args {
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
-            "serve" | "bench" | "device-id" | "mdns-service" => a.cmd = x,
+            "serve" | "bench" | "device-id" | "mdns-service" | "midi-sources" => a.cmd = x,
             "--port" => a.port = it.next().and_then(|v| v.parse().ok()).unwrap_or(a.port),
             "--bind" => a.bind = it.next().unwrap_or(a.bind),
             "--null-audio" => a.null_audio = true,
@@ -56,7 +56,7 @@ fn parse() -> Args {
                 std::process::exit(0);
             }
             "--help" | "-h" => {
-                println!("pilabd [serve|bench|device-id|mdns-service] [--port N] [--bind ADDR] [--null-audio] [--config DIR] [--audio-cpu N] [--voices N] [--seconds S]");
+                println!("pilabd [serve|bench|device-id|mdns-service|midi-sources] [--port N] [--bind ADDR] [--null-audio] [--config DIR] [--audio-cpu N] [--voices N] [--seconds S]");
                 std::process::exit(0);
             }
             other => {
@@ -136,6 +136,42 @@ fn bench(a: &Args) {
     }
 }
 
+/// Read-only diagnostic: every MIDI source in the graph, who is behind it, and whether
+/// the console would route it. Opens a short-lived JACK client (run under pw-jack);
+/// changes nothing.
+fn midi_sources(a: &Args) {
+    let paths = Paths::new(a.config.clone());
+    let settings = std::fs::read_to_string(paths.settings()).ok().and_then(|t| pilab_core::Settings::from_toml(&t).ok()).unwrap_or_default();
+    let client = match jack::Client::new("Trillium Probe", jack::ClientOptions::NO_START_SERVER) {
+        Ok((c, _)) => c,
+        Err(e) => {
+            eprintln!("JACK/PipeWire client: {e:?} (run as: pw-jack pilabd midi-sources)");
+            std::process::exit(1);
+        }
+    };
+    let raw: Vec<String> = client
+        .ports(None, Some("midi"), jack::PortFlags::IS_OUTPUT)
+        .into_iter()
+        .filter(|n| !n.starts_with("Trillium Synth:") && !n.starts_with("Trillium Probe:"))
+        .collect();
+    drop(client);
+    let alsa = identity::read_alsa();
+    let classes = &settings.midi.devices;
+    for id in identity::resolve(&raw, &alsa, &identity::ble_connected_aliases()) {
+        let ignored = settings.midi.ignore.iter().any(|g| pilab_core::glob::matches(g, &id.port));
+        let verdict = if ignored {
+            "ignored (settings)".to_string()
+        } else {
+            match pilab_core::classify(classes, &id) {
+                Some(m) if m.routable => format!("routable [device:{}]", classes[m.class].id),
+                Some(m) => format!("not routed: {}", m.reason),
+                None => "routable (no device class)".to_string(),
+            }
+        };
+        println!("{}\n    {}\n    {verdict}", id.port, id.describe());
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let a = parse();
@@ -149,6 +185,10 @@ async fn main() {
     }
     if a.cmd == "mdns-service" {
         print!("{}", mdns_service(a.port));
+        return;
+    }
+    if a.cmd == "midi-sources" {
+        midi_sources(&a);
         return;
     }
     let paths = Paths::new(a.config.clone());
