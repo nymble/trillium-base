@@ -21,7 +21,7 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 - Devices toggle, API and CLI (`devices mic KEY on|off`). ACTION 7/8 only; settings are checked afterwards; the flag is stored in the profile and restored on reconnect. PipeWire source `Trillium Zero Mic` at 48 kHz (from 16 kHz `TRPC` on `/dev/trillium-zero-pcm`). DAC monitor still off by default. The console toggle uses the same styled dialog as other device writes.
 - Default synth amplitude-envelope attack 10 ms → 1 ms (existing saved scenes are unchanged).
 - Measurement helpers: `tools/measure-midi-responsiveness.py`, `tools/measure-strike-to-sound.py`. Latency notes and before/after numbers in `docs/latency.md` (`PIPEWIRE_LATENCY=32/48000` was tried on the lab unit and reverted: xruns and ~100 % DSP load).
-- `trillium-base measure strike` (and `POST /api/v1/measure/strike`): prints GO, waits up to 60 s for a tap and the synth onset, and writes `~/.local/share/pilab/measurements/strike-YYYYMMDD-HHMMSS.json` plus a console event.
+- `trillium-base measure strike` (and `POST /api/v1/measure/strike`): prints GO, waits up to 60 s for a tap and the synth onset, and writes `~/.local/share/pilab/measurements/strike-YYYYMMDD-HHMMSS.json` plus a console event. The take records MIDI note-ons/offs, keeps the input strip out of the WAV (so a room mic cannot be mistaken for synth audio), and reports a signed strike-to-sound time (the Zero mic path can lag the synth). The saved Zero profile has tap percussion off, so a body strike is heard but sends no note; touch the play surface, or enable tap percussion (a device write, not done automatically).
 
 ## 0.4.0-beta.1 — 2026-11-24
 

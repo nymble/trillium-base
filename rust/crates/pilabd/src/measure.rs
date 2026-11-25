@@ -3,7 +3,7 @@
 //! Strike-to-sound measurement helpers (onset thresholds and the GO cue).
 
 /// Printed and logged when a strike-to-sound take is armed.
-pub const GO: &str = "GO — strike the Trillium Zero once, then keep still.";
+pub const GO: &str = "GO — touch the Trillium Zero play surface once (a body strike does not send a note while tap percussion is off), then keep still.";
 
 /// Onset threshold: `rise_db` above the baseline, but never quieter than `floor_db`.
 pub fn threshold(baseline: f32, rise_db: f32, floor_db: f32) -> f32 {

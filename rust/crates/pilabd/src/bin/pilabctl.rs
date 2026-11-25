@@ -191,7 +191,7 @@ fn main() {
         ["devices", "mic", key, "off"] => out(http("POST", &format!("/devices/{}/mic", key.replace(' ', "%20")), Some("{\"on\":false}".into()))),
         ["measure", "strike"] => {
             // Print the cue immediately; the HTTP call blocks for up to 60 s.
-            println!("GO — strike the Trillium Zero once, then keep still.");
+            println!("GO — touch the Trillium Zero play surface once (a body strike does not send a note while tap percussion is off), then keep still.");
             let _ = std::io::Write::flush(&mut std::io::stdout());
             out(http_timeout("POST", "/measure/strike", Some("{\"timeout_s\":60}".into()), 75))
         }

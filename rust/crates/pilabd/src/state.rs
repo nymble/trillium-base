@@ -127,6 +127,9 @@ pub struct App {
     pub zeromic: Mutex<Option<crate::zeromic::Bridge>>,
     /// Held true while ACTION 7 is in flight so sync_zero_mic cannot drop the just-opened port.
     mic_hold: AtomicBool,
+    /// Set for the duration of `measure_strike` so `log_midi` keeps note-ons/offs.
+    measuring: AtomicBool,
+    measure_notes: Mutex<Vec<MidiLog>>,
     pub samples: SampleLib,
     aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
@@ -274,6 +277,8 @@ impl App {
             devmgr,
             zeromic: Mutex::new(None),
             mic_hold: AtomicBool::new(false),
+            measuring: AtomicBool::new(false),
+            measure_notes: Mutex::new(Vec::new()),
             aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
@@ -1035,13 +1040,19 @@ impl App {
     fn log_midi(&self, ev: MidiEv) {
         let bytes = ev.b[..ev.len as usize].to_vec();
         let (kind, ch, text) = describe_midi(&bytes);
+        let t = self.started.elapsed().as_secs_f64();
         let mut g = self.inner.lock().unwrap();
         let source = g.ports.get(ev.port as usize).cloned().flatten().map(|s| short_source(&s)).unwrap_or_default();
         if (ev.port as usize) < MAX_PORTS {
             g.midi_counts[ev.port as usize] += 1;
         }
+        let log = MidiLog { t, port: ev.port, source, kind, ch, text, bytes };
         if g.midi_pending.len() < 256 {
-            g.midi_pending.push(MidiLog { t: self.started.elapsed().as_secs_f64(), port: ev.port, source, kind, ch, text, bytes });
+            g.midi_pending.push(log.clone());
+        }
+        drop(g);
+        if self.measuring.load(Ordering::Relaxed) && (kind == "note-on" || kind == "note-off") {
+            self.measure_notes.lock().unwrap().push(log);
         }
     }
 
@@ -1452,6 +1463,13 @@ impl App {
         if let Some(b) = self.zeromic.lock().unwrap().as_ref() {
             let _ = b.take_peak();
         }
+        self.measure_notes.lock().unwrap().clear();
+        self.measuring.store(true, Ordering::SeqCst);
+        // Leave persisted input-record settings alone; just keep the input strip
+        // out of this take so the WAV is synth-only (the Yeti would otherwise
+        // look like synth audio and hide a silent engine).
+        let rec_in_was = self.shared.in_record.load(Ordering::Relaxed);
+        self.shared.in_record.store(false, Ordering::Relaxed);
         let rec = self.record(true);
         let recording = match &rec {
             Ok(v) => v.get("id").and_then(|x| x.as_str()).map(|s| s.to_string()),
@@ -1461,6 +1479,7 @@ impl App {
             }
         };
         self.event("info", GO);
+        let go_t0 = self.started.elapsed().as_secs_f64();
         let go = Instant::now();
         let mut base_ac = 0.0f32;
         let mut base_sy = 0.0f32;
@@ -1487,10 +1506,7 @@ impl App {
                     acoustic = Some((go.elapsed().as_secs_f32() * 1000.0, src, ac));
                 }
                 if synth.is_none() && sy >= sy_thr {
-                    let t = go.elapsed().as_secs_f32() * 1000.0;
-                    if acoustic.map(|(ta, _, _)| t + 0.01 >= ta).unwrap_or(true) {
-                        synth = Some((t, sy));
-                    }
+                    synth = Some((go.elapsed().as_secs_f32() * 1000.0, sy));
                 }
                 if acoustic.is_some() && synth.is_some() {
                     std::thread::sleep(Duration::from_millis(250));
@@ -1501,19 +1517,41 @@ impl App {
         }
         let timed_out = acoustic.is_none() || synth.is_none();
         let rec_stop = if recording.is_some() { self.record(false).ok() } else { None };
+        self.shared.in_record.store(rec_in_was, Ordering::Relaxed);
+        self.measuring.store(false, Ordering::SeqCst);
         let rec_dir = rec_stop.as_ref().and_then(|v| v.get("card").and_then(|c| c.get("id")).and_then(|x| x.as_str()).map(|s| s.to_string()));
         let ac_ms = acoustic.map(|(t, _, _)| t);
         let sy_ms = synth.map(|(t, _)| t);
+        // Signed: the Zero mic path can report the strike later than the synth sounds.
         let delta = match (ac_ms, sy_ms) {
-            (Some(a), Some(b)) if b >= a => Some(((b - a) * 10.0).round() / 10.0),
+            (Some(a), Some(b)) => Some(((b - a) * 10.0).round() / 10.0),
             _ => None,
         };
+        let midi_notes: Vec<Value> = self
+            .measure_notes
+            .lock()
+            .unwrap()
+            .drain(..)
+            .map(|e| {
+                json!({
+                    "ms": (((e.t - go_t0) * 1000.0 * 10.0).round()) / 10.0,
+                    "kind": e.kind,
+                    "ch": e.ch,
+                    "note": e.bytes.get(1).copied().unwrap_or(0),
+                    "vel": e.bytes.get(2).copied().unwrap_or(0),
+                    "port": e.port,
+                    "source": e.source,
+                    "text": e.text,
+                })
+            })
+            .collect();
+        let midi_note_ons = midi_notes.iter().filter(|v| v.get("kind").and_then(|k| k.as_str()) == Some("note-on")).count();
         let stamp = timefmt::stamp(timefmt::now_secs());
         let dir = self.paths.measurements();
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("strike-{stamp}.json"));
         let result = json!({
-            "ok": !timed_out || ac_ms.is_some() || sy_ms.is_some(),
+            "ok": !timed_out || ac_ms.is_some() || sy_ms.is_some() || midi_note_ons > 0,
             "go": GO,
             "timeout_s": timeout.as_secs(),
             "timed_out": timed_out,
@@ -1525,13 +1563,21 @@ impl App {
             "strike_to_sound_ms": delta,
             "baseline_acoustic_db": (gain_to_db(base_ac) * 10.0).round() / 10.0,
             "baseline_synth_db": (gain_to_db(base_sy) * 10.0).round() / 10.0,
+            "midi_notes": midi_notes,
+            "midi_note_ons": midi_note_ons,
+            "recording_includes_input": false,
             "recording": rec_dir,
             "path": path.display().to_string(),
         });
         std::fs::write(&path, serde_json::to_vec_pretty(&result).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         let summary = match delta {
             Some(ms) => format!("strike-to-sound {ms} ms (result {})", path.display()),
-            None if timed_out => format!("strike measure timed out with no complete onset pair (result {})", path.display()),
+            None if timed_out && midi_note_ons == 0 => {
+                format!("strike measure timed out: no MIDI note-on and no complete onset pair (result {})", path.display())
+            }
+            None if timed_out => {
+                format!("strike measure timed out: MIDI note-on seen but no complete onset pair (result {})", path.display())
+            }
             None => format!("strike measure finished (result {})", path.display()),
         };
         self.event("info", summary);
