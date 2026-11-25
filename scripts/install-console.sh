@@ -7,7 +7,7 @@
 # Run from the repo root on the Pi (scripts/deploy-console.sh does this from the Mac).
 # - installs a minimal Rust toolchain in ~/.rustup and ~/.cargo if cargo is missing
 # - resolves the private ZPOD crates from a git bundle (no GitHub credentials on the Pi)
-# - installs binaries to ~/.local/bin, the user unit, and the avahi service file (sudo)
+# - installs binaries to ~/.local/bin, the user unit, the app manifests and the avahi service file (sudo)
 # - fetches the AKWF library if it is not there yet
 # Does not print the pairing token. Get it with:  pilabctl pair
 set -eu
@@ -49,6 +49,12 @@ if [ -f "$UDEV_RULE" ] && ! cmp -s "$UDEV_RULE" /etc/udev/rules.d/70-trillium-ze
   sudo install -m 644 "$UDEV_RULE" /etc/udev/rules.d/70-trillium-zero.rules
   sudo udevadm control --reload-rules
   sudo udevadm trigger --subsystem-match=tty --attr-match=idVendor=1209 || true
+fi
+
+# App manifests for `trillium-base apps` (docs/app-manager.md).
+if [ -d "$REPO/etc/trillium/apps.d" ]; then
+  sudo install -d -m 755 /etc/trillium/apps.d
+  sudo install -m 644 "$REPO"/etc/trillium/apps.d/*.toml /etc/trillium/apps.d/
 fi
 
 TMP=$(mktemp)

@@ -46,6 +46,6 @@ nodes = ["shairport-sync"]
 autoconnect = [{ from = "shairport-sync:output_*", to = "Built-in Audio Stereo:playback_*" }]
 
 [security]
-risk = "Anyone on this network can play audio through the DAC, including its headphone output, unless a shairport-sync password or access list is set. nqptp runs as root."
+risk = "Anyone on this network can play audio through the DAC, including its headphone output, unless a shairport-sync password or access list is set. nqptp (the timing daemon) listens on UDP 319 and 320 as a dynamic unprivileged user."
 needs_root = false
 hardening = "basic"

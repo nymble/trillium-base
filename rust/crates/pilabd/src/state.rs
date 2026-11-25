@@ -238,12 +238,13 @@ impl App {
         }
         let settings = match std::fs::read_to_string(paths.settings()) {
             Ok(s) => Settings::from_toml(&s).unwrap_or_else(|e| {
-                eprintln!("settings.toml invalid ({e}); using defaults");
+                let kept = paths::keep_bad_copy(&paths.settings());
+                eprintln!("settings.toml invalid ({e}); using defaults{}", kept.map(|k| format!(", the broken file is kept as {}", k.display())).unwrap_or_default());
                 Settings::default()
             }),
             Err(_) => {
                 let s = Settings::default();
-                let _ = std::fs::write(paths.settings(), s.to_toml().unwrap_or_default());
+                let _ = paths::write_atomic(&paths.settings(), s.to_toml().unwrap_or_default().as_bytes());
                 s
             }
         };
@@ -454,7 +455,7 @@ impl App {
 
     fn persist_active(&self, name: &str) {
         let p = Persist { active_scene: name.to_string() };
-        let _ = std::fs::write(self.paths.state(), toml::to_string(&p).unwrap_or_default());
+        let _ = paths::write_atomic(&self.paths.state(), toml::to_string(&p).unwrap_or_default().as_bytes());
     }
 
     /// Pushes a whole scene into the engine. `startup` caps the master at -18 dBFS.
@@ -987,7 +988,7 @@ impl App {
         let was = g.settings.clone();
         g.settings = s.clone();
         drop(g);
-        std::fs::write(self.paths.settings(), s.to_toml()?).map_err(|e| e.to_string())?;
+        paths::write_atomic(&self.paths.settings(), s.to_toml()?.as_bytes()).map_err(|e| e.to_string())?;
         if was.archive.enabled != s.archive.enabled {
             let (_, text) = s.archive_status();
             self.event(if s.archive.enabled { "warn" } else { "info" }, format!("archival switched {}: {text}", if s.archive.enabled { "on" } else { "off" }));

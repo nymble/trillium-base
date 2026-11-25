@@ -21,6 +21,26 @@ pub fn expand(p: &str) -> PathBuf {
     }
 }
 
+/// Write a file so a crash or power cut leaves either the old or the new content, never a
+/// torn one: write a sibling temp file, flush it to the card, then rename over the target.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)
+}
+
+/// Keep a copy of a config file that failed to parse before it is replaced by defaults.
+pub fn keep_bad_copy(path: &Path) -> Option<PathBuf> {
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let name = format!("{}.bad-{stamp}", path.file_name()?.to_string_lossy());
+    let dest = path.with_file_name(name);
+    fs::copy(path, &dest).ok().map(|_| dest)
+}
+
 #[derive(Clone, Debug)]
 pub struct Paths {
     pub config: PathBuf,
@@ -139,4 +159,23 @@ pub fn ct_eq(a: &str, b: &str) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    use super::*;
+
+    #[test]
+    fn atomic_write_replaces_and_leaves_no_temp_file() {
+        let d = std::env::temp_dir().join(format!("pilab-atomic-{}", std::process::id()));
+        fs::create_dir_all(&d).unwrap();
+        let f = d.join("settings.toml");
+        write_atomic(&f, b"a = 1\n").unwrap();
+        write_atomic(&f, b"a = 2\n").unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "a = 2\n");
+        assert!(!f.with_extension("tmp").exists());
+        let kept = keep_bad_copy(&f).unwrap();
+        assert_eq!(fs::read_to_string(kept).unwrap(), "a = 2\n");
+        let _ = fs::remove_dir_all(&d);
+    }
 }
