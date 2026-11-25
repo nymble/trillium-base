@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0C0C0D">
 <meta name="application-name" content="{{DEVICE_NAME}}">
@@ -12,6 +12,11 @@
 <title>{{PRODUCT_NAME}} · {{DEVICE_NAME}}</title>
 <link rel="icon" type="image/svg+xml" href="/brand/rhodonea-app-dark.svg?v={{BUILD}}">
 <link rel="manifest" href="/manifest.webmanifest?v={{BUILD}}">
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/app-icon-180.png?v={{BUILD}}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trillium Base">
 <link rel="stylesheet" href="/brand/tokens.css?v={{BUILD}}">
 <link rel="stylesheet" href="/theme.css?v={{BUILD}}">
 <link rel="stylesheet" href="/app.css?v={{BUILD}}">
@@ -36,7 +41,7 @@
 
 <div id="app" class="app hidden">
   <header class="top">
-    <a class="brand" href="#overview" aria-label="{{DEVICE_NAME}} console, Overview">
+    <a class="brand" href="#play" aria-label="{{DEVICE_NAME}} console, Play">
       <img src="/brand/lockup-primary.svg?v={{BUILD}}" alt="Trillium" class="lockup">
       <span class="brand-text">
         <span class="product">Base</span>
@@ -70,13 +75,19 @@
   </header>
 
   <nav class="side" id="nav" aria-label="Console sections">
-    <a href="#overview" data-view="overview"><img src="/brand/ui-icons/live-monitor.svg?v={{BUILD}}" alt=""><span>Overview</span></a>
-    <a href="#sounds" data-view="sounds"><img src="/brand/ui-icons/instrument.svg?v={{BUILD}}" alt=""><span>Sounds</span></a>
-    <a href="#midimap" data-view="midimap"><img src="/brand/ui-icons/midi.svg?v={{BUILD}}" alt=""><span>MIDI Map</span></a>
-    <a href="#scenes" data-view="scenes"><img src="/brand/ui-icons/presets.svg?v={{BUILD}}" alt=""><span>Scenes</span></a>
-    <a href="#signals" data-view="signals"><img src="/brand/ui-icons/wireless.svg?v={{BUILD}}" alt=""><span>Signals</span></a>
+    <a href="#play" data-view="play"><img src="/brand/ui-icons/trillium.svg?v={{BUILD}}" alt=""><span>Play</span></a>
     <a href="#devices" data-view="devices"><img src="/brand/ui-icons/touch.svg?v={{BUILD}}" alt=""><span>Devices</span></a>
-    <a href="#settings" data-view="settings"><img src="/brand/ui-icons/firmware-update.svg?v={{BUILD}}" alt=""><span>Settings</span></a>
+    <a href="#sounds" data-view="sounds"><img src="/brand/ui-icons/instrument.svg?v={{BUILD}}" alt=""><span>Sounds</span></a>
+    <button class="more-btn" id="btn-more" type="button" aria-expanded="false" aria-controls="nav-more"><span class="dots" aria-hidden="true">•••</span><span>More</span></button>
+    <div class="nav-more" id="nav-more">
+      <div class="nav-sep" aria-hidden="true">More</div>
+      <a href="#overview" data-view="overview"><img src="/brand/ui-icons/live-monitor.svg?v={{BUILD}}" alt=""><span>Overview</span></a>
+      <a href="#scenes" data-view="scenes"><img src="/brand/ui-icons/presets.svg?v={{BUILD}}" alt=""><span>Scenes</span></a>
+      <a href="#midimap" data-view="midimap"><img src="/brand/ui-icons/midi.svg?v={{BUILD}}" alt=""><span>MIDI Map</span></a>
+      <a href="#signals" data-view="signals"><img src="/brand/ui-icons/wireless.svg?v={{BUILD}}" alt=""><span>Signals</span></a>
+      <a href="#settings" data-view="settings"><img src="/brand/ui-icons/firmware-update.svg?v={{BUILD}}" alt=""><span>Settings</span></a>
+      <a href="#setup" data-view="setup"><img src="/brand/ui-icons/axes-calibrate.svg?v={{BUILD}}" alt=""><span>Set up</span></a>
+    </div>
     <div class="side-foot">
       <button class="btn ghost small" id="btn-kbd" type="button" aria-controls="kbd" aria-expanded="false">Keyboard</button>
     </div>

@@ -1,0 +1,30 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# App manifest, schema 1 (docs/app-manager.md). Installed to /etc/trillium/apps.d/.
+schema = 1
+
+[app]
+id = "zynaddsubfx"
+name = "ZynAddSubFX"
+version = "3.0.6"
+license = "GPL-2.0-or-later"
+summary = "Additive, subtractive and pad synthesizer with hundreds of bundled banks (zynaddsubfx-data); headless or with its GUI"
+kind = "audio"
+source = "apt"
+homepage = "https://zynaddsubfx.sourceforge.io"
+
+# No [service]: start it by hand, for example
+#   zynaddsubfx -I jack -O jack -U -l /usr/share/zynaddsubfx/banks/...xiz
+# Packages: zynaddsubfx, zynaddsubfx-data (banks, GPL-2.0-or-later).
+
+[resources]
+rt_class = "soft"
+cpus = "0-2"
+memory_max = "768M"
+
+[audio]
+nodes = ["zynaddsubfx"]
+
+[security]
+risk = "Its OSC control port listens on localhost UDP while running; loads banks and parameter files, open only files you trust."
+hardening = "none"

@@ -1,0 +1,31 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# App manifest, schema 1 (docs/app-manager.md). Installed to /etc/trillium/apps.d/.
+schema = 1
+
+[app]
+id = "fluidsynth"
+name = "FluidSynth (General MIDI)"
+version = "2.4.4"
+license = "LGPL-2.1-or-later"
+summary = "SoundFont 2 player for full General MIDI files and keyboards; uses FluidR3_GM (MIT) or TimGM6mb (GPL-2.0) from apt"
+kind = "audio"
+source = "apt"
+homepage = "https://www.fluidsynth.org"
+
+# No [service]: start it by hand when a full GM set is wanted, for example
+#   fluidsynth -a jack -m jack -g 0.4 -j /usr/share/sounds/sf2/FluidR3_GM.sf2
+# and connect its MIDI input and audio output in the patch panel. Packages:
+# fluidsynth, fluid-soundfont-gm (MIT, about 140 MB) or timgm6mb-soundfont (GPL-2.0, 6 MB).
+
+[resources]
+rt_class = "soft"
+cpus = "0-2"
+memory_max = "512M"
+
+[audio]
+nodes = ["fluidsynth"]
+
+[security]
+risk = "Plays SoundFont files; open only files you trust. No network listener unless its shell server is enabled (off by default here)."
+hardening = "none"

@@ -240,6 +240,10 @@ impl App {
         if !store.exists("samples") {
             store.save(&Scene::samples_demo(), "samples")?;
         }
+        if !store.exists("trillium kit") {
+            let full = std::fs::read_to_string(paths.samples_root().join("samples/index.json")).map(|t| t.contains("\"vcsl-full-kit\"")).unwrap_or(false);
+            store.save(&Scene::trillium_kit(if full { "full-kit" } else { "starter-kit" }), "trillium kit")?;
+        }
         if !store.exists("trillium split") {
             store.save(&Scene::trillium_sample(), "trillium split")?;
         }
@@ -1665,6 +1669,9 @@ pub fn spawn_loops(app: Arc<App>) {
                 if last_poll.elapsed() >= Duration::from_secs(5) {
                     let classes = d.settings().midi.devices;
                     for (level, text) in d.devmgr.poll(&classes) {
+                        d.event(level, text);
+                    }
+                    for (level, text) in d.devmgr.auto_apply_due() {
                         d.event(level, text);
                     }
                     for key in d.devmgr.connected_keys_live() {

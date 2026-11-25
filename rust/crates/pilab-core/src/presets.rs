@@ -41,6 +41,12 @@ pub fn all() -> Vec<Preset> {
     vec![
         Preset { id: "upright-piano", name: "Upright Piano", category: "keys", bank: "freepats-upright-piano-kw", drum: false, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.6 }) },
         Preset { id: "starter-kit", name: "Starter Kit (GM)", category: "drums", bank: "vcsl-starter-kit", drum: true, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.3 }) },
+        Preset { id: "full-kit", name: "Full Kit (GM)", category: "drums", bank: "vcsl-full-kit", drum: true, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.4 }) },
+        Preset { id: "marimba", name: "Marimba", category: "mallets-and-bells", bank: "vcsl-marimba", drum: false, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.8 }) },
+        Preset { id: "vibraphone", name: "Vibraphone", category: "mallets-and-bells", bank: "vcsl-vibraphone", drum: false, sound: sampler(-6.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 1.2 }) },
+        Preset { id: "glockenspiel", name: "Glockenspiel", category: "mallets-and-bells", bank: "vcsl-glockenspiel", drum: false, sound: sampler(-8.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 1.0 }) },
+        Preset { id: "balafon", name: "Balafon", category: "mallets-and-bells", bank: "vcsl-balafon", drum: false, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.5 }) },
+        Preset { id: "mbira", name: "Mbira (Tanzania)", category: "strings-and-plucked", bank: "vcsl-mbira", drum: false, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.9 }) },
         Preset { id: "picked-bass", name: "Picked Bass", category: "strings-and-plucked", bank: "freepats-picked-bass-yr", drum: false, sound: sampler(-3.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.25 }) },
         Preset { id: "kalimba", name: "Kalimba", category: "strings-and-plucked", bank: "freepats-kalimba", drum: false, sound: sampler(-4.0, Env { a: 0.001, d: 0.1, s: 1.0, r: 0.8 }) },
         Preset { id: "choir-pad", name: "Choir Pad", category: "synths", bank: "freepats-synth-pad-choir", drum: false, sound: sampler(-8.0, Env { a: 0.4, d: 0.5, s: 0.9, r: 1.6 }) },

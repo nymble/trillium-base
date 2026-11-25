@@ -15,7 +15,7 @@ const WAVE_LABEL = { table: "wavetable" };
 
 const S = {
   token: localStorage.getItem("pilab.token") || "",
-  view: (location.hash || "#overview").slice(1),
+  view: (location.hash || "#play").slice(1),
   info: null, sys: null, status: null, scene: null, dirty: false, inputs: [],
   scenes: [], settings: null, graph: null, akwf: null, akwfGroup: null, akwfFiles: [], akwfFrames: null, cat: null, wtQuery: "", wtTag: "",
   fav: JSON.parse(localStorage.getItem("pilab.fav") || "[]"),
@@ -260,14 +260,15 @@ function debounce(key, fn, ms) { clearTimeout(timers[key]); timers[key] = setTim
 
 // ------------------------------------------------------------------ router
 $("#nav").addEventListener("click", (e) => { const a = e.target.closest("a[data-view]"); if (a) { location.hash = a.dataset.view; } });
-window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) || "overview"; render(); });
+window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) || "play"; render(); });
 
-const VIEW_TITLE = { overview: "Overview", sounds: "Sounds", midimap: "MIDI Map", scenes: "Scenes", signals: "Signals", devices: "Devices", settings: "Settings" };
+const VIEW_TITLE = { play: "Play", setup: "Set up", overview: "Overview", sounds: "Sounds", midimap: "MIDI Map", scenes: "Scenes", signals: "Signals", devices: "Devices", settings: "Settings" };
 function render() {
   $$("#nav a").forEach((a) => { const on = a.dataset.view === S.view; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   document.title = `${VIEW_TITLE[S.view] || "Overview"} · ${PRODUCT} · ${(S.info && S.info.device) || "Trillium Base"}`;
-  const views = { overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
-  (views[S.view] || renderOverview)();
+  const views = { play: renderPlay, setup: renderSetup, overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
+  document.body.classList.toggle("more-open", false);
+  (views[S.view] || renderPlay)();
 }
 
 // Accessibility pass over whatever a view just rendered: label the controls the views
@@ -1338,8 +1339,9 @@ window.addEventListener("resize", () => { if (S.view === "signals" && SP.model) 
 // USB and Bluetooth devices, the audio input strip, and Trillium Zero profiles.
 // Re-applying a stored profile always needs an explicit click and a confirm.
 async function renderDevices() {
-  let d, inp;
-  try { [d, inp] = await Promise.all([get("/devices"), get("/input")]); } catch (e) { fail(e); return; }
+  let d, inp, fw = null;
+  try { [d, inp] = await Promise.all([get("/devices"), get("/input"), zeroSchema()]); } catch (e) { fail(e); return; }
+  try { fw = await get("/firmware"); } catch (e) {}
   if (S.view !== "devices") return;
   const usb = (d.usb || []).map((u) => {
     const canIn = u.audio && !/trill/i.test(u.product || "");
@@ -1366,6 +1368,7 @@ async function renderDevices() {
       <div style="margin-top:10px"><button class="btn small" id="in-save">Save input</button></div>
     </div>
     ${zeros}
+    ${firmwareCard(fw)}
     <div class="card">
       <div class="card-head"><h3>USB devices</h3></div>
       <table><tbody>${usb || '<tr><td class="empty" colspan="4">No USB devices connected.</td></tr>'}</tbody></table>
@@ -1412,6 +1415,8 @@ async function renderDevices() {
       renderDevices();
     } catch (e) { fail(e); b.checked = !on; b.disabled = false; }
   });
+  bindZeroEditor();
+  bindFirmware(fw || {});
   (d.zeros || []).forEach((z) => drawZeroPlot($("#plot-" + z.key), z.frames || []));
   if (!S.devTimer) S.devTimer = setInterval(tickDevices, 400);
 }
@@ -1525,7 +1530,7 @@ function zeroCard(z) {
       <div class="field"><label>Read</label><div class="mono">${esc(z.read_at_text || "—")}</div></div>
       <div class="field"><label>Profile</label><div class="mono">${z.profile ? esc(z.profile.captured_text) + " · " + z.profile.count + " settings" : "—"}</div></div>
     </div>
-    ${z.reconnected && nd ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Nothing is sent until you re-apply.</div>` : ""}
+    ${z.reconnected && nd && z.manual ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Restore on connect is off, so nothing is sent until you re-apply.</div>` : ""}
     <section aria-labelledby="sens-h-${esc(z.key)}" style="margin-top:12px">
       <div class="lbl" id="sens-h-${esc(z.key)}" style="margin-bottom:4px">Sensors</div>
       <div id="sensors-${esc(z.key)}" aria-live="polite">${sensorsHtml(z)}</div>
@@ -1543,7 +1548,8 @@ function zeroCard(z) {
       <button class="btn small ghost" data-tele="${esc(z.key)}" ${z.found ? "" : "disabled"}>Sample sensors</button>
       <span class="muted mono" id="tele-${esc(z.key)}"></span>
     </div>
-    <table><thead><tr><th>#</th><th>Setting</th><th>Device</th><th>Stored</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${zeroEditor(z)}
+    <details class="zraw"><summary class="muted small">All ${(z.params || []).length} settings by number (device and stored values)</summary><div class="tbl-scroll"><table><thead><tr><th>#</th><th>Setting</th><th>Device</th><th>Stored</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></details>
   </div>`;
 }
 
@@ -1720,3 +1726,250 @@ window.addEventListener("blur", () => { for (const n of Array.from(held)) noteOf
 window.addEventListener("resize", () => { if (S.view === "signals" && S.graph) renderSignals(); });
 
 boot();
+
+// ------------------------------------------------------------------ Trillium Zero mapping editor
+// Built from GET /zero/schema (41 settings, ranges, groups). Every change is validated by
+// pilabd, sent to the Zero at once and stored in its profile, so it comes back after a replug.
+async function zeroSchema() {
+  if (!S.zs) { try { S.zs = await get("/zero/schema"); } catch (e) { S.zs = { groups: [], params: [], gm_drums: [] }; } }
+  try { S.zpresets = (await get("/zero/presets")).presets; } catch (e) { S.zpresets = S.zpresets || []; }
+  return S.zs;
+}
+const GM = (n) => { const d = S.zs && S.zs.gm_drums.find((x) => x[0] === n); return d ? d[1] : ""; };
+function zOption(p, v) {
+  if (p.kind === "channel") return Array.from({ length: 16 }, (_, i) => `<option value="${i}" ${i === v ? "selected" : ""}>${i + 1}${i === 9 ? " (drums)" : ""}</option>`).join("");
+  if (p.kind === "note") {
+    const drum = p.group === "strikes";
+    return Array.from({ length: p.max - p.min + 1 }, (_, k) => { const n = p.min + k; const g = drum ? GM(n) : ""; return `<option value="${n}" ${n === v ? "selected" : ""}>${noteName(n)} · ${n}${g ? " · " + g : ""}</option>`; }).join("");
+  }
+  return p.choices.map(([cv, l]) => `<option value="${cv}" ${cv === v ? "selected" : ""}>${esc(l)}</option>`).join("");
+}
+function zControl(z, p, v, supported) {
+  const dis = !z.found || !supported ? "disabled" : "";
+  const id = `zp-${z.key}-${p.id}`;
+  let ctl;
+  if (p.kind === "bool") ctl = `<label class="switch"><input type="checkbox" id="${id}" data-zp="${p.id}" ${v ? "checked" : ""} ${dis}><span></span></label>`;
+  else if (p.kind === "number" || p.kind === "cc") ctl = `<div class="znum"><input class="input mono" type="number" inputmode="numeric" id="${id}" data-zp="${p.id}" min="${p.min}" max="${p.max}" value="${v}" ${dis}>${p.unit ? `<span class="muted small">${esc(p.unit)}</span>` : ""}</div>`;
+  else ctl = `<select class="input" id="${id}" data-zp="${p.id}" ${dis}>${zOption(p, v)}</select>`;
+  const st = (z.params || []).find((x) => x.id === p.id);
+  const differs = st && st.stored != null && st.stored !== st.value;
+  return `<div class="zrow"><label for="${id}"><span>${esc(p.name)}</span>${p.help ? `<span class="muted small">${esc(p.help)}</span>` : ""}${!supported ? `<span class="badge off">needs firmware ${esc(p.since)}</span>` : ""}${differs ? `<span class="badge caution" title="Stored value ${st.stored}">not on device</span>` : ""}</label>${ctl}</div>`;
+}
+// Six strike directions drawn as a small kit map: what each direction plays.
+function strikeMap(z) {
+  const v = (id) => ((z.params || []).find((x) => x.id === id) || {}).value;
+  const on = v(11) === 1, dirs = v(31) || 0;
+  const cell = (label, id, n) => { const act = on && dirs >= n; const note = v(id); return `<div class="sdir ${act ? "on" : ""}"><b>${label}</b><span>${act ? esc(GM(note) || noteName(note)) : "—"}</span></div>`; };
+  return `<div class="smap" aria-label="Strike directions">
+    <div></div>${cell("Up", 33, 2)}${cell("Back", 37, 6)}
+    ${cell("Left", 34, 4)}<div class="sdir mid"><b>Tap</b><span>${on ? esc(GM(v(13)) || noteName(v(13))) : "off"}</span></div>${cell("Right", 35, 4)}
+    ${cell("Forward", 36, 6)}${cell("Down", 32, 2)}<div></div></div>`;
+}
+function zeroEditor(z) {
+  if (!S.zs || !S.zs.params.length) return "";
+  const caps = (z.hello && z.hello.caps) || 0;
+  const sup = (id) => id <= 13 || (id <= 30 ? (caps & 0x10) : (caps & 0x20));
+  const live = (id) => { const x = (z.params || []).find((p) => p.id === id); return x ? x.value : null; };
+  const presets = (S.zpresets || []).map((p) => `<button class="chip ${z.preset === p.name ? "on" : ""}" data-zpreset="${esc(p.id)}" data-zkey="${esc(z.key)}" title="${esc(p.summary)}" ${z.found ? "" : "disabled"}>${esc(p.name)}${p.builtin ? "" : " ·"}</button>`).join("");
+  const groups = S.zs.groups.map((g, gi) => {
+    const rows = S.zs.params.filter((p) => p.group === g.id && live(p.id) !== null).map((p) => zControl(z, p, live(p.id), sup(p.id))).join("");
+    if (!rows) return "";
+    return `<details class="zgroup" ${gi === 0 || g.id === "strikes" ? "open" : ""}><summary><span>${esc(g.label)}</span><span class="muted small">${esc(g.help)}</span></summary>${g.id === "strikes" ? strikeMap(z) : ""}<div class="zrows" data-zkey="${esc(z.key)}">${rows}</div></details>`;
+  }).join("");
+  return `<section class="zedit" aria-labelledby="zed-${esc(z.key)}">
+    <div class="row" style="align-items:baseline;margin-top:14px"><div class="lbl" id="zed-${esc(z.key)}">Mapping</div><span class="spacer"></span>
+      <span class="row tight muted small" title="The Zero forgets its settings at every power cycle; the Base sends them back when it connects"><span>Restore on connect</span><label class="switch"><input type="checkbox" data-zauto="${esc(z.key)}" ${z.manual ? "" : "checked"} ${z.profile ? "" : "disabled"}><span></span></label></span></div>
+    <div class="zsum mono" id="zsum-${esc(z.key)}">${esc(z.summary || "")}</div>
+    <div class="chips">${presets}</div>
+    ${groups}
+    <div class="row wrap" style="margin-top:10px;gap:8px">
+      <button class="btn small ghost" data-zact="recalibrate" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"} title="Keep the Zero still for about a second">Recalibrate</button>
+      <button class="btn small ghost" data-zact="zero-orientation" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"} title="The current tilt becomes level">Set level</button>
+      <button class="btn small ghost" data-zact="led-test" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"}>LED test</button>
+      <button class="btn small ghost" data-zact="panic" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"}>Notes off</button>
+      <button class="btn small ghost" data-zact="restore-defaults" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"}>Firmware defaults…</button>
+      <span class="spacer"></span>
+      <button class="btn small ghost" data-zsave="${esc(z.key)}" ${z.found ? "" : "disabled"}>Save as preset…</button>
+      <button class="btn small ghost" data-zexport="${esc(z.key)}">Export</button>
+      <label class="btn small ghost" ${z.found ? "" : "aria-disabled=\"true\""}>Import…<input type="file" accept=".json,application/json" data-zimport="${esc(z.key)}" hidden></label>
+    </div>
+  </section>`;
+}
+const zPending = {};
+function bindZeroEditor() {
+  $$("[data-zp]").forEach((el) => el.addEventListener("change", () => {
+    const key = el.closest("[data-zkey]").dataset.zkey, id = +el.dataset.zp;
+    const v = el.type === "checkbox" ? (el.checked ? 1 : 0) : +el.value;
+    const p = S.zs.params.find((x) => x.id === id);
+    if (el.type === "number" && (isNaN(v) || v < p.min || v > p.max)) { toast(`${p.name}: ${p.min} to ${p.max}`, true); return; }
+    (zPending[key] = zPending[key] || {})[id] = v;
+    debounce("zero-" + key, async () => {
+      const values = zPending[key]; delete zPending[key];
+      try {
+        const r = await post(`/devices/${encodeURIComponent(key)}/settings`, { values });
+        const s = $("#zsum-" + CSS.escape(key)); if (s) s.textContent = r.summary;
+        if (r.errors.length || r.not_taken.length) toast(`Not taken: ${r.errors.concat(r.not_taken.map(String)).join(", ")}`, true);
+        else toast(`Sent to the Zero and saved (${r.sent.length} setting${r.sent.length === 1 ? "" : "s"})`);
+        if ([11, 31, 32, 33, 34, 35, 36, 37, 13].some((i) => i in values)) renderDevices();
+      } catch (e) { fail(e); renderDevices(); }
+    }, 250);
+  }));
+  $$("[data-zpreset]").forEach((b) => b.onclick = async () => {
+    try { b.disabled = true; const r = await post(`/devices/${encodeURIComponent(b.dataset.zkey)}/preset`, { id: b.dataset.zpreset, scene: true }); toast(`Mapping applied${r.scene ? ` · scene “${r.scene}” loaded` : ""}`); renderDevices(); } catch (e) { fail(e); b.disabled = false; }
+  });
+  $$("[data-zact]").forEach((b) => b.onclick = async () => {
+    const a = b.dataset.zact;
+    if (a === "restore-defaults" && !(await ask("Firmware defaults?", "The Zero goes back to its firmware defaults now. Its stored profile is kept, so it is restored at the next connect unless you save again.", "Restore defaults"))) return;
+    try { await post(`/devices/${encodeURIComponent(b.dataset.zkey)}/action`, { action: a }); toast({ recalibrate: "Recalibrating: keep the Zero still", "zero-orientation": "Current tilt is now level", "led-test": "LED test", panic: "All notes off", "restore-defaults": "Firmware defaults restored" }[a]); if (a === "restore-defaults") renderDevices(); } catch (e) { fail(e); }
+  });
+  $$("[data-zauto]").forEach((b) => b.onchange = async () => { try { await post(`/devices/${encodeURIComponent(b.dataset.zauto)}/auto`, { manual: !b.checked }); toast(b.checked ? "Profile restored automatically on connect" : "Profile restored only by hand"); } catch (e) { fail(e); b.checked = !b.checked; } });
+  $$("[data-zsave]").forEach((b) => b.onclick = async () => {
+    const name = await askText("Save mapping as preset", "Name for this mapping. It appears with the built-in presets and can be exported for the Trillium app.", "My mapping", "Save");
+    if (!name) return;
+    try { await post("/zero/presets", { name, key: b.dataset.zsave }); toast(`Saved “${name}”`); renderDevices(); } catch (e) { fail(e); }
+  });
+  $$("[data-zexport]").forEach((b) => b.onclick = async () => {
+    try {
+      const j = await get(`/devices/${encodeURIComponent(b.dataset.zexport)}/export`);
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(j, null, 2)], { type: "application/json" })); a.download = "trillium-mapping.json"; a.click(); URL.revokeObjectURL(a.href);
+    } catch (e) { fail(e); }
+  });
+  $$("[data-zimport]").forEach((inp) => inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try { const preset = JSON.parse(await f.text()); const r = await post(`/devices/${encodeURIComponent(inp.dataset.zimport)}/import`, { preset }); toast(`Imported “${r.name}”`); renderDevices(); } catch (e) { fail(e); }
+  });
+}
+
+// ------------------------------------------------------------------ firmware card
+function firmwareCard(fw) {
+  if (!fw) return "";
+  const z = (fw.zeros || [])[0];
+  const lat = fw.latest && fw.latest.tag ? `${esc(fw.latest.tag)}${fw.latest.asset ? ` · <a href="${esc(fw.latest.asset.download)}" target="_blank" rel="noopener noreferrer">${esc(fw.latest.asset.name)}</a>` : ""}` : "not checked";
+  const imgs = (fw.images || []).map((i) => { const r = i.report; return `<tr><td class="mono">${esc(i.name)}</td><td>${r.ok ? '<span class="badge ok">valid</span>' : `<span class="badge caution">refused</span> <span class="muted small">${esc(r.problems.join("; "))}</span>`}</td><td class="mono muted small">${r.blocks} blocks · 0x${r.lo.toString(16)}–0x${r.hi.toString(16)}</td><td class="mono muted small">${esc((r.sha256 || "").slice(0, 12))}</td></tr>`; }).join("");
+  const drives = (fw.drives || []).map((d) => `<span class="badge">${esc(d.mount || d.device)}</span>`).join(" ") || '<span class="muted">none (normal; it appears only while the Zero is in its bootloader)</span>';
+  return `<div class="card">
+    <div class="card-head"><h3>Zero firmware</h3><span class="spacer"></span><span class="badge ${z ? "ok" : "off"}">${z ? "running " + esc(z.firmware) : "no Zero"}</span></div>
+    <div class="row wrap">
+      <div class="field"><label>On the Zero</label><div class="mono">${z ? esc(z.firmware) + (z.bootloader_on_request ? " · can restart into its bootloader" : "") : "—"}</div></div>
+      <div class="field"><label>Latest published</label><div class="mono">${lat}</div></div>
+      <div class="field"><label>Bootloader drive</label><div>${drives}</div></div>
+    </div>
+    ${imgs ? `<div class="tbl-scroll" style="margin-top:8px"><table><thead><tr><th>Image on the Base</th><th>Check</th><th>Range</th><th>SHA-256</th></tr></thead><tbody>${imgs}</tbody></table></div>` : ""}
+    <div class="row wrap" style="margin-top:10px;gap:8px">
+      <label class="btn small ghost">Check an image…<input type="file" accept=".uf2" id="fw-file" hidden></label>
+      <button class="btn small ghost" id="fw-latest">Check for a newer release</button>
+      <span class="muted small" id="fw-out"></span>
+    </div>
+    <div class="muted small" style="margin-top:8px">Checking reads the file only: application window 0x27000–0xEC000, nRF52840 family, never a bootloader image. Installing writes the Zero's flash and asks for a typed confirmation; it keeps a backup of the current image. CLI: <span class="mono">trillium-base firmware check FILE.uf2</span>.</div>
+  </div>`;
+}
+function bindFirmware(fw) {
+  const f = $("#fw-file");
+  if (f) f.onchange = async () => {
+    const file = f.files[0]; if (!file) return;
+    try {
+      const r = await fetch(`${API}/firmware/check?name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Authorization": "Bearer " + S.token, "Content-Type": "application/octet-stream" }, body: await file.arrayBuffer() });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
+      const ok = j.report.ok;
+      $("#fw-out").innerHTML = ok ? `<span class="badge ok">valid</span> ${esc(j.report.version || "")} ${esc(j.compare.note || "")}` : `<span class="badge caution">refused</span> ${esc(j.report.problems.join("; "))}`;
+      if (ok && (fw.zeros || []).length) {
+        const z = fw.zeros[0];
+        if (await dialog({ title: "Install this firmware?", body: `<p>${esc(file.name)} (${esc(j.compare.note || "")}) will be written to the Trillium Zero <span class="mono">${esc(z.key)}</span>. The Zero restarts into its bootloader, the current image is backed up on the Base, and the Zero restarts again. Its mapping is restored from the profile.</p>`, typed: "install", ok: "Install" }) !== null) {
+          toast("Installing… keep the Zero plugged in");
+          const u = await post("/firmware/update", { key: z.key, name: file.name, confirm: true });
+          toast(u.ok ? `Firmware ${u.after} installed` : `Update finished with problems: ${(u.log || []).join("; ")}`, !u.ok);
+        }
+      }
+      renderDevices();
+    } catch (e) { fail(e); }
+  };
+  const l = $("#fw-latest");
+  if (l) l.onclick = async () => { try { l.disabled = true; const r = await get("/firmware?refresh=1"); toast(r.latest && r.latest.tag ? `Latest release: ${r.latest.tag}` : "Could not reach the release page"); renderDevices(); } catch (e) { fail(e); l.disabled = false; } };
+}
+
+// ------------------------------------------------------------------ Play (iPad first)
+const PADS = [[49, "Crash"], [51, "Ride"], [46, "Open hat"], [42, "Closed hat"], [50, "High tom"], [47, "Mid tom"], [45, "Low tom"], [41, "Floor tom"], [38, "Snare"], [37, "Rim"], [39, "Clap"], [36, "Kick"]];
+async function renderPlay() {
+  let sc = { scenes: [], active: "" }, dev = { zeros: [] };
+  try { [sc, dev] = await Promise.all([get("/scenes"), get("/devices"), zeroSchema()]); } catch (e) { fail(e); }
+  if (S.view !== "play") return;
+  const z = (dev.zeros || []).find((x) => x.found);
+  const master = S.status ? S.status.master_db : -18;
+  const scenes = (sc.scenes || []).map((s) => `<button class="bigchip ${s.name === sc.active ? "on" : ""}" data-pscene="${esc(s.name)}" title="${esc(s.description)}">${esc(s.name)}</button>`).join("");
+  const maps = z ? (S.zpresets || []).filter((p) => p.builtin).map((p) => `<button class="bigchip ${z.preset === p.name ? "on" : ""}" data-pmap="${esc(p.id)}" title="${esc(p.summary)}">${esc(p.name)}</button>`).join("") : "";
+  $("#main").innerHTML = head("Play", sc.active ? `Scene <b>${esc(sc.active)}</b>` : "") + `
+    <div class="play">
+      <section class="pcard"><h2>Scene</h2><div class="bigchips">${scenes}</div></section>
+      ${z ? `<section class="pcard"><h2>Trillium Zero</h2><div class="psum">${esc(z.summary || "")}</div><div class="bigchips">${maps}</div></section>` : `<section class="pcard"><h2>Trillium Zero</h2><div class="muted">Plug in a Trillium Zero to play it here. Pads below work without one.</div></section>`}
+      <section class="pcard pads-card"><h2>Pads <span class="muted small">GM drums, channel 10</span></h2><div class="pads">${PADS.map(([n, l]) => `<button class="pad" data-pad="${n}"><b>${esc(l)}</b><span>${noteName(n)}</span></button>`).join("")}</div></section>
+      <section class="pcard"><h2>Level</h2><div class="plevel"><input type="range" id="p-master" min="-60" max="-6" step="0.5" value="${master}" aria-label="Master level"><output id="p-master-v" class="mono">${fmtDb(master)}</output></div>
+        <button class="btn panic big" id="p-panic">All sound off</button></section>
+    </div>`;
+  $$("[data-pscene]").forEach((b) => b.onclick = async () => { try { await post(`/scenes/${encodeURIComponent(b.dataset.pscene)}/load`); toast(`Scene ${b.dataset.pscene}`); renderPlay(); } catch (e) { fail(e); } });
+  $$("[data-pmap]").forEach((b) => b.onclick = async () => { try { const r = await post(`/devices/${encodeURIComponent(z.key)}/preset`, { id: b.dataset.pmap, scene: true }); toast(`Mapping applied${r.scene ? ` · scene ${r.scene}` : ""}`); renderPlay(); } catch (e) { fail(e); } });
+  $$("[data-pad]").forEach((b) => {
+    const n = +b.dataset.pad;
+    const down = (e) => { e.preventDefault(); b.classList.add("hit"); const r = b.getBoundingClientRect(); const y = e.clientY ? 1 - (e.clientY - r.top) / r.height : 0.7; const vel = Math.max(40, Math.min(127, Math.round(50 + y * 77))); post("/midi", { bytes: [0x99, n, vel] }).catch(fail); };
+    const up = () => { if (!b.classList.contains("hit")) return; b.classList.remove("hit"); post("/midi", { bytes: [0x89, n, 0] }).catch(() => {}); };
+    b.addEventListener("pointerdown", down); b.addEventListener("pointerup", up); b.addEventListener("pointerleave", up); b.addEventListener("pointercancel", up);
+  });
+  const m = $("#p-master");
+  m.addEventListener("input", () => { $("#p-master-v").textContent = fmtDb(+m.value); $("#master").value = m.value; $("#master-v").textContent = fmtDb(+m.value); debounce("master", () => post("/master", { db: +m.value }).catch(fail), 60); });
+  $("#p-panic").onclick = () => post("/panic").then(() => toast("All sound off")).catch(fail);
+}
+
+// ------------------------------------------------------------------ first-run setup (docs/first-run.md)
+const SETUP_STEPS = [
+  ["pair", "Pair", "This browser is paired with the unit."],
+  ["name", "Name and clock", "Check the unit's name and that its clock is right."],
+  ["sound", "Sound check", "Make sure the DAC output plays, quietly."],
+  ["play", "Play something", "Plug in a controller and hear it."],
+  ["access", "Network and access", "Who can reach this unit. Radios stay off."],
+  ["save", "Save it", "Backups and the app list."],
+];
+async function renderSetup() {
+  let st = { done: [], skipped: [] }, info = S.info || {}, sys = S.sys || {}, dev = { zeros: [], usb: [] }, ins = [];
+  try { [st, dev, ins] = await Promise.all([get("/setup"), get("/devices"), get("/midi/inputs")]); } catch (e) { fail(e); }
+  if (S.view !== "setup") return;
+  const cur = S.setupStep || SETUP_STEPS.find(([id]) => !st.done.includes(id) && !st.skipped.includes(id))?.[0] || "save";
+  S.setupStep = cur;
+  const idx = SETUP_STEPS.findIndex(([id]) => id === cur);
+  const nav = SETUP_STEPS.map(([id, t], i) => `<li class="${id === cur ? "on" : ""} ${st.done.includes(id) ? "done" : st.skipped.includes(id) ? "skip" : ""}"><button data-sstep="${id}"><span class="n">${st.done.includes(id) ? "✓" : i + 1}</span>${esc(t)}</button></li>`).join("");
+  const cli = (c) => `<details class="cli"><summary>Command line</summary><pre class="mono">${esc(c)}</pre></details>`;
+  const svc = sys.services || [];
+  const body = {
+    pair: `<p>Paired. This is <b>${esc(info.device || "Trillium Base")}</b> (${esc(info.hostname || "")}), version ${esc(info.version || "")}.</p><p class="muted">To pair a phone or another iPad, open Settings › Pairing, or run the command below and scan the QR code.</p>${cli("trillium-base pair --qr")}`,
+    name: `<div class="row wrap"><div class="field"><label>Unit name</label><div class="mono">${esc(info.hostname || "")}</div></div><div class="field"><label>Clock on the unit</label><div class="mono">${esc(sys.time || sys.clock || new Date().toString().slice(0, 24))}</div></div><div class="field"><label>This browser</label><div class="mono">${esc(new Date().toString().slice(0, 24))}</div></div></div><p class="muted">Renaming the unit is a command for now (the console button comes with the identity endpoint).</p>${cli("sudo sh tools/tbase-hostname.sh tbase-XXXX   # then reboot\ntimedatectl status")}`,
+    sound: `<p>Plug headphones or a speaker into the DAC and <b>turn it down</b>. The test plays a short phrase at the current master level (${fmtDb(S.status ? S.status.master_db : -18)}, never above −18 dB here).</p><div class="row wrap"><button class="btn big" id="s-tone">Play test sound</button><button class="btn ghost" id="s-heard">I heard it</button><button class="btn ghost" id="s-none">No sound</button></div><div id="s-check"></div>${cli("trillium-base note 69 60 1")}`,
+    play: `<p>Detected MIDI inputs: ${(ins || []).map((i) => `<span class="badge ok">${esc(i.label || i.name || i)}</span>`).join(" ") || '<span class="muted">none yet — plug in a USB MIDI controller or a Trillium Zero</span>'}</p>${(dev.zeros || []).some((z) => z.found) ? `<p>A Trillium Zero is connected: ${esc((dev.zeros.find((z) => z.found) || {}).summary || "")}. Try the <a href="#play">Play</a> view's Drum kit.</p>` : ""}<p>New MIDI devices are routed to Trillium Synth automatically. Play a key or tap a pad:</p><div class="pads small">${PADS.slice(8).map(([n, l]) => `<button class="pad" data-spad="${n}"><b>${esc(l)}</b></button>`).join("")}</div>${cli("trillium-base inputs\ntrillium-base devices show")}`,
+    access: `<p>Nothing here transmits on a radio. Bluetooth and Wi-Fi stay off until you turn them on yourself in Settings.</p><div class="tbl-scroll"><table><tbody>${svc.map((s) => `<tr><td>${esc(s.name)}</td><td><span class="badge ${s.active ? "ok" : "off"}">${s.active ? "on" : "off"}</span></td><td class="muted small">${esc(s.risk || "")}</td></tr>`).join("") || '<tr><td class="muted">Service list loads from the Overview.</td></tr>'}</tbody></table></div>${cli("trillium-base apps list\nsystemctl --user status shairport-sync")}`,
+    save: `<p>Your scenes, Zero profiles and settings live in <span class="mono">~/.config/pilab</span>; recordings in <span class="mono">~/.local/share/pilab</span>. Back them up to the NAS or a USB stick.</p><p class="muted">Apps (AirPlay, Bluetooth MIDI, FluidSynth, ZynAddSubFX, Cabbage) are listed with their licences and switches by the app manager.</p>${cli("tar -czf ~/trillium-backup.tgz -C ~ .config/pilab\ntrillium-base apps list")}`,
+  }[cur];
+  $("#main").innerHTML = head("Set up", `Step ${idx + 1} of 6 · every step can be skipped`) + `
+    <div class="setup"><ol class="ssteps">${nav}</ol>
+      <section class="pcard"><h2>${esc(SETUP_STEPS[idx][1])}</h2><p class="muted">${esc(SETUP_STEPS[idx][2])}</p>${body}
+        <div class="row" style="margin-top:16px;gap:8px"><span class="spacer"></span><button class="btn ghost" id="s-skip">Skip</button><button class="btn primary" id="s-next">${idx === 5 ? "Finish" : "Done, next"}</button></div></section></div>`;
+  const mark = async (field) => {
+    const s = { done: st.done.filter((x) => x !== cur), skipped: st.skipped.filter((x) => x !== cur) };
+    s[field].push(cur);
+    try { await put("/setup", s); } catch (e) { fail(e); }
+    if (idx === 5) { S.setupStep = null; toast("Setup finished"); location.hash = "play"; return; }
+    S.setupStep = SETUP_STEPS[idx + 1][0]; renderSetup();
+  };
+  $("#s-next").onclick = () => mark("done");
+  $("#s-skip").onclick = () => mark("skipped");
+  $$("[data-sstep]").forEach((b) => b.onclick = () => { S.setupStep = b.dataset.sstep; renderSetup(); });
+  const tone = $("#s-tone"); if (tone) tone.onclick = () => post("/midi", { bytes: [0x90, 69, 50] }).then(() => setTimeout(() => post("/midi", { bytes: [0x80, 69, 0] }), 1200)).catch(fail);
+  const heard = $("#s-heard"); if (heard) heard.onclick = () => mark("done");
+  const none = $("#s-none"); if (none) none.onclick = () => { $("#s-check").innerHTML = `<ul class="muted"><li>DAC detected: ${S.sys && S.sys.dac ? "yes (" + esc(S.sys.dac.state) + ")" : "no — check the HAT and the overlay line in config.txt"}</li><li>Master level: ${fmtDb(S.status ? S.status.master_db : -18)} (raise it a little in the header if very low)</li><li>Synth running: ${S.status && S.status.running ? "yes" : "check Overview › Services"}</li><li>Output linked: see Signals</li></ul>`; };
+  $$("[data-spad]").forEach((b) => b.addEventListener("pointerdown", () => post("/midi", { bytes: [0x99, +b.dataset.spad, 100] }).catch(fail)));
+}
+
+// Phone: the bottom bar shows Play, Devices, Sounds and More; More opens the rest.
+$("#btn-more").addEventListener("click", () => { const o = !document.body.classList.contains("more-open"); document.body.classList.toggle("more-open", o); $("#btn-more").setAttribute("aria-expanded", String(o)); });
+document.addEventListener("click", (e) => { if (document.body.classList.contains("more-open") && !e.target.closest("#nav")) { document.body.classList.remove("more-open"); $("#btn-more").setAttribute("aria-expanded", "false"); } });
+// First visit after pairing: open the setup steps once, unless they were finished or skipped.
+(async () => {
+  if (location.hash || !S.token) return;
+  try { const st = await get("/setup"); if (!st.done.length && !st.skipped.length && !st.dismissed) location.hash = "setup"; } catch (e) {}
+})();

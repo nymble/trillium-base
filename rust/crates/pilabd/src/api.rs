@@ -92,6 +92,21 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/devices/{key}/mic", "{on, confirm?} start or stop the 16 kHz microphone test stream (on needs confirm); stored in the profile"),
     ("POST", "/api/v1/measure/strike", "{timeout_s?, rehearse?} arm a strike-to-sound take (up to 60 s after GO): first Zero note-on, synth onset and acoustic onset; rehearse injects a note instead; writes ~/.local/share/pilab/measurements/strike-*.json"),
     ("GET", "/api/v1/measure/strike/cue", "What to do at the device for a strike take, from its sensors and settings"),
+    ("GET", "/api/v1/zero/schema", "Trillium Zero mapping schema: 41 settings with names, ranges, defaults and groups, and GM drum names"),
+    ("GET", "/api/v1/zero/presets", "Built-in and saved Trillium Zero mapping presets"),
+    ("POST", "/api/v1/zero/presets", "{name, values?|key?, scene?} save a mapping preset (values or a device's live settings)"),
+    ("DELETE", "/api/v1/zero/presets/{id}", "Delete a saved mapping preset"),
+    ("POST", "/api/v1/devices/{key}/settings", "{values:{id|key: value}, save?} change Trillium Zero settings live (validated) and store them in its profile"),
+    ("POST", "/api/v1/devices/{key}/preset", "{id, scene?} apply a mapping preset to the Zero (and load its scene unless scene:false), stored in its profile"),
+    ("GET", "/api/v1/devices/{key}/export", "The Zero's live settings as a trill-preset file (Trillium app format)"),
+    ("POST", "/api/v1/devices/{key}/import", "{preset: trill-preset JSON, save?} apply a Trillium app preset file"),
+    ("POST", "/api/v1/devices/{key}/action", "{action: panic|recalibrate|led-test|restore-defaults|zero-orientation}"),
+    ("POST", "/api/v1/devices/{key}/auto", "{manual} re-apply the stored profile automatically on connect (manual:false, default) or only by hand"),
+    ("GET", "/api/v1/setup", "First-run steps done or skipped (docs/first-run.md)"),
+    ("PUT", "/api/v1/setup", "{done:[..], skipped:[..], dismissed?} store first-run progress"),
+    ("GET", "/api/v1/firmware?refresh=1", "Zero firmware versions, bootloader drives, images on the Base, latest published release"),
+    ("POST", "/api/v1/firmware/check?name=FILE.uf2", "Upload (octet-stream) and check a firmware image; read-only towards the Zero"),
+    ("POST", "/api/v1/firmware/update", "{key, name, confirm, allow_downgrade?} install a checked image (writes the Zero's flash)"),
     ("GET", "/api/v1/endpoints", "This list"),
 ];
 
@@ -148,6 +163,19 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/devices/{key}/mic", post(device_mic))
         .route("/measure/strike", post(measure_strike))
         .route("/measure/strike/cue", get(measure_cue))
+        .route("/zero/schema", get(|| async { Json(pilab_core::zero_map::schema_json()) }))
+        .route("/zero/presets", get(zero_presets).post(zero_preset_save))
+        .route("/zero/presets/{id}", axum::routing::delete(zero_preset_delete))
+        .route("/devices/{key}/settings", post(device_settings))
+        .route("/devices/{key}/preset", post(device_preset))
+        .route("/devices/{key}/export", get(device_export))
+        .route("/devices/{key}/import", post(device_import))
+        .route("/devices/{key}/action", post(device_action))
+        .route("/devices/{key}/auto", post(device_auto))
+        .route("/setup", get(setup_get).put(setup_put))
+        .route("/firmware", get(firmware_status))
+        .route("/firmware/check", post(firmware_check))
+        .route("/firmware/update", post(firmware_update))
         .route("/endpoints", get(endpoints))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
     let guard = Arc::new(crate::security::Guard::new(&app.hostname));
@@ -866,4 +894,221 @@ async fn static_file(uri: Uri, headers: axum::http::HeaderMap) -> Response {
     }
     let body = if p == "/index.html" { Body::from(assets::index_html()) } else { Body::from(body) };
     (hdrs, body).into_response()
+}
+
+
+// ------------------------------------------------------------------ Trillium Zero mapping
+
+fn parse_values(v: &Value) -> Result<Vec<(u8, u16)>, String> {
+    let obj = v.as_object().ok_or("values: an object of setting → value")?;
+    let mut out = vec![];
+    for (k, x) in obj {
+        let spec = pilab_core::zero_map::lookup(k).ok_or_else(|| format!("unknown setting {k}"))?;
+        let n = match x {
+            Value::Number(n) => n.as_u64().and_then(|n| u16::try_from(n).ok()).ok_or_else(|| format!("{k}: bad number"))?,
+            Value::String(t) => pilab_core::zero_map::parse_value(spec, t)?,
+            Value::Bool(b) => *b as u16,
+            _ => return Err(format!("{k}: number or text")),
+        };
+        pilab_core::zero_map::validate(spec.id, n)?;
+        out.push((spec.id, n));
+    }
+    Ok(out)
+}
+
+async fn zero_presets(State(app): S) -> R {
+    ok(json!({ "presets": app.devmgr.presets() }))
+}
+
+#[derive(Deserialize)]
+struct PresetSave {
+    name: String,
+    #[serde(default)]
+    values: Option<Value>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    scene: String,
+}
+
+async fn zero_preset_save(State(app): S, Json(b): Json<PresetSave>) -> R {
+    let values = match (&b.values, &b.key) {
+        (Some(v), _) => parse_values(v).map_err(bad)?,
+        (None, Some(k)) => app.devmgr.live_values(k),
+        _ => return Err(bad("values or key")),
+    };
+    if values.is_empty() {
+        return Err(bad("no settings to save"));
+    }
+    ok(app.devmgr.save_preset(&b.name, &values, &b.scene).map_err(bad)?)
+}
+
+async fn zero_preset_delete(State(app): S, Path(id): Path<String>) -> R {
+    ok(app.devmgr.delete_preset(&id).map_err(bad)?)
+}
+
+#[derive(Deserialize)]
+struct SettingsBody {
+    values: Value,
+    #[serde(default = "yes")]
+    save: bool,
+}
+fn yes() -> bool {
+    true
+}
+
+async fn device_settings(State(app): S, Path(key): Path<String>, Json(b): Json<SettingsBody>) -> R {
+    let vals = parse_values(&b.values).map_err(bad)?;
+    let a = app.clone();
+    let k = key.clone();
+    let v = tokio::task::spawn_blocking(move || a.devmgr.set_values(&k, &vals, b.save, None)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    let n = v["sent"].as_array().map(|x| x.len()).unwrap_or(0);
+    if n > 0 {
+        app.event("info", format!("Trillium Zero ({key}): {n} setting(s) changed from the console"));
+    }
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct PresetApply {
+    id: String,
+    #[serde(default = "yes")]
+    scene: bool,
+}
+
+async fn device_preset(State(app): S, Path(key): Path<String>, Json(b): Json<PresetApply>) -> R {
+    let p = app.devmgr.presets().into_iter().find(|p| p.id == b.id).ok_or_else(|| bad(format!("no preset {}", b.id)))?;
+    let a = app.clone();
+    let k = key.clone();
+    let vals = p.values.clone();
+    let name = p.name.clone();
+    let mut v = tokio::task::spawn_blocking(move || a.devmgr.set_values(&k, &vals, true, Some(&name))).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    if b.scene && !p.scene.is_empty() {
+        match app.load_scene(&p.scene) {
+            Ok(_) => v["scene"] = json!(p.scene),
+            Err(e) => v["scene_error"] = json!(e),
+        }
+    }
+    app.event("info", format!("Trillium Zero ({key}): mapping \"{}\" applied{}", p.name, if b.scene && !p.scene.is_empty() { format!(", scene \"{}\" loaded", p.scene) } else { String::new() }));
+    ok(v)
+}
+
+async fn device_export(State(app): S, Path(key): Path<String>) -> R {
+    let vals = app.devmgr.live_values(&key);
+    if vals.is_empty() {
+        return Err(bad("no settings read from this device yet"));
+    }
+    ok(pilab_core::zero_map::to_trill_preset(&key, &format!("Trillium Base {key}"), &vals))
+}
+
+#[derive(Deserialize)]
+struct ImportBody {
+    preset: Value,
+    #[serde(default = "yes")]
+    save: bool,
+}
+
+async fn device_import(State(app): S, Path(key): Path<String>, Json(b): Json<ImportBody>) -> R {
+    let (name, vals) = pilab_core::zero_map::from_trill_preset(&b.preset).map_err(bad)?;
+    let a = app.clone();
+    let k = key.clone();
+    let n2 = name.clone();
+    let mut v = tokio::task::spawn_blocking(move || a.devmgr.set_values(&k, &vals, b.save, Some(&n2))).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    v["name"] = json!(name);
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct ActionBody {
+    action: String,
+}
+
+async fn device_action(State(app): S, Path(key): Path<String>, Json(b): Json<ActionBody>) -> R {
+    let a = app.clone();
+    let v = tokio::task::spawn_blocking(move || a.devmgr.action(&key, &b.action)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct AutoBody {
+    manual: bool,
+}
+
+async fn device_auto(State(app): S, Path(key): Path<String>, Json(b): Json<AutoBody>) -> R {
+    ok(app.devmgr.set_manual(&key, b.manual).map_err(bad)?)
+}
+
+// ------------------------------------------------------------------ firmware
+
+#[derive(Deserialize)]
+struct FwQ {
+    #[serde(default)]
+    refresh: Option<u8>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+async fn firmware_status(State(app): S, Query(q): Query<FwQ>) -> R {
+    let a = app.clone();
+    let refresh = q.refresh.unwrap_or(0) == 1;
+    let v = tokio::task::spawn_blocking(move || {
+        if refresh {
+            crate::firmware::latest(&a.paths.data, true);
+        }
+        crate::firmware::status(&a.devmgr, &a.paths.data)
+    })
+    .await
+    .map_err(|e| bad(e.to_string()))?;
+    ok(v)
+}
+
+async fn firmware_check(State(app): S, Query(q): Query<FwQ>, body: axum::body::Bytes) -> R {
+    let a = app.clone();
+    let v = tokio::task::spawn_blocking(move || match (q.path, q.name) {
+        (Some(p), _) if body.is_empty() => crate::firmware::check_path(&a.devmgr, std::path::Path::new(&p)),
+        (_, Some(n)) => crate::firmware::check_upload(&a.devmgr, &a.paths.data, &n, &body),
+        _ => Err("name=FILE.uf2 with the image as the body, or path= for a file on the Base".into()),
+    })
+    .await
+    .map_err(|e| bad(e.to_string()))?
+    .map_err(bad)?;
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct FwUpdate {
+    key: String,
+    name: String,
+    #[serde(default)]
+    confirm: bool,
+    #[serde(default)]
+    allow_downgrade: bool,
+}
+
+async fn firmware_update(State(app): S, Json(b): Json<FwUpdate>) -> R {
+    let a = app.clone();
+    app.event("warn", format!("Trillium Zero ({}): firmware update to {} requested", b.key, b.name));
+    let v = tokio::task::spawn_blocking(move || crate::firmware::update(&a.devmgr, &a.paths.data, &b.key, &b.name, b.confirm, b.allow_downgrade)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    app.event("info", format!("Trillium Zero firmware update: {}", v));
+    ok(v)
+}
+
+
+// ------------------------------------------------------------------ first-run setup progress
+
+const SETUP_IDS: &[&str] = &["pair", "name", "sound", "play", "access", "save"];
+
+async fn setup_get(State(app): S) -> R {
+    let p = app.paths.config.join("setup.json");
+    let v = std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()).unwrap_or_else(|| json!({ "done": [], "skipped": [] }));
+    ok(v)
+}
+
+async fn setup_put(State(app): S, Json(b): Json<Value>) -> R {
+    let pick = |k: &str| -> Vec<String> { b[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).filter(|x| SETUP_IDS.contains(x)).map(str::to_string).collect()).unwrap_or_default() };
+    let v = json!({ "done": pick("done"), "skipped": pick("skipped"), "dismissed": b["dismissed"].as_bool().unwrap_or(false) });
+    crate::paths::write_atomic(&app.paths.config.join("setup.json"), serde_json::to_string_pretty(&v).unwrap().as_bytes()).map_err(bad)?;
+    ok(v)
 }

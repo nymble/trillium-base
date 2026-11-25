@@ -23,6 +23,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use pilab_core::zero::{self, Hello, Message, Profile, Reply, Status, Telemetry};
+use pilab_core::zero_map;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -74,6 +75,7 @@ pub struct Manager {
     dir: PathBuf,
     zeros: Mutex<HashMap<String, ZeroState>>,
     io: Mutex<()>,
+    auto_due: Mutex<Vec<String>>,
     /// Live telemetry frames (newest at the back), filled while a Zero is connected.
     frames: Mutex<HashMap<String, VecDeque<Telemetry>>>,
     /// Long-lived sequencer sessions used only to harvest telemetry (port 1).
@@ -273,7 +275,7 @@ fn read_full(f: &Found) -> Result<(Hello, Option<Status>, u16, Vec<(u8, u16)>), 
 
 impl Manager {
     pub fn new(config_dir: &std::path::Path) -> Manager {
-        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()), frames: Mutex::new(HashMap::new()), telem: Mutex::new(HashMap::new()), lease_until: Mutex::new(HashMap::new()), pending_ev: Mutex::new(Vec::new()) }
+        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()), auto_due: Mutex::new(Vec::new()), frames: Mutex::new(HashMap::new()), telem: Mutex::new(HashMap::new()), lease_until: Mutex::new(HashMap::new()), pending_ev: Mutex::new(Vec::new()) }
     }
 
     fn profile_path(&self, key: &str) -> PathBuf {
@@ -334,7 +336,7 @@ impl Manager {
                         let d = zero::diff(&p, &st.params);
                         st.differs = d.iter().map(|&(id, want)| (id, want, st.params.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or(0))).collect();
                         st.profile_state = if d.is_empty() { "matches".into() } else { "differs".into() };
-                        if !d.is_empty() && (reconnected || adopted) {
+                        if !d.is_empty() && (reconnected || adopted) && p.manual {
                             ev.push(("warn", format!("Trillium Zero ({}): {} setting(s) differ from its stored profile; re-apply from Devices", f.usb_path, d.len())));
                         }
                     }
@@ -395,9 +397,11 @@ impl Manager {
                 ev.push(("info", format!("Trillium Zero connected ({}, ALSA client {})", f.usb_path, f.client)));
                 // First sight in this process, including after a daemon restart, is not a reconnect.
                 ev.extend(self.refresh(f, false));
+                self.auto_due.lock().unwrap().push(f.key.clone());
             } else if !same_client {
                 ev.push(("info", format!("Trillium Zero ({}) replugged (new ALSA client {})", f.usb_path, f.client)));
                 ev.extend(self.refresh(f, true));
+                self.auto_due.lock().unwrap().push(f.key.clone());
             } else if due {
                 let boot = {
                     let _io = self.io.lock().unwrap();
@@ -407,6 +411,7 @@ impl Manager {
                     Ok(Reply::Hello(h)) if Some(h.boot_id) != last_boot => {
                         ev.push(("info", format!("Trillium Zero ({}) reset (boot id {} → {})", f.usb_path, last_boot.unwrap_or(0), h.boot_id)));
                         ev.extend(self.refresh(f, true));
+                        self.auto_due.lock().unwrap().push(f.key.clone());
                     }
                     Ok(_) => {
                         if let Some(s) = self.zeros.lock().unwrap().get_mut(&f.key) {
@@ -549,6 +554,9 @@ impl Manager {
                     }).collect::<Vec<_>>(),
                     "differs": s.differs.iter().map(|(id, want, have)| json!({ "id": id, "name": zero::param_name(*id), "stored": want, "device": have })).collect::<Vec<_>>(),
                     "mic": s.mic,
+                    "summary": zero_map::describe(&s.params),
+                    "manual": profile.as_ref().map(|p| p.manual).unwrap_or(false),
+                    "preset": profile.as_ref().map(|p| p.preset.clone()).unwrap_or_default(),
                     "mic_profile": profile.as_ref().map(|p| p.mic).unwrap_or(false),
                     "frames": live,
                 })
@@ -605,6 +613,231 @@ impl Manager {
         self.lease_until.lock().unwrap().remove(key);
     }
 
+
+    /// Profiles due for an automatic re-apply (device just connected, replugged or reset).
+    /// Sends the stored settings unless the profile is marked manual. Returns events.
+    pub fn auto_apply_due(&self) -> Vec<(&'static str, String)> {
+        let keys: Vec<String> = std::mem::take(&mut *self.auto_due.lock().unwrap());
+        let mut ev = vec![];
+        for key in keys {
+            let Some(p) = self.load_profile(&key) else { continue };
+            if p.manual {
+                continue;
+            }
+            let differs = self.zeros.lock().unwrap().get(&key).map(|s| s.profile_state == "differs").unwrap_or(false);
+            if !differs {
+                continue;
+            }
+            match self.reapply(&key, true) {
+                Ok(v) => ev.push(("info", format!("Trillium Zero ({key}): restored {} stored setting(s) after connect{}", v["changed"].as_array().map(|a| a.len()).unwrap_or(0), if p.preset.is_empty() { String::new() } else { format!(" (mapping \"{}\")", p.preset) }))),
+                Err(e) => ev.push(("warn", format!("Trillium Zero ({key}): could not restore its stored settings: {e}"))),
+            }
+        }
+        ev
+    }
+
+    /// Validated changes sent to the device, read back, and (with `save`) merged into the
+    /// stored profile. Parameters the firmware does not have are skipped and reported.
+    pub fn set_values(&self, key: &str, changes: &[(u8, u16)], save: bool, preset: Option<&str>) -> Result<Value, String> {
+        for &(id, v) in changes {
+            zero_map::validate(id, v)?;
+        }
+        let f = self.found(key)?;
+        let _ = self.refresh(&f, false);
+        let (caps, current) = {
+            let z = self.zeros.lock().unwrap();
+            let st = z.get(key).ok_or("device not read yet")?;
+            (st.hello.as_ref().map(|h| h.caps).unwrap_or(0), st.params.clone())
+        };
+        if caps & zero::CAP_SET_CONFIG == 0 {
+            return Err("this firmware does not accept settings changes".into());
+        }
+        let skipped: Vec<u8> = changes.iter().filter(|(id, _)| !zero_map::supported(*id, caps)).map(|c| c.0).collect();
+        let send: Vec<(u8, u16)> = changes
+            .iter()
+            .copied()
+            .filter(|(id, v)| zero_map::supported(*id, caps) && current.iter().find(|x| x.0 == *id).map(|x| x.1) != Some(*v))
+            .collect();
+        let mut errors = vec![];
+        if !send.is_empty() {
+            let _io = self.io.lock().unwrap();
+            let s = Session::open(f.client)?;
+            for fr in zero::set_config_frames(0x20, &send) {
+                match s.ask(&fr) {
+                    Ok(Reply::Config(_)) => {}
+                    Ok(Reply::Error { code, detail }) => errors.push(format!("{} (parameter {detail} {})", zero::error_name(code), zero::param_name(detail))),
+                    Ok(_) => errors.push("unexpected reply".into()),
+                    Err(e) => errors.push(e),
+                }
+            }
+        }
+        let _ = self.refresh(&f, false);
+        let live = self.zeros.lock().unwrap().get(key).map(|s| s.params.clone()).unwrap_or_default();
+        let not_taken: Vec<u8> = send.iter().filter(|(id, v)| live.iter().find(|x| x.0 == *id).map(|x| x.1) != Some(*v)).map(|c| c.0).collect();
+        if save {
+            let st = self.zeros.lock().unwrap().get(key).cloned().unwrap_or_default();
+            let fw = st.hello.as_ref().map(|h| h.firmware.clone()).unwrap_or_default();
+            let mut p = self.load_profile(key).unwrap_or_else(|| Profile::from_params(&f.key, &f.label, &f.usb_id, &fw, st.read_at as u64, &live));
+            for &(id, v) in changes {
+                if !zero_map::supported(id, caps) || not_taken.contains(&id) {
+                    continue;
+                }
+                match p.params.iter_mut().find(|x| x.id == id) {
+                    Some(x) => x.value = v,
+                    None => p.params.push(zero::Param { id, value: v }),
+                }
+            }
+            p.params.sort_by_key(|x| x.id);
+            p.firmware = fw;
+            p.captured = timefmt::now_secs() as u64;
+            p.preset = preset.unwrap_or("").to_string();
+            self.save_profile(&p)?;
+            let d = zero::diff(&p, &live);
+            if let Some(s) = self.zeros.lock().unwrap().get_mut(key) {
+                s.differs = d.iter().map(|&(id, want)| (id, want, live.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or(0))).collect();
+                s.profile_state = if d.is_empty() { "matches".into() } else { "differs".into() };
+                s.reconnected = false;
+            }
+        }
+        Ok(json!({
+            "ok": errors.is_empty() && not_taken.is_empty(),
+            "sent": send.iter().map(|(id, v)| json!({ "id": id, "name": zero::param_name(*id), "value": v })).collect::<Vec<_>>(),
+            "skipped_for_firmware": skipped,
+            "not_taken": not_taken,
+            "errors": errors,
+            "saved": save,
+            "summary": zero_map::describe(&live),
+        }))
+    }
+
+    /// Mark a profile as re-applied automatically on connect (default) or only by hand.
+    pub fn set_manual(&self, key: &str, manual: bool) -> Result<Value, String> {
+        let mut p = self.load_profile(key).ok_or("no stored profile for this device")?;
+        p.manual = manual;
+        self.save_profile(&p)?;
+        Ok(json!({ "ok": true, "manual": manual }))
+    }
+
+    /// One device action. Bluetooth actions (10–13) and the bootloader (6) are not sent
+    /// from here: radio settings stay with the owner, and the bootloader belongs to the
+    /// firmware update path.
+    pub fn action(&self, key: &str, name: &str) -> Result<Value, String> {
+        let code = match name {
+            "panic" => 1,
+            "recalibrate" => 2,
+            "led-test" => 3,
+            "restore-defaults" => 4,
+            "zero-orientation" => 5,
+            _ => return Err("action: panic | recalibrate | led-test | restore-defaults | zero-orientation".into()),
+        };
+        let f = self.found(key)?;
+        let reply = {
+            let _io = self.io.lock().unwrap();
+            let s = Session::open(f.client)?;
+            s.ask(&zero::action(0x58, code))?
+        };
+        let ok = match reply {
+            Reply::Ack { action } => action == code,
+            Reply::Config(_) => code == 4,
+            Reply::Error { code: c, detail } => return Err(format!("{name}: {} ({detail})", zero::error_name(c))),
+            _ => false,
+        };
+        let _ = self.refresh(&f, false);
+        Ok(json!({ "ok": ok, "action": name }))
+    }
+
+    fn presets_dir(&self) -> PathBuf {
+        self.dir.parent().map(|p| p.join("zero-presets")).unwrap_or_else(|| self.dir.join("presets"))
+    }
+
+    /// Built-in mapping presets, then the owner's (stored as trill-preset JSON files).
+    pub fn presets(&self) -> Vec<zero_map::MapPreset> {
+        let mut v = zero_map::builtin_presets();
+        if let Ok(rd) = std::fs::read_dir(self.presets_dir()) {
+            let mut user: Vec<zero_map::MapPreset> = rd
+                .flatten()
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+                .filter_map(|e| {
+                    let id = e.path().file_stem()?.to_str()?.to_string();
+                    let j: Value = serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
+                    let (name, values) = zero_map::from_trill_preset(&j).ok()?;
+                    let scene = j.get("base_scene").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    Some(zero_map::MapPreset { id, summary: zero_map::describe(&values), name, scene, builtin: false, values })
+                })
+                .collect();
+            user.sort_by(|a, b| a.name.cmp(&b.name));
+            v.extend(user);
+        }
+        v
+    }
+
+    pub fn save_preset(&self, name: &str, values: &[(u8, u16)], scene: &str) -> Result<Value, String> {
+        let id: String = name.to_ascii_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect::<String>().trim_matches('-').to_string();
+        if id.is_empty() || id.len() > 48 || name.len() > 64 {
+            return Err("preset name: 1-64 characters, letters or digits".into());
+        }
+        if zero_map::builtin_presets().iter().any(|p| p.id == id) {
+            return Err("that name is a built-in preset".into());
+        }
+        for &(i, v) in values {
+            zero_map::validate(i, v)?;
+        }
+        let mut j = zero_map::to_trill_preset(&id, name, values);
+        if !scene.is_empty() {
+            j["base_scene"] = json!(scene);
+        }
+        let dir = self.presets_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("{id}.json"));
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&j).unwrap()).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    pub fn delete_preset(&self, id: &str) -> Result<Value, String> {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err("bad preset id".into());
+        }
+        std::fs::remove_file(self.presets_dir().join(format!("{id}.json"))).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true }))
+    }
+
+    /// Live values of a connected (or last-seen) device.
+    pub fn live_values(&self, key: &str) -> Vec<(u8, u16)> {
+        self.zeros.lock().unwrap().get(key).map(|s| s.params.clone()).unwrap_or_default()
+    }
+
+    /// HELLO of a device, for the firmware view.
+    pub fn hello_of(&self, key: &str) -> Option<Hello> {
+        self.zeros.lock().unwrap().get(key).and_then(|s| s.hello.clone())
+    }
+
+    pub fn client_of(&self, key: &str) -> Option<u32> {
+        self.zeros.lock().unwrap().get(key).and_then(|s| s.found.as_ref().map(|f| f.client))
+    }
+
+    /// Sends ACTION 6 (enter the UF2 bootloader). Only the firmware update path calls this,
+    /// after the owner confirmed an update. Writes no flash by itself.
+    pub fn enter_bootloader(&self, key: &str) -> Result<(), String> {
+        let f = self.found(key)?;
+        let caps = self.hello_of(key).map(|h| h.caps).unwrap_or(0);
+        if caps & zero::CAP_BOARD == 0 {
+            return Err("this firmware cannot restart into the bootloader; double-press RESET on the Zero instead".into());
+        }
+        let _io = self.io.lock().unwrap();
+        let s = Session::open(f.client)?;
+        match s.ask(&zero::action(0x5E, 6))? {
+            Reply::Ack { action: 6 } => Ok(()),
+            other => Err(format!("unexpected reply to bootloader action: {other:?}")),
+        }
+    }
+
+    pub fn first_connected(&self) -> Option<String> {
+        let mut k = self.connected_keys_live();
+        k.sort();
+        k.into_iter().next()
+    }
 
     /// Stored or live request for the microphone test stream on a connected device.
     pub fn mic_wanted(&self) -> bool {

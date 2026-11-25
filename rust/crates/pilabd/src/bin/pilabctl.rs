@@ -16,6 +16,8 @@
 //! pilabctl devices show [KEY]   Trillium Zero sensors (present / not fitted / running), note path, settings
 //! pilabctl measure strike [--rehearse]   one strike: Zero note-on, synth onset, acoustic onset (JSON result)
 //! pilabctl apps [list | show ID | validate FILE | enable ID | disable ID]   app manifests
+//! pilabctl zero [show | schema | presets | preset ID | set NAME=VALUE... | action A | export | import FILE | save-preset NAME | auto on|off] [--key KEY]
+//! pilabctl firmware [status | latest | check FILE.uf2 | update FILE.uf2 --confirm [--allow-downgrade]] [--key KEY]
 //! ```
 
 use std::io::{Read, Write};
@@ -215,6 +217,8 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        ["zero", rest @ ..] => zero_cli(rest),
+        ["firmware", rest @ ..] => firmware_cli(rest),
         ["inputs"] => out(http("GET", "/midi/inputs", None)),
         ["input"] => out(http("GET", "/input", None)),
         ["input", "source", glob] => out(http("POST", "/input", Some(format!("{{\"source\":{}}}", json_str(glob))))),
@@ -222,7 +226,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | zero [show|schema|presets|preset ID|set NAME=VALUE..|action A|export|import FILE|save-preset NAME|auto on|off] | firmware [status|latest|check FILE|update FILE --confirm] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
             std::process::exit(2);
         }
     }
@@ -278,4 +282,178 @@ fn json_str(s: &str) -> String {
 /// Name this binary was run as (`pilabctl` or the `trillium-base` alias).
 fn prog() -> String {
     std::env::args().next().and_then(|a| std::path::Path::new(&a).file_name().map(|f| f.to_string_lossy().to_string())).unwrap_or_else(|| "pilabctl".into())
+}
+
+
+fn die(e: impl std::fmt::Display) -> ! {
+    eprintln!("{e}");
+    std::process::exit(1)
+}
+
+fn get_json(path: &str) -> serde_json::Value {
+    serde_json::from_str(&http("GET", path, None).unwrap_or_else(|e| die(e))).unwrap_or_default()
+}
+
+/// Splits `--key KEY` out of the arguments; without it, the first connected Zero.
+fn zero_key(args: &[&str]) -> (String, Vec<String>) {
+    let mut key = None;
+    let mut rest = vec![];
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if *a == "--key" {
+            key = it.next().map(|k| k.to_string());
+        } else {
+            rest.push(a.to_string());
+        }
+    }
+    let key = key.unwrap_or_else(|| {
+        let v = get_json("/devices");
+        v["zeros"].as_array().and_then(|z| z.iter().find(|z| !z["found"].is_null()).and_then(|z| z["key"].as_str().map(str::to_string))).unwrap_or_else(|| die("no Trillium Zero connected (or pass --key KEY)"))
+    });
+    (key, rest)
+}
+
+fn enc(k: &str) -> String {
+    k.replace(' ', "%20")
+}
+
+fn zero_cli(args: &[&str]) {
+    use pilab_core::zero_map::{self, Kind};
+    let show_val = |s: &zero_map::Spec, v: u64| -> String {
+        let v16 = v as u16;
+        match s.kind {
+            Kind::Channel => format!("ch {}", v + 1),
+            Kind::Note => {
+                let d = zero_map::gm_drum(v16);
+                if s.group == "strikes" && !d.is_empty() { format!("{v} {} ({d})", zero_map::note_name(v16)) } else { format!("{v} {}", zero_map::note_name(v16)) }
+            }
+            Kind::Bool => (if v == 1 { "on" } else { "off" }).into(),
+            Kind::Choice => s.choices.iter().find(|c| c.0 as u64 == v).map(|c| c.1.to_string()).unwrap_or_else(|| v.to_string()),
+            _ => format!("{v}{}", if s.unit.is_empty() { String::new() } else { format!(" {}", s.unit) }),
+        }
+    };
+    match args.first().copied().unwrap_or("show") {
+        "schema" => {
+            for (g, label, _) in zero_map::GROUPS {
+                println!("{label}");
+                for s in zero_map::SPECS.iter().filter(|s| s.group == *g) {
+                    let range = if s.choices.is_empty() { format!("{}..{}", s.min, s.max) } else { s.choices.iter().map(|c| format!("{}={}", c.0, c.1)).collect::<Vec<_>>().join(", ") };
+                    println!("  {:>2} {:<24} {:<34} default {:<6} {range}", s.id, s.key, s.name, s.default);
+                }
+            }
+        }
+        "presets" => {
+            for p in get_json("/zero/presets")["presets"].as_array().cloned().unwrap_or_default() {
+                println!("{:<16} {:<22} {}{}", p["id"].as_str().unwrap_or(""), p["name"].as_str().unwrap_or(""), p["summary"].as_str().unwrap_or(""), if p["builtin"] == false { "  (saved)" } else { "" });
+            }
+        }
+        "show" => {
+            let (key, _) = zero_key(&args[args.len().min(1)..]);
+            let v = get_json("/devices");
+            let Some(z) = v["zeros"].as_array().and_then(|a| a.iter().find(|z| z["key"] == key.as_str()).cloned()) else { die("not found") };
+            println!("Trillium Zero {key} · firmware {} · {}{}", z["hello"]["firmware"].as_str().unwrap_or("?"), z["summary"].as_str().unwrap_or(""), z["preset"].as_str().filter(|p| !p.is_empty()).map(|p| format!(" · mapping \"{p}\"")).unwrap_or_default());
+            println!("Profile: {}, {}", z["profile_state"].as_str().unwrap_or("?"), if z["manual"] == true { "re-applied by hand" } else { "re-applied automatically on connect" });
+            let params = z["params"].as_array().cloned().unwrap_or_default();
+            for (g, label, _) in zero_map::GROUPS {
+                println!("{label}");
+                for s in zero_map::SPECS.iter().filter(|s| s.group == *g) {
+                    let Some(p) = params.iter().find(|p| p["id"] == s.id as u64) else { continue };
+                    let val = p["value"].as_u64().unwrap_or(0);
+                    let stored = p["stored"].as_u64();
+                    let mark = match stored { Some(x) if x != val => format!("   (stored: {})", show_val(s, x)), _ => String::new() };
+                    println!("  {:>2} {:<34} {}{mark}", s.id, s.name, show_val(s, val));
+                }
+            }
+        }
+        "set" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let mut vals = serde_json::Map::new();
+            let mut save = true;
+            for a in &rest {
+                if a == "--no-save" {
+                    save = false;
+                    continue;
+                }
+                let (k, v) = a.split_once('=').unwrap_or_else(|| die(format!("expected NAME=VALUE, got {a}")));
+                let spec = zero_map::lookup(k).unwrap_or_else(|| die(format!("unknown setting {k} (see: zero schema)")));
+                let n = zero_map::parse_value(spec, v).unwrap_or_else(|e| die(e));
+                vals.insert(spec.id.to_string(), serde_json::json!(n));
+            }
+            if vals.is_empty() {
+                die("usage: zero set NAME=VALUE ... (names: zero schema; notes as C2 or 36; channels 1-16)");
+            }
+            out(http("POST", &format!("/devices/{}/settings", enc(&key)), Some(serde_json::json!({ "values": vals, "save": save }).to_string())));
+        }
+        "preset" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let id = rest.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| die("usage: zero preset ID (see: zero presets)"));
+            let scene = !rest.iter().any(|a| a == "--no-scene");
+            out(http("POST", &format!("/devices/{}/preset", enc(&key)), Some(serde_json::json!({ "id": id, "scene": scene }).to_string())));
+        }
+        "action" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let a = rest.first().cloned().unwrap_or_else(|| die("usage: zero action panic|recalibrate|led-test|restore-defaults|zero-orientation"));
+            out(http("POST", &format!("/devices/{}/action", enc(&key)), Some(serde_json::json!({ "action": a }).to_string())));
+        }
+        "export" => {
+            let (key, _) = zero_key(&args[1..]);
+            out(http("GET", &format!("/devices/{}/export", enc(&key)), None));
+        }
+        "import" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let f = rest.first().cloned().unwrap_or_else(|| die("usage: zero import FILE.json"));
+            let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap_or_else(|e| die(e))).unwrap_or_else(|e| die(e));
+            out(http("POST", &format!("/devices/{}/import", enc(&key)), Some(serde_json::json!({ "preset": j }).to_string())));
+        }
+        "save-preset" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let name = rest.join(" ");
+            if name.is_empty() {
+                die("usage: zero save-preset NAME");
+            }
+            out(http("POST", "/zero/presets", Some(serde_json::json!({ "name": name, "key": key }).to_string())));
+        }
+        "auto" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let manual = match rest.first().map(String::as_str) {
+                Some("on") => false,
+                Some("off") => true,
+                _ => die("usage: zero auto on|off"),
+            };
+            out(http("POST", &format!("/devices/{}/auto", enc(&key)), Some(serde_json::json!({ "manual": manual }).to_string())));
+        }
+        other => die(format!("unknown: zero {other}")),
+    }
+}
+
+fn firmware_cli(args: &[&str]) {
+    match args.first().copied().unwrap_or("status") {
+        "status" => out(http_timeout("GET", "/firmware", None, 20)),
+        "latest" => out(http_timeout("GET", "/firmware?refresh=1", None, 20)),
+        "check" => {
+            let f = args.get(1).unwrap_or_else(|| die("usage: firmware check FILE.uf2"));
+            let p = std::fs::canonicalize(f).unwrap_or_else(|e| die(e));
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Store it on the Base like a console upload (read-only towards the Zero).
+            let bytes = std::fs::read(&p).unwrap_or_else(|e| die(e));
+            let dir = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share")).join("pilab/firmware");
+            let _ = std::fs::create_dir_all(&dir);
+            if p.parent() != Some(dir.as_path()) && name.ends_with(".uf2") {
+                let _ = std::fs::write(dir.join(name), &bytes);
+            }
+            out(http("POST", &format!("/firmware/check?path={}", dir.join(name).to_string_lossy().replace(' ', "%20")), Some(String::new())));
+        }
+        "update" => {
+            let (key, rest) = zero_key(&args[1..]);
+            let f = rest.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| die("usage: firmware update FILE.uf2 --confirm"));
+            let name = std::path::Path::new(&f).file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let confirm = rest.iter().any(|a| a == "--confirm");
+            if !confirm {
+                die("This writes the Trillium Zero's flash. Check the image first (firmware check FILE), then add --confirm.");
+            }
+            let down = rest.iter().any(|a| a == "--allow-downgrade");
+            out(http_timeout("POST", "/firmware/update", Some(serde_json::json!({ "key": key, "name": name, "confirm": true, "allow_downgrade": down }).to_string()), 120));
+        }
+        other => die(format!("unknown: firmware {other}")),
+    }
 }

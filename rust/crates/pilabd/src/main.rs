@@ -12,6 +12,7 @@ mod assets;
 mod audio;
 mod brand;
 mod devices;
+mod firmware;
 mod zeromic;
 mod identity;
 mod library;

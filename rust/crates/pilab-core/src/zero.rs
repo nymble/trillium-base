@@ -380,6 +380,11 @@ pub struct Profile {
     /// Start the onboard 16 kHz microphone test stream when this profile is applied
     /// (ACTION 7). Off at firmware boot; stored here so a reconnect can turn it back on.
     pub mic: bool,
+    /// Do not send this profile automatically when the device connects (default: the
+    /// Base re-applies it, since the firmware forgets its settings on every power cycle).
+    pub manual: bool,
+    /// Name of the mapping preset this profile came from, if any ("" = custom).
+    pub preset: String,
 }
 
 impl Profile {
@@ -387,7 +392,7 @@ impl Profile {
         let mut p: Vec<Param> = params.iter().map(|&(id, value)| Param { id, value }).collect();
         p.sort_by_key(|x| x.id);
         p.dedup_by_key(|x| x.id);
-        Profile { key: key.into(), label: label.into(), usb_id: usb_id.into(), firmware: firmware.into(), captured, params: p, mic: false }
+        Profile { key: key.into(), label: label.into(), usb_id: usb_id.into(), firmware: firmware.into(), captured, params: p, mic: false, manual: false, preset: String::new() }
     }
     pub fn to_toml(&self) -> Result<String, String> {
         toml::to_string_pretty(self).map_err(|e| e.to_string())

@@ -33,3 +33,14 @@ fn bad_sample_ids_are_rejected() {
     sc.slots[0].sample = "../etc".into();
     assert!(sc.validate().is_err());
 }
+
+#[test]
+fn trillium_kit_scene_routes_ch10_to_the_kit() {
+    let sc = Scene::trillium_kit("full-kit");
+    sc.validate().unwrap();
+    assert_eq!(sc.name, "trillium kit");
+    let r = sc.routes.iter().find(|r| r.channel == 10).unwrap();
+    assert_eq!(sc.slots.iter().find(|s| s.id == r.slot).unwrap().sample, "vcsl-full-kit");
+    let fallback = Scene::trillium_kit("nope");
+    assert_eq!(fallback.slots[0].sample, "vcsl-starter-kit");
+}

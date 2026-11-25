@@ -228,6 +228,22 @@ impl Scene {
         }
     }
 
+    /// Drum kit for the Trillium Zero: strikes arrive on GM channel 10 (the Zero's
+    /// "Drum kit" mapping) and play the kit in slot 1; touch or tilt notes on channel 1
+    /// play kalimba in slot 2; the web keyboard and the Play pads play the kit.
+    pub fn trillium_kit(kit_preset: &str) -> Scene {
+        let kit = crate::presets::find(kit_preset).or_else(|| crate::presets::find("starter-kit")).unwrap();
+        let slots = vec![kit.slot(1), crate::presets::find("kalimba").unwrap().slot(2)];
+        let r = |label: &str, input: &str, channel: u8, slot: u8| Route { label: label.into(), input: input.into(), channel, slot, ..Route::default() };
+        Scene {
+            name: "trillium kit".into(),
+            description: "Trillium Zero drum kit: strike down snare, up crash, left kick, right closed hat, forward tom, back open hat (ch 10); touch or tilt notes on ch 1 play kalimba".into(),
+            slots,
+            routes: vec![r("Drum kit (ch 10)", "*", 10, 1), r("Melody (ch 1)", "*", 1, 2), r("Web keyboard and pads", "console", 0, 1)],
+            ..Scene::factory()
+        }
+    }
+
     pub fn slot(&self, id: u8) -> Option<&Slot> {
         self.slots.iter().find(|s| s.id == id)
     }
