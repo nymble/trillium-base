@@ -5,7 +5,9 @@ nymble/trillium repository (brand kit pull request #27).
 
 - `tokens.css`: the kit's CSS variables (`--tr-*`). `../theme.css` maps them to console roles.
 - `rhodonea-glyph.svg`, `rhodonea-app-dark.svg`: the Rhodonea mark. Do not rotate or alter it.
-- `lockup-primary-on-black.svg`: wordmark lockup (the wordmark is lowercase).
+- `lockup-primary-on-black.svg`: wordmark lockup on a black plate (the wordmark is lowercase).
+- `lockup-primary.svg`: the same lockup on a transparent ground, as published at
+  `m-of-n.com/ambient-lab/trillium/assets/lockup.svg`. The console header and pairing screen use it.
 - `ui-icons/`: 24 px icons that take `currentColor`; the console inlines them.
 
 PNG versions of the marks are left out on purpose (the repo carries no raster images).

@@ -1,0 +1,13 @@
+{
+  "name": "Trillium Base",
+  "short_name": "Trillium Base",
+  "description": "Trillium Console: configure and play a Trillium Base from the browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0C0C0D",
+  "theme_color": "#0C0C0D",
+  "icons": [
+    { "src": "/brand/rhodonea-app-dark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

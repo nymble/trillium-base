@@ -447,6 +447,29 @@ revalidation is a 304. An open tab polls `/info` every minute, on focus and afte
 WebSocket reconnects; if the server's build differs from the page's, a "New version
 available · Reload" banner appears.
 
+## Look and behaviour
+
+- **Brand.** Colours, type and radii come from `web/brand/tokens.css`, which is the Trillium brand kit's
+  token file (the same one the Trillium pages on m-of-n.com use). `web/theme.css` maps tokens to console
+  roles. The header and pairing screen use the Trillium lockup (`brand/lockup-primary.svg`, the glyph
+  plus the lowercase wordmark, copied unchanged from the Trillium pages) followed by "Base". Use the
+  lockup as an `<img>`; the bare glyph takes `currentColor` and is black when loaded that way. The
+  favicon and web app manifest use the Rhodonea app mark (SVG; no raster icons are shipped).
+- **Dark first.** The console stays dark in light and dark system modes, like the Trillium pages
+  (`color-scheme: dark`). Orange is for the one active thing; amber is for levels and meters only.
+- **Layout.** At 1380 px and wider the header is one row. Below that the status chips move to a second,
+  scrollable row. At 760 px and narrower, Panic, Rec and the master level stay in the header and the
+  sections become a bottom tab bar. Wide content (patch panel, tables) scrolls inside its card.
+- **Dialogs.** Anything that changes sound, deletes, or sends data to a device asks in a console dialog
+  (never the browser's `confirm()`).
+- **Accessibility.** Navigation items are links, with `aria-current`; there is a skip link; focus is
+  visible; controls built by the views are labelled after render (`a11y()` in `app.js`); clickable rows
+  are focusable and respond to Enter and Space; secondary text is at least 4.5:1 on panels; motion
+  respects `prefers-reduced-motion`. `tools/console-preview/` runs an axe-core check on every view at
+  desktop and phone width; the result should stay at zero findings.
+- **Reviewing changes.** `tools/console-preview/` serves the web files against a saved snapshot of the
+  device's API and takes screenshots of every view, so styling work does not need the device.
+
 ## Files on the Pi
 
 | Path | What |

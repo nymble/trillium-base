@@ -23,7 +23,7 @@
   --line-strong: color-mix(in srgb, var(--tr-ash) 40%, transparent);
   --text: var(--tr-text);
   --text-2: var(--tr-ash-light);
-  --text-3: var(--tr-ash);
+  --text-3: color-mix(in srgb, var(--tr-ash) 70%, var(--tr-ash-light)); /* ash lifted to 5:1 on panels (ash alone is 4.3:1 on graphite) */
   --disabled: var(--tr-unavailable);
   --accent: var(--tr-accent);          /* the one active thing, one primary button */
   --on-accent: var(--tr-on-accent);    /* always black on orange */

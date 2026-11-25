@@ -43,7 +43,7 @@ const put = (p, b) => api("PUT", p, b);
 let toastTimer;
 function toast(msg, err = false) {
   const t = $("#toast");
-  t.textContent = msg; t.className = "toast" + (err ? " err" : "");
+  t.textContent = msg; t.className = "toast" + (err ? " err" : ""); t.setAttribute("role", err ? "alert" : "status");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hidden"), err ? 6000 : 3200);
 }
 const fail = (e) => toast(e.message || String(e), true);
@@ -80,9 +80,9 @@ function bindPlay(root = document) {
 }
 function outputSeg() {
   return `<div class="row tight"><span class="muted small">Play on</span><div class="seg" id="out-seg">
-    <button data-o="dac" class="${S.out === "dac" ? "on" : ""}" title="Pi DAC: headphone / line out, at the current master">DAC</button>
-    <button data-o="browser" class="${S.out === "browser" ? "on" : ""}" title="Render on the Pi, play in this browser">This browser</button></div>
-    <label class="row tight muted small" title="Play a short phrase whenever you select a sound or table"><span>Preview on select</span><label class="switch"><input type="checkbox" id="prev-sel" ${S.prevSel ? "checked" : ""}><span></span></label></label></div>`;
+    <button data-o="dac" class="${S.out === "dac" ? "on" : ""}" title="DAC: headphone / line out of this Trillium Base, at the current master">DAC</button>
+    <button data-o="browser" class="${S.out === "browser" ? "on" : ""}" title="Render on the device, play in this browser">This browser</button></div>
+    <span class="row tight muted small" title="Play a short phrase whenever you select a sound or table"><span>Preview on select</span><label class="switch"><input type="checkbox" id="prev-sel" aria-label="Preview on select" ${S.prevSel ? "checked" : ""}><span></span></label></span></div>`;
 }
 function bindOutput(rerender) {
   $$("#out-seg button").forEach((b) => b.addEventListener("click", () => { S.out = b.dataset.o; localStorage.setItem("pilab.out", S.out); rerender(); }));
@@ -114,7 +114,7 @@ $("#pair-form").addEventListener("submit", async (ev) => {
     try {
       if (await redeemCode(v)) { $("#pair").classList.add("hidden"); start(); return; }
     } catch (e) { /* fall through */ }
-    $("#pair-msg").textContent = "Code not accepted (expired, used, or mistyped). Run `trillium-base pair --qr` on the device for a new one.";
+    $("#pair-msg").textContent = "Code not accepted (expired, used or mistyped). Run trillium-base pair --qr on the device for a new one.";
     return;
   }
   S.token = v;
@@ -151,14 +151,15 @@ async function boot() {
   checkBuild(S.info);
   if (S.info) {
     $("#pair-device").textContent = `${S.info.hostname} · device ${S.info.device_id} · v${S.info.version}`;
-    $("#foot-ver").textContent = `${S.info.product} v${S.info.version} · ${S.info.device_id}`;
+    $("#foot-ver").textContent = `Console v${S.info.version} · ${S.info.device_id}`;
+    $("#foot-ver").title = `${S.info.product} ${S.info.version}, commit ${S.info.commit}`;
   }
   const pm = location.hash.match(/pair=([A-Za-z0-9-]+)/);
   if (pm) {
     history.replaceState(null, "", location.pathname + location.search);
     let ok = false;
     try { ok = await redeemCode(pm[1]); } catch (e) { ok = false; }
-    if (!ok && !S.token) return showPair("That pairing code has expired or was already used. Run `trillium-base pair --qr` on the device for a new one.");
+    if (!ok && !S.token) return showPair("That pairing code has expired or was already used. Run trillium-base pair --qr on the device for a new one.");
   }
   if (!S.token) return showPair();
   try { await post("/pair/check"); start(); } catch (e) { if (e.message !== "unauthorized") showPair("Cannot reach the device: " + e.message); }
@@ -220,6 +221,7 @@ function onStatus(d) {
   if (document.activeElement !== m) { m.value = d.master_db; $("#master-v").textContent = fmtDb(d.master_db); }
   const rec = $("#btn-rec");
   rec.classList.toggle("on", d.rec.recording);
+  rec.setAttribute("aria-pressed", d.rec.recording ? "true" : "false");
   $("#rec-label").textContent = d.rec.recording ? fmtTime(d.rec.seconds) : "Rec";
   for (const ev of d.midi) {
     S.midiLog.unshift(ev); S.activity[ev.port] = performance.now();
@@ -241,7 +243,8 @@ function onSys() {
   if (S.view === "overview") {
     S.sysTick = (S.sysTick || 0) + 1;
     if (S.sysTick % 2 === 0) get("/midi/inputs").then((v) => { S.inputs = v; }).catch(() => {});
-    renderOverview();
+    const f = document.activeElement;
+    if (!(f && $("#main").contains(f) && f.matches(":focus-visible"))) renderOverview();
   }
 }
 
@@ -259,11 +262,52 @@ function debounce(key, fn, ms) { clearTimeout(timers[key]); timers[key] = setTim
 $("#nav").addEventListener("click", (e) => { const a = e.target.closest("a[data-view]"); if (a) { location.hash = a.dataset.view; } });
 window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) || "overview"; render(); });
 
+const VIEW_TITLE = { overview: "Overview", sounds: "Sounds", midimap: "MIDI Map", scenes: "Scenes", signals: "Signals", devices: "Devices", settings: "Settings" };
 function render() {
-  $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === S.view));
+  $$("#nav a").forEach((a) => { const on = a.dataset.view === S.view; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  document.title = `${VIEW_TITLE[S.view] || "Overview"} · ${PRODUCT} · ${(S.info && S.info.device) || "Trillium Base"}`;
   const views = { overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
   (views[S.view] || renderOverview)();
 }
+
+// Accessibility pass over whatever a view just rendered: label the controls the views
+// build as plain markup, and make clickable rows reachable and operable from the keyboard.
+let uid = 0, a11yTimer = 0;
+const ROW_SEL = ".slot, .bank, .wt, .preset, .akwf-groups > div, .akwf-files > div, td.cell";
+const SCROLL_SEL = ".tbl-scroll, .api-list, .banks, .monitor, .wt-grid, .akwf-groups, .akwf-files";
+function a11y(root) {
+  $$(".field", root).forEach((f) => {
+    const lab = f.querySelector(":scope > label:not([for])"), ctl = f.querySelector("input, select, textarea");
+    if (lab && ctl) { if (!ctl.id) ctl.id = "f" + (++uid); lab.htmlFor = ctl.id; }
+  });
+  $$("label.switch input:not([aria-label])", root).forEach((i) => {
+    let name = "";
+    if (i.dataset.svc) { const td = i.closest("tr") && i.closest("tr").firstElementChild; name = td ? td.textContent.trim() : ""; }
+    if (!name) { const h = i.closest(".card-head") && i.closest(".card-head").querySelector("h3"); name = h ? h.textContent.trim() : ""; }
+    if (!name) { const fl = i.closest(".field") && i.closest(".field").querySelector("label:not(.switch)"); name = fl ? fl.textContent.trim() : ""; }
+    if (!name) { const nx = i.closest("label.switch").nextElementSibling; name = nx ? nx.textContent.trim() : ""; }
+    if (!name) { const pv = i.closest("label.switch").previousElementSibling; name = pv ? pv.textContent.trim() : ""; }
+    if (name) i.setAttribute("aria-label", name);
+  });
+  // Rows that hold their own button (a play button) stay plain focusable rows; the rest act as buttons.
+  $$(ROW_SEL, root).forEach((el) => { if (!el.hasAttribute("tabindex")) { el.setAttribute("tabindex", "0"); if (!el.querySelector("button, input, select, a")) el.setAttribute("role", "button"); } });
+  $$(SCROLL_SEL + ", .card", root).forEach((el) => {
+    if (el.hasAttribute("tabindex") || (el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1)) return;
+    el.setAttribute("tabindex", "0"); // keyboard users can scroll it with the arrow keys
+  });
+  $$("[title]:is(input, select, button, textarea):not([aria-label])", root).forEach((el) => { if (!(el.labels && el.labels.length) && !el.textContent.trim()) el.setAttribute("aria-label", el.title); });
+  $$("input:not([aria-label]):not([type=hidden])", root).forEach((el) => { if (!(el.labels && el.labels.length) && el.title) el.setAttribute("aria-label", el.title); });
+  $$(".param", root).forEach((p) => { const i = p.querySelector("input:not([aria-label])"), l = p.querySelector(".lbl"); if (i && l) i.setAttribute("aria-label", l.textContent.trim()); });
+  $$(".card-head h3", root).forEach((h) => h.setAttribute("aria-level", "2")); // sections under the page's h1
+  $$("th:empty", root).forEach((th) => { th.innerHTML = `<span class="sr">${th.cellIndex === th.parentElement.children.length - 1 ? "Actions" : "Status"}</span>`; });
+  $$("select:not([aria-label]):not([id])", root).forEach((el) => { const t = el.title || el.closest("td") && el.closest("table").querySelectorAll("th")[el.closest("td").cellIndex]; if (t) el.setAttribute("aria-label", typeof t === "string" ? t : t.textContent.trim()); });
+  $$("input.input:not([aria-label]):not([id])", root).forEach((el) => { const th = el.closest("td") && el.closest("table").querySelectorAll("th")[el.closest("td").cellIndex]; if (th) el.setAttribute("aria-label", th.textContent.trim()); });
+}
+new MutationObserver(() => { if (!a11yTimer) a11yTimer = setTimeout(() => { a11yTimer = 0; a11y($("#main")); }, 120); }).observe($("#main"), { childList: true, subtree: true });
+$("#main").addEventListener("keydown", (e) => {
+  const el = e.target;
+  if ((e.key === "Enter" || e.key === " ") && el.matches && el.matches(ROW_SEL)) { e.preventDefault(); el.click(); }
+});
 
 // Scene TOML uses [[slot]] / [[route]]; the UI works with plural names.
 function norm(sc) { sc.slots = sc.slot || []; sc.routes = sc.route || []; return sc; }
@@ -273,7 +317,7 @@ async function refreshScene() {
 }
 
 function head(title, sub, right = "") {
-  return `<div class="page-head"><div><h2>${esc(title)}</h2>${sub ? `<div class="sub">${sub}</div>` : ""}</div><div class="spacer"></div>${right}</div>`;
+  return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div><div class="spacer"></div>${right}</div>`;
 }
 
 // ------------------------------------------------------------------ overview
@@ -294,7 +338,7 @@ function renderOverview() {
         : `<span class="muted small mono" title="${esc(x.how)}">${x.active ? "on" : "off"}</span>`}</td>
     </tr>`).join("");
   const ports = (s.listening || []).map((p) => `<tr><td class="mono">${p.proto}</td><td class="num">${p.port}</td><td>${p.scope}</td><td>${p.service === "undeclared" ? `<span class="badge caution">undeclared</span>` : esc(p.service)}</td></tr>`).join("");
-  const usb = (s.usb || []).map((u) => `<tr><td>${esc(u.product || u.id)}</td><td class="muted">${esc(u.vendor)}</td><td class="mono small">${u.id}</td><td>${u.midi ? `<span class="badge ok">MIDI</span>` : u.audio ? `<span class="badge">audio</span>` : ""}</td></tr>`).join("") || `<tr><td class="muted">No USB devices</td></tr>`;
+  const usb = (s.usb || []).map((u) => `<tr><td>${esc(u.product || u.id)}</td><td class="muted">${esc(u.vendor)}</td><td class="mono small">${u.id}</td><td>${u.midi ? `<span class="badge ok">MIDI</span>` : u.audio ? `<span class="badge">audio</span>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="4">No USB devices connected.</td></tr>`;
   const inputs = (S.inputs || []).filter((i) => i.slot !== 9).map((i) => {
     const who = i.device ? `<span class="badge ok">${esc(i.device)}</span> ` : "";
     const ident = i.identity ? `<div class="mono small muted">${esc(i.identity)}${i.rule ? " · matched by " + esc(i.rule) : ""}</div>` : "";
@@ -303,7 +347,7 @@ function renderOverview() {
   }).join("");
   const ev = (s.events || []).map((e) => `<div><span class="t">${e.time}</span><span>${e.level}</span><span></span><span>${esc(e.text)}</span></div>`).join("");
   const rec = s.recording;
-  $("#main").innerHTML = head("Overview", `${esc((S.info && S.info.device) || "Trillium Base")} · ${esc(s.hostname)}.local · ${esc((s.addresses || []).join(" · "))} · port ${s.port}`) + `
+  $("#main").innerHTML = head("Overview", `${esc((S.info && S.info.device) || "Trillium Base")} · ${esc(s.hostname)}.local · ${esc((s.addresses || []).filter((a) => !a.includes(":")).join(" · "))} · port ${s.port}`) + `
   <div class="grid g4">
     <div class="card">
       <div class="card-head"><h3>Machine</h3></div>
@@ -420,7 +464,7 @@ async function loadOverviewExtras() {
           <td class="small">${esc(p.fstype || "")} ${p.mountpoint ? `<span class="mono muted">${esc(p.mountpoint)}</span>` : ""}</td><td></td></tr>`);
       }
     }
-    if (sEl) sEl.innerHTML = `<table class="storage"><thead><tr><th>Device</th><th class="num">Size</th><th class="num">Used</th><th class="num">Free</th><th>Use</th><th>Filesystem · mount</th><th class="num">Temp</th></tr></thead><tbody>${rows.join("") || `<tr><td class="muted">No disks found</td></tr>`}</tbody></table>`;
+    if (sEl) sEl.innerHTML = `<table class="storage"><thead><tr><th>Device</th><th class="num">Size</th><th class="num">Used</th><th class="num">Free</th><th>Use</th><th>Filesystem · mount</th><th class="num">Temp</th></tr></thead><tbody>${rows.join("") || `<tr><td class="empty" colspan="7">No disks found.</td></tr>`}</tbody></table>`;
   } catch (e) { /* panels stay as placeholders */ }
 }
 
@@ -440,6 +484,23 @@ function dialog({ title, body, typed = "", ok = "OK" }) {
     d.addEventListener("cancel", () => done(null));
     d.showModal();
     (inp || okb).focus();
+  });
+}
+// Styled replacements for the browser's confirm() and prompt(): true/false and text/null.
+const ask = async (title, body, ok = "OK") => (await dialog({ title, body: `<p>${body}</p>`, ok })) !== null;
+function askText(title, body, value = "", ok = "OK") {
+  return new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.className = "dlg";
+    d.innerHTML = `<h3>${esc(title)}</h3><form method="dialog"><div class="dlg-body"><p>${body}</p></div><input class="input" id="dlg-text" autocomplete="off" aria-label="${esc(title)}" value="${esc(value)}">
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" type="button" data-x="cancel">Cancel</button><button class="btn primary" type="submit" data-x="ok">${esc(ok)}</button></div></form>`;
+    document.body.appendChild(d);
+    const inp = $("#dlg-text", d);
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    $("form", d).addEventListener("submit", (e) => { e.preventDefault(); const v = inp.value.trim(); done(v || null); });
+    $('[data-x="cancel"]', d).addEventListener("click", () => done(null));
+    d.addEventListener("cancel", () => done(null));
+    d.showModal(); inp.focus(); inp.select();
   });
 }
 const fmtUptime = (s) => s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
@@ -496,7 +557,7 @@ function renderSounds() {
     editor = `<div class="card" id="slot-editor">
       <div class="card-head"><input class="input" id="slot-name" value="${esc(s.name)}" title="${s.name_locked ? "Name set by hand" : "Named after its sound; type to set your own"}" style="font-family:var(--font-display);font-size:18px;width:260px">${s.name_locked ? `<button class="btn ghost small" id="slot-autoname" title="Name it after its sound again">Auto name</button>` : ""}
         <span class="spacer"></span>
-        <label class="row tight muted small"><span>Enabled</span><label class="switch"><input type="checkbox" id="slot-en" ${snd.enabled ? "checked" : ""}><span></span></label></label>
+        <span class="row tight muted small"><span>Enabled</span><label class="switch"><input type="checkbox" id="slot-en" aria-label="Sound enabled" ${snd.enabled ? "checked" : ""}><span></span></label></span>
         <button class="btn ghost small" data-play="slot:${s.id}" title="Play a short phrase">▶ Play</button>
         <button class="btn ghost small" id="slot-del">Remove</button>
       </div>
@@ -543,7 +604,7 @@ function renderSounds() {
   const sm = S.samples, pr = S.presets;
   let smHtml;
   if (!sm || !pr) smHtml = `<div class="muted">Loading…</div>`;
-  else if (!sm.available) smHtml = `<div class="risk">No sample banks installed at <code>${esc(sm.root)}</code>. On the Pi run <code>sh scripts/fetch-samples.sh</code> (CC0 FreePats banks and the VCSL drum kit, about 120 MiB).</div>`;
+  else if (!sm.available) smHtml = `<div class="risk">No sample banks installed at <code>${esc(sm.root)}</code>. On the device run <code>sh scripts/fetch-samples.sh</code> (CC0 FreePats banks and the VCSL drum kit, about 120 MiB).</div>`;
   else {
     const cats = {};
     sm.banks.forEach((b) => (cats[b.category] = cats[b.category] || []).push(b));
@@ -813,7 +874,7 @@ function renderMidiMap() {
   const inOpts = (sel) => rows.map((r) => `<option value="${esc(r.v)}" ${r.v === sel ? "selected" : ""}>${esc(r.l)}</option>`).join("");
   const chOpts = (sel) => `<option value="0" ${sel === 0 ? "selected" : ""}>omni</option>` + Array.from({ length: 16 }, (_, i) => `<option value="${i + 1}" ${sel === i + 1 ? "selected" : ""}>ch ${i + 1}</option>`).join("");
   const routes = sc.routes.map((r, i) => `<tr data-i="${i}">
-    <td><label class="switch"><input type="checkbox" data-k="enabled" ${r.enabled ? "checked" : ""}><span></span></label></td>
+    <td><label class="switch"><input type="checkbox" data-k="enabled" aria-label="Route enabled" ${r.enabled ? "checked" : ""}><span></span></label></td>
     <td><input class="input w-md" data-k="label" value="${esc(r.label)}" placeholder="label"></td>
     <td><select data-k="input">${inOpts(r.input)}</select></td>
     <td><select data-k="channel">${chOpts(r.channel)}</select></td>
@@ -914,15 +975,15 @@ async function renderScenes() {
     try { await api("PATCH", "/scene", { description: $("#sc-desc").value, a4_hz: +$("#sc-a4").value, bend_range: +$("#sc-bend").value }); await saveScene($("#sc-name").value.trim()); } catch (e) { fail(e); }
   });
   $$("[data-load]").forEach((b) => b.addEventListener("click", async () => {
-    if (S.dirty && !confirm("The active scene has unsaved changes. Load anyway?")) return;
+    if (S.dirty && !(await ask("Load this scene?", "The active scene has unsaved changes. Loading another scene discards them.", "Load anyway"))) return;
     try { const r = await post(`/scenes/${encodeURIComponent(b.dataset.load)}/load`); S.scene = norm(r.scene); S.dirty = r.dirty; toast(`Loaded ${b.dataset.load}`); renderScenes(); } catch (e) { fail(e); }
   }));
   $$("[data-dup]").forEach((b) => b.addEventListener("click", async () => {
-    const to = prompt("Name for the copy", b.dataset.dup + " copy"); if (!to) return;
+    const to = await askText("Duplicate scene", `Name for the copy of <b>${esc(b.dataset.dup)}</b>.`, b.dataset.dup + " copy", "Duplicate"); if (!to) return;
     try { await post(`/scenes/${encodeURIComponent(b.dataset.dup)}/duplicate`, { to }); renderScenes(); } catch (e) { fail(e); }
   }));
   $$("[data-rm]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm(`Delete scene "${b.dataset.rm}"? A .bak copy of the last save stays on the device.`)) return;
+    if (!(await ask("Delete scene?", `Delete <b>${esc(b.dataset.rm)}</b>? A .bak copy of the last save stays on the device.`, "Delete"))) return;
     try { await api("DELETE", `/scenes/${encodeURIComponent(b.dataset.rm)}`); renderScenes(); } catch (e) { fail(e); }
   }));
   $$("[data-dl]").forEach((a) => a.addEventListener("click", async (e) => {
@@ -1307,14 +1368,14 @@ async function renderDevices() {
     ${zeros}
     <div class="card">
       <div class="card-head"><h3>USB devices</h3></div>
-      <table><tbody>${usb || '<tr><td class="muted">none</td></tr>'}</tbody></table>
+      <table><tbody>${usb || '<tr><td class="empty" colspan="4">No USB devices connected.</td></tr>'}</tbody></table>
       <div class="lbl" style="margin:14px 0 4px">Bluetooth</div><div>${ble}</div>
     </div>`;
   $("#in-save").onclick = async () => {
     const mon = $("#in-mon").checked;
     const body = { source: $("#in-src").value, gain_db: parseFloat($("#in-gain").value), record: $("#in-rec").checked, monitor: mon };
     if (mon && !inp.monitor) {
-      if (!confirm("Send the input to the DAC? A microphone near the speakers can feed back.")) return;
+      if (!(await ask("Send the input to the DAC?", "A microphone near the speakers can feed back. Keep the master level low the first time.", "Monitor to DAC"))) return;
       body.confirm = true;
     }
     try { await post("/input", body); toast("Input saved"); renderDevices(); } catch (e) { fail(e); }
@@ -1324,7 +1385,7 @@ async function renderDevices() {
   });
   $$("[data-reapply]").forEach((b) => b.onclick = async () => {
     const n = b.dataset.n;
-    if (!confirm(`Send ${n} stored setting(s) to this Trillium Zero? Settings live in its RAM until it restarts.`)) return;
+    if (!(await ask("Send stored settings?", `Send ${esc(n)} stored setting(s) to this Trillium Zero. Settings live in its RAM until it restarts.`, "Send settings"))) return;
     try { b.disabled = true; const r = await post(`/devices/${encodeURIComponent(b.dataset.reapply)}/reapply`, { confirm: true }); toast(`Re-applied ${r.changed.length} setting(s)`); renderDevices(); } catch (e) { fail(e); b.disabled = false; }
   });
   $$("[data-tele]").forEach((b) => b.onclick = async () => {
@@ -1439,11 +1500,14 @@ function zeroCard(z) {
 }
 
 async function renderSettings() {
-  let r, recs;
+  let r, recs, ver = {}, eps = [], aud = { sinks: [] };
   try { r = await get("/settings"); recs = await get("/recordings"); } catch (e) { fail(e); return; }
+  // About, API reference and the DAC list are extras: the page works without them.
+  [ver, eps, aud] = await Promise.all([get("/versions").catch(() => ({})), get("/endpoints").catch(() => []), get("/audio/devices").catch(() => ({ sinks: [] }))]);
+  if (S.view !== "settings") return;
   const st = r.settings; S.settings = st;
   const sys = S.sys || {};
-  const recRows = recs.recordings.slice(0, 12).map((c) => `<tr><td class="mono small">${esc(c.id)}</td><td class="muted small">${esc(c.created.replace("T", " ").slice(0, 19))}</td><td class="num">${c.duration_s.toFixed(1)} s</td><td>${c.filed ? `<span class="badge ok">filed</span>` : `<span class="badge caution">only on this device</span>`}</td></tr>`).join("") || `<tr><td class="muted">No recordings yet.</td></tr>`;
+  const recRows = recs.recordings.slice(0, 12).map((c) => `<tr><td class="mono small">${esc(c.id)}</td><td class="muted small">${esc(c.created.replace("T", " ").slice(0, 19))}</td><td class="num">${c.duration_s.toFixed(1)} s</td><td>${c.filed ? `<span class="badge ok">filed</span>` : `<span class="badge caution">only on this device</span>`}</td></tr>`).join("") || `<tr><td class="empty" colspan="4">No recordings yet. Press Rec in the header to make one.</td></tr>`;
   const locs = ["~/.local/share/pilab/recordings", "/srv/library/pilab-library/recordings"];
   if (!locs.includes(st.recording.location)) locs.push(st.recording.location);
   const urls = [`http://${(sys.hostname || "pilab")}.local:${sys.port || 8410}/`].concat((sys.addresses || []).filter((a) => !a.includes(":")).map((a) => `http://${a}:${sys.port || 8410}/`));
@@ -1477,12 +1541,12 @@ async function renderSettings() {
     <div class="card">
       <div class="card-head"><h3>Audio</h3></div>
       <div class="field"><label>Synth outputs connect to</label><input class="input mono" id="aud-out" value="${esc(st.audio.output_ports.join(", "))}"></div>
-      <div class="field" style="margin-top:8px"><label>DAC sink (watchdog)</label><input class="input mono" id="aud-sink" value="${esc(st.audio.dac_sink)}"></div>
+      <div class="field" style="margin-top:8px"><label>DAC sink (watchdog)</label><input class="input mono" id="aud-sink" list="aud-sinks" value="${esc(st.audio.dac_sink)}"><datalist id="aud-sinks">${(aud.sinks || []).filter((k) => !k.airplay).map((k) => `<option value="${esc(k.name)}">${esc(k.description || k.kind || "")}</option>`).join("")}</datalist></div>
       <div class="row" style="margin-top:10px"><label class="switch"><input type="checkbox" id="aud-start" ${st.audio.start_engine ? "checked" : ""}><span></span></label><span>Start the synth when the service starts (fade-in, −18 dBFS max)</span></div>
       <div class="lbl" style="margin:14px 0 6px">Dropout watchdog</div>
       <div class="row"><label class="switch"><input type="checkbox" id="wd-en" ${st.watchdog.enabled ? "checked" : ""}><span></span></label><span>Suspend and resume the DAC sink after</span>
-        <input class="input mono" id="wd-rate" type="number" min="1" step="1" value="${st.watchdog.xruns_per_s}" style="width:70px"><span>dropouts/s for</span>
-        <input class="input mono" id="wd-hold" type="number" min="2" step="1" value="${st.watchdog.hold_s}" style="width:70px"><span>s</span></div>
+        <input class="input mono" id="wd-rate" aria-label="Dropouts per second" type="number" min="1" step="1" value="${st.watchdog.xruns_per_s}" style="width:70px"><span>dropouts/s for</span>
+        <input class="input mono" id="wd-hold" aria-label="Seconds over the limit" type="number" min="2" step="1" value="${st.watchdog.hold_s}" style="width:70px"><span>s</span></div>
       <div class="muted small" style="margin-top:6px">Causes about one second of silence on the DAC when it fires. Cooldown ${st.watchdog.cooldown_s} s.</div>
     </div>
     <div class="card">
@@ -1497,7 +1561,7 @@ async function renderSettings() {
         <span class="k">BLE alias</span><span class="v">${esc(d.ble_aliases.join(", ") || "—")}</span>
         <span class="k">Routed cables</span><span class="v">${d.route_cables.length ? d.route_cables.join(", ") : "all"}</span>
       </div>${d.note ? `<div class="muted small" style="margin-bottom:8px">${esc(d.note)}</div>` : ""}`).join("")}
-      <div class="muted small">Edit <code>[[midi.devices]]</code> in <code>~/.config/pilab/settings.toml</code> on the Pi, then restart pilabd.</div>
+      <div class="muted small">Edit <code>[[midi.devices]]</code> in <code>~/.config/pilab/settings.toml</code> on the device, then restart <code>pilabd</code>.</div>
       <div class="lbl" style="margin:14px 0 6px">Network and pairing</div>
       <div class="kv">
         <span class="k">Console</span><span class="v">${urls.map(esc).join("<br>")}</span>
@@ -1506,6 +1570,30 @@ async function renderSettings() {
       </div>
       <div class="risk caution" style="margin-top:10px"><b>!</b> The console is plain HTTP on the LAN. Anyone on this network with the pairing token can change the sound. On venue networks, prefer a direct cable.</div>
       <div class="row" style="margin-top:10px"><button class="btn ghost small" id="forget">Forget token in this browser</button><span class="muted small">New token on the device: <code>trillium-base pair --rotate</code></span></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>About</h3></div>
+      <div class="about-brand"><img src="/brand/lockup-primary.svg" alt="Trillium"><span class="muted">Base · Console</span></div>
+      <div class="kv">
+        <span class="k">Console</span><span class="v">${esc((ver.console && ver.console.version) || (S.info && S.info.version) || "—")} · <span class="mono">${esc((ver.console && ver.console.commit) || (S.info && S.info.commit) || "")}</span></span>
+        <span class="k">Device</span><span class="v">${esc(sys.hostname || (S.info && S.info.hostname) || "—")} · ${esc(sys.device_id || "")}</span>
+        <span class="k">Hardware</span><span class="v small">${esc(ver.model || "—")}</span>
+        <span class="k">OS · kernel</span><span class="v small">${esc(ver.os || "—")} · ${esc(ver.kernel || "—")}</span>
+        <span class="k">Audio</span><span class="v small">PipeWire ${esc(ver.pipewire || "—")}</span>
+        <span class="k">Licence</span><span class="v small">GPL-3.0-or-later OR commercial</span>
+      </div>
+      <div class="about-links">
+        <a href="https://m-of-n.com/ambient-lab/trillium/base/" target="_blank" rel="noopener noreferrer">Trillium Base</a>
+        <a href="https://github.com/nymble/trillium-base" target="_blank" rel="noopener noreferrer">Source</a>
+        <a href="https://github.com/nymble/trillium-base/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="mailto:support@m-of-n.com">Support</a>
+      </div>
+      <div class="muted small" style="margin-top:12px">Copyright (C) 2026 M-of-N. Trillium, Trillium Base, Trillium Console, Trillium Synth, Ambient Lab and the Rhodonea mark are trademarks of M-of-N. The licences cover the code, not the names and marks.</div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>API reference</h3><span class="spacer"></span><span class="muted small mono">GET /api/v1/endpoints</span></div>
+      <div class="muted small" style="margin-bottom:8px">Everything this console does goes through this API. Send the pairing token as a Bearer token.</div>
+      <div class="api-list">${eps.length ? eps.map((e) => `<div><span class="m">${esc(e.method)}</span><span class="p">${esc(e.path.replace("/api/v1", ""))}</span><span class="d">${esc(e.what)}</span></div>`).join("") : `<div class="empty-state">The endpoint list is not available.</div>`}</div>
     </div>
   </div>`;
   $("#arc-en").addEventListener("change", (e) => toast(e.target.checked ? "Archival on: copies recordings to the NAS share once it is configured. It is not configured yet, so nothing will be copied." : "Archival off: recordings stay on this device."));
@@ -1557,7 +1645,7 @@ function sendMidi(msg) {
 function noteOn(n) { if (n < 0 || n > 127 || held.has(n)) return; held.add(n); markKey(n, true); sendMidi({ note: n, vel: +$("#kbd-vel").value, on: true }); }
 function noteOff(n) { if (!held.has(n)) return; held.delete(n); markKey(n, false); sendMidi({ note: n, on: false }); }
 
-$("#btn-kbd").addEventListener("click", () => { $("#kbd").classList.toggle("hidden"); });
+$("#btn-kbd").addEventListener("click", () => { const h = $("#kbd").classList.toggle("hidden"); $("#btn-kbd").setAttribute("aria-expanded", h ? "false" : "true"); $("#btn-kbd").classList.toggle("on", !h); });
 $("#oct-dn").addEventListener("click", () => { S.kbdOct = Math.max(0, S.kbdOct - 1); updateOct(); });
 $("#oct-up").addEventListener("click", () => { S.kbdOct = Math.min(7, S.kbdOct + 1); updateOct(); });
 $("#kbd-vel").addEventListener("input", (e) => $("#kbd-vel-v").textContent = e.target.value);

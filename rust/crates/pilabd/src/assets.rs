@@ -24,6 +24,8 @@ files! {
     "/brand/rhodonea-glyph.svg" => "image/svg+xml",
     "/brand/rhodonea-app-dark.svg" => "image/svg+xml",
     "/brand/lockup-primary-on-black.svg" => "image/svg+xml",
+    "/brand/lockup-primary.svg" => "image/svg+xml",
+    "/manifest.webmanifest" => "application/manifest+json",
     "/brand/ui-icons/midi.svg" => "image/svg+xml",
     "/brand/ui-icons/presets.svg" => "image/svg+xml",
     "/brand/ui-icons/instrument.svg" => "image/svg+xml",
