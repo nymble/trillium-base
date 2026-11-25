@@ -1,0 +1,4 @@
+osv-scanner 2.7.1, rust/Cargo.lock (117 packages), 2026-11-24 17:57 PST. Run from a network that can reach api.osv.dev
+(the Mac's IPv6 route to it timed out; tools/sbom.sh now reports that instead of a false "0").
+Result: No issues found (0 vulnerabilities, including RustSec advisories). cargo-audit could not fetch its
+advisory database from GitHub on the same network, so it was not used.

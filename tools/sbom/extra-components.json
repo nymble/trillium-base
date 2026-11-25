@@ -1,0 +1,14 @@
+[
+ {"type":"application","bom-ref":"src:shairport-sync","name":"shairport-sync","version":"5.6.3","purl":"pkg:github/mikebrady/shairport-sync@5.6.3",
+  "description":"AirPlay 2 receiver, built from source (OpenSSL, Avahi, ALSA, PipeWire, soxr, metadata); installed in /usr/local/bin",
+  "licenses":[{"license":{"name":"NOASSERTION (upstream: MIT-style plus bundled third-party files, see its LICENSES file; verify for the AirPlay 2 build)"}}]},
+ {"type":"application","bom-ref":"src:nqptp","name":"nqptp","version":"1.2.9","purl":"pkg:github/mikebrady/nqptp@1.2.9",
+  "description":"Network PTP timing daemon for AirPlay 2, built from source; runs as root (nqptp.service)",
+  "licenses":[{"license":{"name":"NOASSERTION (upstream licence to verify)"}}]},
+ {"type":"application","bom-ref":"src:cabbage","name":"cabbage","version":"2.10.7","purl":"pkg:github/rorywalsh/cabbage@2.10.7",
+  "description":"Cabbage (Csound plug-in host), built from source at v2-master-final fe44ff9; installed in /usr/local/bin",
+  "licenses":[{"license":{"id":"GPL-3.0-only"}}]},
+ {"type":"application","bom-ref":"src:akwf","name":"Adventure Kid Waveforms (AKWF)","version":"unversioned","purl":"pkg:generic/akwf",
+  "description":"Single-cycle waveform library fetched by scripts/fetch-akwf.sh; see library/ attribution",
+  "licenses":[{"license":{"id":"CC0-1.0"}}]}
+]
