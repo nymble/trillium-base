@@ -13,12 +13,16 @@
 //! pilabctl panic                all sound off
 //! pilabctl scenes | load NAME | save NAME
 //! pilabctl record on|off
+//! pilabctl apps [list | show ID | validate FILE | enable ID | disable ID]   app manifests
 //! ```
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::Duration;
+
+#[path = "../apps_cli.rs"]
+mod apps_cli;
 
 const PORT: u16 = 8410;
 
@@ -179,6 +183,12 @@ fn main() {
         ["devices", "telemetry", key] => out(http("GET", &format!("/devices/{}/telemetry?hz=20&ms=1000", key.replace(' ', "%20")), None)),
         ["devices", "telemetry", key, hz] => out(http("GET", &format!("/devices/{}/telemetry?hz={}&ms=1000", key.replace(' ', "%20"), hz), None)),
         ["devices", "telemetry", key, hz, ms] => out(http("GET", &format!("/devices/{}/telemetry?hz={}&ms={}", key.replace(' ', "%20"), hz, ms), None)),
+        ["apps", rest @ ..] => {
+            if let Err(e) = apps_cli::run(rest) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
         ["inputs"] => out(http("GET", "/midi/inputs", None)),
         ["input"] => out(http("GET", "/input", None)),
         ["input", "source", glob] => out(http("POST", "/input", Some(format!("{{\"source\":{}}}", json_str(glob))))),
@@ -186,7 +196,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]]] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]]] | apps [list | show ID | validate FILE | enable ID | disable ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
             std::process::exit(2);
         }
     }

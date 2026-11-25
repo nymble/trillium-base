@@ -1,0 +1,29 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+schema = 1
+
+[app]
+id = "airplay-sender"
+name = "AirPlay sender"
+version = "1.0"
+license = "GPL-3.0-or-later OR LicenseRef-Commercial"
+summary = "Sends the Pi's audio to AirPlay speakers on the network (PipeWire RAOP discovery)"
+kind = "audio"
+source = "base"
+
+[service]
+unit = "pilab-airplay-sender.service"
+scope = "user"
+
+[resources]
+rt_class = "soft"
+
+[[network]]
+proto = "tcp"
+port = 7000
+exposure = "outbound"
+note = "connects to speakers"
+
+[security]
+risk = "Sends audio to speakers on this network."
+hardening = "basic"

@@ -1,0 +1,28 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+schema = 1
+
+[app]
+id = "ble-midi"
+name = "Bluetooth MIDI"
+version = "0.4.0-beta.1"
+license = "GPL-3.0-or-later OR LicenseRef-Commercial"
+summary = "BlueZ stack for BLE MIDI. A time-boxed pairing window is opened separately with trillium-ble-midi"
+kind = "midi"
+source = "base"
+
+[service]
+unit = "bluetooth.service"
+scope = "system"
+
+[resources]
+rt_class = "none"
+
+[midi]
+inputs = ["Trillium Base BLE MIDI"]
+
+[security]
+risk = "Bluetooth is a radio: the adapter is off by default, and pairing is only open for the minutes you ask for. Pairing uses LE Secure Connections where the central supports it."
+radio = true
+needs_root = true
+hardening = "none"

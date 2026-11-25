@@ -1,0 +1,27 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+schema = 1
+
+[app]
+id = "cabbage"
+name = "Cabbage (Csound)"
+version = "2.10.7"
+license = "GPL-3.0-only"
+summary = "Csound instrument host with plug-in style GUIs; started from the desktop, not a service"
+kind = "host"
+source = "local-build"
+homepage = "https://cabbageaudio.com"
+
+# No [service]: Cabbage is launched by hand and its links to Trillium Synth are made in the
+# patch panel (or reconnected with `pilabctl` after a relaunch).
+
+[resources]
+rt_class = "soft"
+cpus = "0-2"
+
+[audio]
+nodes = ["Cabbage"]
+
+[security]
+risk = "Runs Csound instruments and any code a .csd file contains. Open only files you trust."
+hardening = "none"

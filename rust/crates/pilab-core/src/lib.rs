@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Console data model: scenes (sound slots + MIDI routing), settings, storage.
 
+pub mod apps;
 pub mod devices;
 pub mod glob;
 pub mod presets;
