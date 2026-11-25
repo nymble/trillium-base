@@ -144,7 +144,12 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/devices/{key}/telemetry", get(device_telemetry))
         .route("/endpoints", get(endpoints))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
-    Router::new().nest(API_PREFIX, api).fallback(static_file).with_state(app)
+    let guard = Arc::new(crate::security::Guard::new(&app.hostname));
+    Router::new()
+        .nest(API_PREFIX, api)
+        .fallback(static_file)
+        .with_state(app)
+        .layer(middleware::from_fn_with_state(guard, crate::security::guard))
 }
 
 async fn auth(State(app): S, req: Request, next: Next) -> Response {

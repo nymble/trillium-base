@@ -18,6 +18,7 @@ mod mixer;
 mod paths;
 mod samples;
 mod record;
+mod security;
 mod state;
 mod sys;
 mod timefmt;
