@@ -8,6 +8,7 @@
 # - installs a minimal Rust toolchain in ~/.rustup and ~/.cargo if cargo is missing
 # - resolves the private ZPOD crates from a git bundle (no GitHub credentials on the Pi)
 # - installs binaries to ~/.local/bin, the user unit, the app manifests and the avahi service file (sudo)
+# - keeps the previous binaries as pilabd.prev / pilabctl.prev (scripts/rollback-console.sh)
 # - fetches the AKWF library if it is not there yet
 # Does not print the pairing token. Get it with:  pilabctl pair
 set -eu
@@ -39,6 +40,8 @@ GIT_CONFIG_KEY_0="url.file://$MIRROR.insteadOf" GIT_CONFIG_VALUE_0=https://githu
   PILAB_COMMIT=$(cat "$REPO/COMMIT" 2>/dev/null || echo unknown) cargo build --release --locked -p pilabd
 
 mkdir -p "$BIN" "$HOME/.config/systemd/user"
+# keep the binaries being replaced so scripts/rollback-console.sh can put them back
+for b in pilabd pilabctl; do [ -x "$BIN/$b" ] && cp -p "$BIN/$b" "$BIN/$b.prev"; done
 install -m 755 "$CARGO_TARGET_DIR/release/pilabd" "$CARGO_TARGET_DIR/release/pilabctl" "$BIN"/
 ln -sf pilabctl "$BIN/trillium-base"
 install -m 644 "$REPO/home/.config/systemd/user/pilabd.service" "$HOME/.config/systemd/user/pilabd.service"
