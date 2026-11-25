@@ -25,6 +25,7 @@ with any per-item credit lines the upstream licence requires.
 - Attribution required: no
 - Credit: Samples from the Versilian Community Sample Library (VCSL) by Versilian Studios LLC, CC0 1.0.
 - Checked: 2026-11-19: README and GitHub licence metadata say CC0 1.0; sizes from git tree API
+- Installed packs: vcsl-starter-kit, vcsl-full-kit, vcsl-marimba, vcsl-vibraphone, vcsl-glockenspiel, vcsl-balafon, vcsl-mbira (see `sbom/sounds-manifest.md`)
 
 ### FreePats sound banks, CC0 banks only
 
@@ -163,3 +164,14 @@ with any per-item credit lines the upstream licence requires.
 - Why: Free to use in music, including commercial works, but "must not be sold or made available 'as is' (i.e. as samples or as a sampler instrument)". So no packs, no base image, and never on a share or pilab endpoint other devices can read. A private copy on an owner's own drive for composing is fine.
 - Checked: 2026-11-19: licence text on the sound-samples page
 
+
+### FluidSynth and General MIDI SoundFonts (Debian packages, optional app)
+
+- FluidSynth: LGPL-2.1-or-later, <https://www.fluidsynth.org>
+- TimGM6mb: GPL-2.0-only (Debian `timgm6mb-soundfont`); FluidR3_GM: MIT (Debian `fluid-soundfont-gm`)
+- Used as separate programs and data files; not linked into Trillium Base.
+
+### ZynAddSubFX (Debian packages, optional app)
+
+- ZynAddSubFX and zynaddsubfx-data banks: GPL-2.0-or-later, <https://zynaddsubfx.sourceforge.io>
+- Runs as a separate program; not linked into Trillium Base.

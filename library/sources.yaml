@@ -61,6 +61,8 @@ sources:
       upstream: "6.16 GB, 4,282 files (WAV, git tree API); the Page's 5 GB figure was low"
       largest: "Chordophones/Zithers (pianos, harpsichords) 3.4 GB"
       base_subset: "starter drum and hand-percussion kit, ~76 MB as WAV, est. 40-50 MB as FLAC"
+      full_kit: "library/vcsl-full-kit.tsv, GM notes 27-87, 177 files, ~87 MB as WAV"
+      tonal: "library/vcsl-tonal.tsv, marimba, vibraphone, glockenspiel, balafon, mbira, 115 files, ~119 MB as WAV"
     tier: drive
     status: shippable
     verified: "2026-11-19: README and GitHub licence metadata say CC0 1.0; sizes from git tree API"

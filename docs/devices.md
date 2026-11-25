@@ -124,3 +124,9 @@ strip sources.
 GET_STATUS reports the pack as `absent` when its on/off switch is off, or when
 the pack is unplugged, even if a voltage is still visible. `present` means the
 switch is on and the pack is attached.
+
+## Mapping, presets and firmware
+
+The Zero mapping editor, presets, the Trillium kit and their API and CLI are in
+[zero-mapping.md](zero-mapping.md); firmware checks and the update path are in
+[firmware.md](firmware.md).

@@ -5,6 +5,30 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 
 ## Unreleased
 
+### Play view, navigation and setup
+
+- New **Play** view, the default: big scene chips, Zero mapping chips, twelve GM drum pads (velocity from where the pad is touched; channel 10 over `/midi`), master level and Panic. Built for iPad and phone touch (targets of 44 px or more, no hover-only controls).
+- Navigation is Play, Devices and Sounds, with Overview, Scenes, MIDI Map, Signals, Settings and Set up under **More** (a pop-up on the phone tab bar).
+- **Set up** walks the six first-run steps from `docs/first-run.md`; progress is stored with `GET|PUT /api/v1/setup` (`~/.config/pilab/setup.json`) and the console opens it once on a fresh install.
+- PNG home-screen icons (180, 192, 512 px, rendered from the existing app icon) and Apple web-app tags, so iPad Safari "Add to Home Screen" gets a proper icon.
+
+### Trillium Zero mapping editor and drum kit
+
+- All 41 Zero settings with names, ranges and app-style groups in the Devices mapping editor, the CLI (`trillium-base zero ...`) and the API (`/zero/schema`, `/zero/presets`, `/devices/{key}/settings|preset|export|import|action|auto`). Changes apply live and save to the profile. See `docs/zero-mapping.md`.
+- Presets: trillium-kit, tap-drum, tilt-melody, tilt-strike, theremin, touch-strip, flick-gestures, plus saved presets; import and export in the Trillium app's `trill-preset` format.
+- The saved profile is re-applied on connect, replug and reset (the Zero keeps settings in RAM only); `zero auto off` keeps the old manual behaviour.
+- Scene **trillium kit**: Zero strike directions and taps on channel 10 play the VCSL kit (down snare, up crash, left kick, right closed hat, forward low tom, back open hat).
+
+### Zero firmware
+
+- Firmware card, `trillium-base firmware status|latest|check|update` and `/api/v1/firmware*`: running version, latest release, UF2 checks (nRF52840 family, application window, no bootloader or SoftDevice images) and a confirmed update path with a backup of `CURRENT.UF2`. The update was not run on the lab unit. See `docs/firmware.md`.
+
+### Sounds
+
+- VCSL Full Kit (GM notes 27-87: toms, ride, crash, splash, china, Latin percussion) and tuned VCSL packs: marimba, vibraphone, glockenspiel, balafon, mbira, all CC0, with presets in the Sounds browser.
+- FluidSynth and ZynAddSubFX app manifests (apt, started by hand).
+- `sbom/sounds-manifest.md` lists every pack and instrument app with its licence.
+
 ### Trillium Zero sensors and strike measurement
 
 - Sensor inventory per Zero (Motion/IMU, Touch strip/Trill, Microphone, Battery) derived from telemetry and status, in `GET /api/v1/devices` (`sensors`, `note_path`), `trillium-base devices show [KEY]`, and a live **Sensors** table on the Devices Zero card. A Trill strip that stays in Retry is shown as "not fitted" (a motion-only Zero), not as a fault; the retry is logged once instead of repeating.
