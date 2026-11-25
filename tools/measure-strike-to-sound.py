@@ -7,7 +7,7 @@ Arms a console recording, prints a one-line cue, waits, stops the take, and
 reports onsets in the WAV (synth + input strip if the input is connected).
 
 One-line instruction for a person:
-  When this script prints GO, touch the Trillium Zero play surface once (a body strike does not send a note while tap percussion is off), then keep still.
+  When this script prints GO, strike the Trillium Zero once and keep still (needs tap percussion on if no touch strip is fitted; `trillium-base measure strike` explains this from the Zero's sensors).
 
 Usage (on the Pi):
   python3 tools/measure-strike-to-sound.py --pre 1 --listen 2
@@ -58,7 +58,7 @@ def main():
     print("Arming the recorder. Input strip (Yeti and/or Trillium Zero Mic) should already be connected, monitor off.", flush=True)
     sh(["trillium-base", "record", "on"])
     time.sleep(args.pre)
-    print("GO — touch the Trillium Zero play surface once (a body strike does not send a note while tap percussion is off), then keep still.", flush=True)
+    print("GO — strike the Trillium Zero once and keep still (needs tap percussion on if no touch strip is fitted; `trillium-base measure strike` explains this from the Zero's sensors).", flush=True)
     t_go = time.monotonic()
     time.sleep(args.listen)
     sh(["trillium-base", "record", "off"])

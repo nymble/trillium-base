@@ -37,6 +37,8 @@ pub struct Event {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MidiLog {
+    #[serde(skip)]
+    pub t_ns: u64,
     pub t: f64,
     pub port: u8,
     pub source: String,
@@ -1033,7 +1035,7 @@ impl App {
         b[..bytes.len()].copy_from_slice(bytes);
         let port = if port == PORT_AUDITION { PORT_AUDITION } else { PORT_CONSOLE };
         self.send(Cmd::Midi { port, len: bytes.len() as u8, bytes: b })?;
-        self.log_midi(MidiEv { port, len: bytes.len() as u8, b });
+        self.log_midi(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns() });
         Ok(())
     }
 
@@ -1046,7 +1048,7 @@ impl App {
         if (ev.port as usize) < MAX_PORTS {
             g.midi_counts[ev.port as usize] += 1;
         }
-        let log = MidiLog { t, port: ev.port, source, kind, ch, text, bytes };
+        let log = MidiLog { t_ns: ev.t_ns, t, port: ev.port, source, kind, ch, text, bytes };
         if g.midi_pending.len() < 256 {
             g.midi_pending.push(log.clone());
         }
@@ -1453,21 +1455,25 @@ impl App {
         }
     }
 
-    /// Arm a take, announce GO, and wait up to `timeout_s` (max 60) for an acoustic
-    /// onset and the synth's first sound. Writes a JSON result under measurements/.
-    pub fn measure_strike(&self, timeout_s: u64) -> Result<Value, String> {
-        use crate::measure::{self, GO};
+    /// Arm a take, announce GO, and wait up to `timeout_s` (max 60) for ONE strike: the Zero's
+    /// first note-on, the synth's first sound, and the acoustic onset (Zero mic and/or the
+    /// input strip). Reports MIDI→synth and acoustic→synth. `rehearse` injects a note on the
+    /// Zero's input instead of waiting for a person, to check the measurement end to end.
+    /// Writes a JSON result under measurements/.
+    pub fn measure_strike(&self, timeout_s: u64, rehearse: bool) -> Result<Value, String> {
+        use crate::measure::{self, now_ns};
         use pilab_synth::tuning::gain_to_db;
-        let timeout = Duration::from_secs(timeout_s.clamp(5, 60));
+        let plan = self.devmgr.strike_plan();
+        let cue = measure::cue(plan.as_ref(), rehearse);
+        let timeout = Duration::from_secs(if rehearse { 5 } else { timeout_s.clamp(5, 60) });
         let _ = self.stats.take_sticky_peaks();
         if let Some(b) = self.zeromic.lock().unwrap().as_ref() {
             let _ = b.take_peak();
         }
+        let _ = self.shared.take_input_peaks();
         self.measure_notes.lock().unwrap().clear();
         self.measuring.store(true, Ordering::SeqCst);
-        // Leave persisted input-record settings alone; just keep the input strip
-        // out of this take so the WAV is synth-only (the Yeti would otherwise
-        // look like synth audio and hide a silent engine).
+        // Keep the input strip out of this take's WAV so it is synth-only; restored below.
         let rec_in_was = self.shared.in_record.load(Ordering::Relaxed);
         self.shared.in_record.store(false, Ordering::Relaxed);
         let rec = self.record(true);
@@ -1478,54 +1484,92 @@ impl App {
                 None
             }
         };
-        self.event("info", GO);
-        let go_t0 = self.started.elapsed().as_secs_f64();
+        self.event("info", cue.clone());
+        let go_ns = now_ns();
         let go = Instant::now();
-        let mut base_ac = 0.0f32;
-        let mut base_sy = 0.0f32;
-        let mut acoustic: Option<(f32, &'static str, f32)> = None;
-        let mut synth: Option<(f32, f32)> = None;
         let has_zm = self.zeromic.lock().unwrap().is_some();
+        let (mut base_zm, mut base_in, mut base_sy) = (0.0f32, 0.0f32, 0.0f32);
+        let mut ac_zm: Option<(f32, f32)> = None;
+        let mut ac_in: Option<(f32, f32)> = None;
+        let mut synth: Option<(f32, f32)> = None;
+        let mut midi: Option<(f32, &'static str, String, u8)> = None;
+        let (mut inj_on, mut inj_off) = (false, false);
         while go.elapsed() < timeout {
-            let zm = self.zeromic.lock().unwrap().as_ref().map(|b| b.take_peak()).unwrap_or(0.0);
+            let zm = if has_zm { self.zeromic.lock().unwrap().as_ref().map(|b| b.take_peak()).unwrap_or(0.0) } else { 0.0 };
+            let ip = self.shared.take_input_peaks();
+            let ipk = ip[0].max(ip[1]);
             let (sl, sr) = self.stats.take_sticky_peaks();
             let sy = sl.max(sr);
-            let (ac, src) = if has_zm {
-                (zm, "zero_mic")
-            } else {
-                let ip = self.shared.take_input_peaks();
-                (ip[0].max(ip[1]), "input_strip")
-            };
-            if go.elapsed() < Duration::from_millis(300) {
-                base_ac = base_ac.max(ac);
+            let ms = go.elapsed().as_secs_f32() * 1000.0;
+            if rehearse && !inj_on && ms >= 600.0 {
+                inj_on = true;
+                let b = [0x90, 60, 100];
+                self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
+                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
+            }
+            if rehearse && inj_on && !inj_off && ms >= 1000.0 {
+                inj_off = true;
+                let b = [0x80, 60, 0];
+                self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
+                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
+            }
+            if ms < 300.0 {
+                base_zm = base_zm.max(zm);
+                base_in = base_in.max(ipk);
                 base_sy = base_sy.max(sy);
             } else {
-                let ac_thr = measure::threshold(base_ac, 12.0, -40.0);
-                let sy_thr = measure::threshold(base_sy, 12.0, -50.0);
-                if acoustic.is_none() && ac >= ac_thr {
-                    acoustic = Some((go.elapsed().as_secs_f32() * 1000.0, src, ac));
+                if ac_zm.is_none() && has_zm && zm >= measure::threshold(base_zm, 12.0, -50.0) {
+                    ac_zm = Some((ms, zm));
                 }
-                if synth.is_none() && sy >= sy_thr {
-                    synth = Some((go.elapsed().as_secs_f32() * 1000.0, sy));
+                if ac_in.is_none() && ipk >= measure::threshold(base_in, 12.0, -40.0) {
+                    ac_in = Some((ms, ipk));
                 }
-                if acoustic.is_some() && synth.is_some() {
-                    std::thread::sleep(Duration::from_millis(250));
-                    break;
+                if synth.is_none() && sy >= measure::threshold(base_sy, 12.0, -50.0) {
+                    synth = Some((ms, sy));
                 }
             }
-            std::thread::sleep(Duration::from_millis(5));
+            if midi.is_none() {
+                let g = self.measure_notes.lock().unwrap();
+                if let Some(e) = g.iter().find(|e| e.kind == "note-on" && e.t_ns >= go_ns && e.port != pilab_synth::PORT_CONSOLE && e.port != pilab_synth::PORT_AUDITION && e.port != pilab_synth::PORT_VIRTUAL) {
+                    midi = Some(((e.t_ns - go_ns) as f32 / 1.0e6, "note-on", e.source.clone(), e.bytes.get(1).copied().unwrap_or(0)));
+                }
+            }
+            if midi.is_some() && synth.is_some() {
+                // Let the acoustic onset in (it can trail the note by the mic path's buffering).
+                std::thread::sleep(Duration::from_millis(if rehearse { 100 } else { 400 }));
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
         }
-        let timed_out = acoustic.is_none() || synth.is_none();
+        // One last read so an onset in the final sleep is not missed.
+        if ac_zm.is_none() && has_zm {
+            let zm = self.zeromic.lock().unwrap().as_ref().map(|b| b.take_peak()).unwrap_or(0.0);
+            if zm >= measure::threshold(base_zm, 12.0, -50.0) {
+                ac_zm = Some((go.elapsed().as_secs_f32() * 1000.0, zm));
+            }
+        }
+        let ip = self.shared.take_input_peaks();
+        if ac_in.is_none() && ip[0].max(ip[1]) >= measure::threshold(base_in, 12.0, -40.0) {
+            ac_in = Some((go.elapsed().as_secs_f32() * 1000.0, ip[0].max(ip[1])));
+        }
+        let timed_out = midi.is_none() || synth.is_none();
         let rec_stop = if recording.is_some() { self.record(false).ok() } else { None };
         self.shared.in_record.store(rec_in_was, Ordering::Relaxed);
         self.measuring.store(false, Ordering::SeqCst);
         let rec_dir = rec_stop.as_ref().and_then(|v| v.get("card").and_then(|c| c.get("id")).and_then(|x| x.as_str()).map(|s| s.to_string()));
-        let ac_ms = acoustic.map(|(t, _, _)| t);
-        let sy_ms = synth.map(|(t, _)| t);
-        // Signed: the Zero mic path can report the strike later than the synth sounds.
-        let delta = match (ac_ms, sy_ms) {
-            (Some(a), Some(b)) => Some(((b - a) * 10.0).round() / 10.0),
+        let r1 = |x: f32| ((x * 10.0).round()) / 10.0;
+        let db = |p: f32| r1(gain_to_db(p));
+        let d = |a: Option<f32>, b: Option<f32>| match (a, b) {
+            (Some(a), Some(b)) => Some(r1(b - a)),
             _ => None,
+        };
+        let midi_ms = midi.as_ref().map(|m| m.0);
+        let sy_ms = synth.map(|s| s.0);
+        // Primary acoustic reference: the Zero's own mic when it is on (next to the strike), else the input strip.
+        let (ac_ms, ac_src, ac_peak) = match (ac_zm, ac_in) {
+            (Some((t, p)), _) => (Some(t), Some("zero_mic"), Some(p)),
+            (None, Some((t, p))) => (Some(t), Some("input_strip"), Some(p)),
+            _ => (None, None, None),
         };
         let midi_notes: Vec<Value> = self
             .measure_notes
@@ -1534,35 +1578,57 @@ impl App {
             .drain(..)
             .map(|e| {
                 json!({
-                    "ms": (((e.t - go_t0) * 1000.0 * 10.0).round()) / 10.0,
-                    "kind": e.kind,
-                    "ch": e.ch,
-                    "note": e.bytes.get(1).copied().unwrap_or(0),
-                    "vel": e.bytes.get(2).copied().unwrap_or(0),
-                    "port": e.port,
-                    "source": e.source,
-                    "text": e.text,
+                    "ms": r1((e.t_ns as i64 - go_ns as i64) as f32 / 1.0e6),
+                    "kind": e.kind, "ch": e.ch, "note": e.bytes.get(1).copied().unwrap_or(0),
+                    "vel": e.bytes.get(2).copied().unwrap_or(0), "port": e.port, "source": e.source, "text": e.text,
                 })
             })
             .collect();
         let midi_note_ons = midi_notes.iter().filter(|v| v.get("kind").and_then(|k| k.as_str()) == Some("note-on")).count();
+        let diagnosis = if midi.is_none() {
+            match &plan {
+                None => "No Trillium Zero is connected, so no strike note can arrive.".to_string(),
+                Some(p) if !p.path.strike_ready => format!("The Zero cannot play a note from a strike with its current settings: {}", p.path.hint),
+                Some(p) if !p.imu_running => "The Zero's motion sensor is not running, so no strike is detected.".to_string(),
+                Some(p) if !p.trill_fitted => "No note-on arrived from the Zero. Its motion tap needs the gyro calibrated and still for about 1 s, then a firm tap (default threshold 0.8 g, 120 ms apart).".to_string(),
+                Some(_) => "No note-on arrived from the Zero.".to_string(),
+            }
+        } else if synth.is_none() {
+            "A note-on reached the Base but the synth stayed silent: check the scene route, master level and that the synth is running.".to_string()
+        } else {
+            "ok".to_string()
+        };
         let stamp = timefmt::stamp(timefmt::now_secs());
         let dir = self.paths.measurements();
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("strike-{stamp}.json"));
         let result = json!({
-            "ok": !timed_out || ac_ms.is_some() || sy_ms.is_some() || midi_note_ons > 0,
-            "go": GO,
+            "ok": !timed_out,
+            "rehearsal": rehearse,
+            "go": cue,
+            "diagnosis": diagnosis,
             "timeout_s": timeout.as_secs(),
             "timed_out": timed_out,
-            "acoustic_ms": ac_ms.map(|t| (t * 10.0).round() / 10.0),
-            "acoustic_source": acoustic.map(|(_, s, _)| s),
-            "acoustic_peak_db": acoustic.map(|(_, _, p)| (gain_to_db(p) * 10.0).round() / 10.0),
-            "synth_ms": sy_ms.map(|t| (t * 10.0).round() / 10.0),
-            "synth_peak_db": synth.map(|(_, p)| (gain_to_db(p) * 10.0).round() / 10.0),
-            "strike_to_sound_ms": delta,
-            "baseline_acoustic_db": (gain_to_db(base_ac) * 10.0).round() / 10.0,
-            "baseline_synth_db": (gain_to_db(base_sy) * 10.0).round() / 10.0,
+            "sensors": plan.as_ref().map(|p| json!({ "touch_strip": p.trill_fitted, "imu_running": p.imu_running, "zero_mic": p.mic, "note_path": p.path.summary })),
+            "midi_ms": midi_ms.map(r1),
+            "midi_source": midi.as_ref().map(|m| m.2.clone()),
+            "midi_note": midi.as_ref().map(|m| m.3),
+            "synth_ms": sy_ms.map(r1),
+            "synth_peak_db": synth.map(|(_, p)| db(p)),
+            "midi_to_synth_ms": d(midi_ms, sy_ms),
+            "acoustic_ms": ac_ms.map(r1),
+            "acoustic_source": ac_src,
+            "acoustic_peak_db": ac_peak.map(db),
+            "acoustic_to_synth_ms": d(ac_ms, sy_ms),
+            "strike_to_midi_ms": d(ac_ms, midi_ms),
+            "strike_to_sound_ms": d(ac_ms, sy_ms),
+            "acoustic_zero_mic_ms": ac_zm.map(|a| r1(a.0)),
+            "acoustic_zero_mic_to_synth_ms": d(ac_zm.map(|a| a.0), sy_ms),
+            "acoustic_input_ms": ac_in.map(|a| r1(a.0)),
+            "acoustic_input_to_synth_ms": d(ac_in.map(|a| a.0), sy_ms),
+            "baseline_acoustic_db": db(if has_zm { base_zm } else { base_in }),
+            "baseline_input_db": db(base_in),
+            "baseline_synth_db": db(base_sy),
             "midi_notes": midi_notes,
             "midi_note_ons": midi_note_ons,
             "recording_includes_input": false,
@@ -1570,15 +1636,10 @@ impl App {
             "path": path.display().to_string(),
         });
         std::fs::write(&path, serde_json::to_vec_pretty(&result).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let summary = match delta {
-            Some(ms) => format!("strike-to-sound {ms} ms (result {})", path.display()),
-            None if timed_out && midi_note_ons == 0 => {
-                format!("strike measure timed out: no MIDI note-on and no complete onset pair (result {})", path.display())
-            }
-            None if timed_out => {
-                format!("strike measure timed out: MIDI note-on seen but no complete onset pair (result {})", path.display())
-            }
-            None => format!("strike measure finished (result {})", path.display()),
+        let summary = match (d(midi_ms, sy_ms), d(ac_ms, sy_ms)) {
+            (Some(m), Some(a)) => format!("strike measured: MIDI→synth {m} ms, acoustic→synth {a} ms (result {})", path.display()),
+            (Some(m), None) => format!("strike measured: MIDI→synth {m} ms, no acoustic onset (result {})", path.display()),
+            _ => format!("strike measure: {diagnosis} (result {})", path.display()),
         };
         self.event("info", summary);
         Ok(result)

@@ -48,6 +48,48 @@ kernel default `ECHO` sends the device's own status text back to it as keys.
 sets both ports raw with no echo when they appear, tells ModemManager to leave
 them alone, and adds the stable names above.
 
+## Sensors and the note path
+
+A Zero is not always built the same way. The motion-only builds have no Trill Flex
+touch strip. The Base works out what is fitted from telemetry and status, so it
+needs no setting. The inventory is in `GET /api/v1/devices` (`zeros[].sensors`,
+`zeros[].note_path`), in `trillium-base devices show [KEY]`, and in the console
+under Devices, on the Zero card, as the **Sensors** table (updated live).
+
+| Sensor | States shown | How it is decided |
+| --- | --- | --- |
+| Motion (IMU) | running, starting, disabled, not fitted, lost | telemetry `imu_state` (running once the gyro is calibrated, about 1 s still) |
+| Touch strip (Trill) | running, checking, not fitted, disabled, lost | `trill_state`. The firmware retries a missing strip every 1 to 2 s and reports Retry; after 20 frames (1 s) of Retry that never reached Running the strip is **not fitted**. It is not a fault. It reads **lost** only if it ran earlier in this session and stopped. |
+| Microphone | on, off, unavailable | the 16 kHz test stream (needs the PCM firmware variant) |
+| Battery | present, absent, checking | GET_STATUS |
+
+The Base logs one event when the inventory first settles or changes, for example
+`sensors: Motion (IMU): running, Touch strip (Trill): not fitted`. It does not
+repeat the Trill retry.
+
+Without a touch strip the only things that make a note are the motion paths in the
+firmware:
+
+* **Tap percussion** (setting 11 = 1): an IMU tap above the tap threshold (setting
+  25, default 80 centi-g, spacing setting 26, 120 ms) plays the percussion note
+  (setting 13, default 39) on channel setting 12 + 1 (default channel 10). The
+  gyro must have calibrated (about 1 s still) first.
+* **Strike directions** (setting 31 > 0): taps along the chosen axes play the
+  direction notes (settings 32 to 37) instead.
+* **Tilt-strike** (mode, setting 14 = 3): a tap plays the selected note, pitch from tilt.
+* Mode 1 and 2 play notes from tilt alone, with no strike.
+* Mode 0 (touch) plays nothing without a strip.
+
+With tap percussion off and no strip, a strike plays nothing. `trillium-base devices show`
+and the Sensors panel say so, and `trillium-base measure strike` explains it
+instead of asking for a touch.
+
+The lab Zero is saved as motion-only strikes: mode 0, tap percussion on, strike
+directions off, and the microphone on. Turning tap percussion on while the mic is
+already running makes the Base stop the mic and restore settings, so enable tap
+percussion first and start the mic after; on the lab unit both then run together.
+If the mic ever has to stay off, keep the Yeti input as the acoustic reference.
+
 ## Configuration from the Base (protocol, not yet in the console)
 
 SysEx v1 on cable 1: `F0 7D 54 52 01 <type> <req> <payload> F7`, at most 64

@@ -60,6 +60,12 @@ pub struct ZeroState {
     pub reconnected: bool,
     /// Last commanded microphone test-stream state (ACTION 7/8). Not reported by GET_STATUS.
     pub mic: bool,
+    /// The touch strip reported Running at some point since this device was found.
+    #[serde(skip)]
+    trill_seen: bool,
+    /// Last sensor inventory summary, so a change is logged once and never repeated.
+    #[serde(skip)]
+    inv_sig: String,
     #[serde(skip)]
     last_hello: Option<Instant>,
 }
@@ -73,6 +79,8 @@ pub struct Manager {
     /// Long-lived sequencer sessions used only to harvest telemetry (port 1).
     telem: Mutex<HashMap<String, Session>>,
     lease_until: Mutex<HashMap<String, Instant>>,
+    /// Events raised outside `poll` (sensor inventory changes), returned by the next `poll`.
+    pending_ev: Mutex<Vec<(&'static str, String)>>,
 }
 
 /// One aseqdump/aseqsend session on a device's configuration port.
@@ -265,7 +273,7 @@ fn read_full(f: &Found) -> Result<(Hello, Option<Status>, u16, Vec<(u8, u16)>), 
 
 impl Manager {
     pub fn new(config_dir: &std::path::Path) -> Manager {
-        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()), frames: Mutex::new(HashMap::new()), telem: Mutex::new(HashMap::new()), lease_until: Mutex::new(HashMap::new()) }
+        Manager { dir: config_dir.join("devices"), zeros: Mutex::new(HashMap::new()), io: Mutex::new(()), frames: Mutex::new(HashMap::new()), telem: Mutex::new(HashMap::new()), lease_until: Mutex::new(HashMap::new()), pending_ev: Mutex::new(Vec::new()) }
     }
 
     fn profile_path(&self, key: &str) -> PathBuf {
@@ -361,7 +369,10 @@ impl Manager {
                         // Firmware stops the PCM stream on unplug; the live flag must not
                         // hide a later profile re-apply after a replug.
                         s.mic = false;
+                        s.trill_seen = false;
+                        s.inv_sig.clear();
                     }
+                    self.frames.lock().unwrap().remove(&k);
                     self.close_telem(&k);
                 }
             }
@@ -411,6 +422,7 @@ impl Manager {
                 }
             }
         }
+        ev.extend(self.pending_ev.lock().unwrap().drain(..));
         ev
     }
 
@@ -514,7 +526,12 @@ impl Manager {
                 let key = if s.key.is_empty() { s.found.as_ref().map(|f| f.key.clone()).unwrap_or_default() } else { s.key.clone() };
                 let profile = self.load_profile(&key);
                 let live = frames.get(&key).map(|q| q.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+                let inv = zero::sensors(s.hello.as_ref(), s.status.as_ref(), &live, s.mic, s.trill_seen);
+                let running = |id: &str| inv.iter().any(|x| x.id == id && x.state == "running");
+                let note_path = zero::note_path(&s.params, running("trill"), running("imu"));
                 json!({
+                    "sensors": inv,
+                    "note_path": note_path,
                     "key": key,
                     "found": s.found,
                     "hello": s.hello,
@@ -746,8 +763,52 @@ impl Manager {
                 q.pop_front();
             }
         }
+        if last.is_some() {
+            self.note_sensors(&f.key);
+        }
         last
     }
+
+    /// Updates the touch-strip memory and logs a sensor inventory change once.
+    fn note_sensors(&self, key: &str) {
+        let frames: Vec<Telemetry> = self.frames.lock().unwrap().get(key).map(|q| q.iter().cloned().collect()).unwrap_or_default();
+        let mut z = self.zeros.lock().unwrap();
+        let Some(s) = z.get_mut(key) else { return };
+        if frames.iter().any(|t| t.trill_state == 2) {
+            s.trill_seen = true;
+        }
+        let inv = zero::sensors(s.hello.as_ref(), s.status.as_ref(), &frames, s.mic, s.trill_seen);
+        // Only the settled sensors: the mic and battery change on their own and are not news here.
+        let sig: String = inv.iter().filter(|x| x.id == "imu" || x.id == "trill").map(|x| format!("{}={}", x.id, x.state)).collect::<Vec<_>>().join(" ");
+        if sig != s.inv_sig && !inv.iter().any(|x| (x.id == "imu" || x.id == "trill") && x.state == "checking") {
+            s.inv_sig = sig;
+            let label = s.found.as_ref().map(|f| f.usb_path.clone()).unwrap_or_default();
+            let line: Vec<String> = inv.iter().filter(|x| x.id == "imu" || x.id == "trill").map(|x| format!("{}: {}", x.label, x.state.replace('_', " "))).collect();
+            self.pending_ev.lock().unwrap().push(("info", format!("Trillium Zero ({label}) sensors: {}", line.join(", "))));
+        }
+    }
+
+    /// What `measure strike` needs: the first connected Zero's inventory, settings and note path.
+    pub fn strike_plan(&self) -> Option<StrikePlan> {
+        let key = self.zeros.lock().unwrap().values().find(|s| s.found.is_some()).map(|s| s.key.clone())?;
+        let frames: Vec<Telemetry> = self.frames.lock().unwrap().get(&key).map(|q| q.iter().cloned().collect()).unwrap_or_default();
+        let z = self.zeros.lock().unwrap();
+        let s = z.get(&key)?;
+        let inv = zero::sensors(s.hello.as_ref(), s.status.as_ref(), &frames, s.mic, s.trill_seen);
+        let running = |id: &str| inv.iter().any(|x| x.id == id && x.state == "running");
+        let path = zero::note_path(&s.params, running("trill"), running("imu"));
+        Some(StrikePlan { key, trill_fitted: running("trill"), imu_running: running("imu"), mic: s.mic, path })
+    }
+}
+
+/// Facts `measure strike` uses to word its cue and explain a missing note.
+#[derive(Clone, Debug, Serialize)]
+pub struct StrikePlan {
+    pub key: String,
+    pub trill_fitted: bool,
+    pub imu_running: bool,
+    pub mic: bool,
+    pub path: zero::NotePath,
 }
 
 /// Picks a stored profile to reuse when a Zero appears on a new USB socket.

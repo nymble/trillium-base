@@ -69,6 +69,27 @@ A daemon restart no longer counts as a reconnect. A replug (new ALSA client) or 
 device reset (new boot id) is logged as such. Unplugged devices stay in the Devices
 list with their last settings.
 
+## Sensors panel
+
+Each Zero in `GET /api/v1/devices` carries `sensors` (id, label, state, detail) and
+`note_path` (`summary`, `strike_ready`, `hint`), derived from live telemetry and
+status. States: `running`, `on`, `present`; `not_fitted`, `off`, `absent`,
+`unavailable`, `checking`; `lost`, `disabled`. A Trill strip stuck in Retry is
+reported as `not_fitted` (a motion-only Zero), not as a fault, and is logged once.
+
+In the console, Devices shows the same data on the Zero card as a **Sensors**
+table, with state written in words (not colour alone) in a polite live region, plus
+a "Notes come from" line saying whether a strike makes a note. From the Pi,
+`trillium-base devices show [KEY]` prints it.
+
+`trillium-base measure strike [--rehearse]` (`POST /api/v1/measure/strike`,
+`{timeout_s, rehearse}`) waits up to 60 s for one strike after its cue and reports
+the first Zero note-on, the synth onset, and the acoustic onset, with
+`midi_to_synth_ms` and `acoustic_to_synth_ms`. The cue
+(`GET /api/v1/measure/strike/cue`) follows the sensors: it only mentions a touch
+strip when one is running. `--rehearse` injects one note on the Zero's input to
+check the whole measurement without a person.
+
 ## Live sensors and the patch panel
 
 While a Zero is connected, the Base keeps a 20 Hz telemetry lease (read-only,

@@ -42,6 +42,8 @@ pub struct MidiEv {
     pub port: u8,
     pub len: u8,
     pub b: [u8; 3],
+    /// CLOCK_MONOTONIC nanoseconds when the realtime thread saw the event.
+    pub t_ns: u64,
 }
 
 /// Rings between the realtime thread and the rest of the service.
@@ -164,7 +166,7 @@ impl RtHost {
         self.engine.midi(port, bytes);
         let mut b = [0u8; 3];
         b[..bytes.len()].copy_from_slice(bytes);
-        let _ = self.mon_tx.push(MidiEv { port, len: bytes.len() as u8, b });
+        let _ = self.mon_tx.push(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns() });
     }
 
     /// Renders one block. `input` is the input strip's source (left, right), if any:

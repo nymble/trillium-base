@@ -430,3 +430,164 @@ pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
 pub fn to_hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02X}")).collect::<Vec<_>>().join(" ")
 }
+
+/// One row of a Zero's sensor inventory.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Sensor {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// "running" | "on" | "present" (all fine), "off" | "not_fitted" | "absent" | "unavailable"
+    /// | "checking" (neutral), "lost" | "disabled" (needs a look).
+    pub state: &'static str,
+    pub detail: String,
+}
+
+/// Telemetry frames needed before a touch strip that never reported is called "not fitted".
+pub const TRILL_NOT_FITTED_AFTER: usize = 20;
+
+/// Sensor inventory derived from HELLO, status and the live telemetry ring. A touch strip
+/// that stays in the firmware's retry state is "not fitted": many Zeros are MCU-only and
+/// that is normal, not a fault. It is a fault ("lost") only if it ran earlier this session.
+pub fn sensors(hello: Option<&Hello>, status: Option<&Status>, frames: &[Telemetry], mic: bool, trill_seen_running: bool) -> Vec<Sensor> {
+    let last = frames.last();
+    let imu = {
+        let (state, detail) = match (hello, last) {
+            (Some(h), _) if !h.imu() => ("not_fitted", "No motion sensor on this board.".to_string()),
+            (_, None) => ("checking", "Waiting for sensor frames.".to_string()),
+            (_, Some(t)) => match t.imu_state {
+                2 if t.gyro_calibrated => ("running", "Accelerometer and gyro running, calibrated (taps and strikes armed after about 1 s still).".to_string()),
+                2 => ("running", "Running; the gyro is still calibrating (hold the Zero still).".to_string()),
+                1 | 0 => ("checking", "Starting.".to_string()),
+                4 => ("disabled", "Disabled (safe mode).".to_string()),
+                5 => ("not_fitted", "No motion sensor answered at boot.".to_string()),
+                _ => ("lost", "Not responding; the firmware is retrying.".to_string()),
+            },
+        };
+        Sensor { id: "imu", label: "Motion (IMU)", state, detail }
+    };
+    let trill = {
+        let (state, detail) = match last {
+            None => ("checking", "Waiting for sensor frames.".to_string()),
+            Some(t) => match t.trill_state {
+                2 => ("running", "Touch strip running.".to_string()),
+                1 => ("checking", "Starting.".to_string()),
+                4 => ("disabled", "Disabled (safe mode).".to_string()),
+                5 => ("not_fitted", "Not fitted. Notes come from the motion sensors.".to_string()),
+                _ if trill_seen_running => ("lost", "The touch strip ran earlier and stopped answering; check its cable.".to_string()),
+                _ if frames.len() >= TRILL_NOT_FITTED_AFTER => ("not_fitted", "No touch strip detected. Normal for a motion-only Zero; notes come from the motion sensors.".to_string()),
+                _ => ("checking", "Looking for a touch strip.".to_string()),
+            },
+        };
+        Sensor { id: "trill", label: "Touch strip (Trill)", state, detail }
+    };
+    let micr = match hello {
+        Some(h) if h.mic() => Sensor { id: "mic", label: "Microphone", state: if mic { "on" } else { "off" }, detail: if mic { "16 kHz test stream running.".into() } else { "Test stream off (it starts from the stored profile).".into() } },
+        _ => Sensor { id: "mic", label: "Microphone", state: "unavailable", detail: "This firmware has no microphone stream.".into() },
+    };
+    let batt = match status {
+        Some(s) if s.battery == "present" => Sensor { id: "battery", label: "Battery", state: "present", detail: format!("{}% · {} mV{}", s.charge_pct.map(|p| p.to_string()).unwrap_or_else(|| "?".into()), s.battery_mv, if s.charging { " · charging" } else { "" }) },
+        Some(s) if s.battery == "absent" => Sensor { id: "battery", label: "Battery", state: "absent", detail: format!("No pack reading (switch off or unplugged); running from USB, {} mV.", s.battery_mv) },
+        _ => Sensor { id: "battery", label: "Battery", state: "checking", detail: "No status yet.".into() },
+    };
+    vec![imu, trill, micr, batt]
+}
+
+/// Which sensor path can produce notes with the current settings.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct NotePath {
+    /// A strike (touch, tap or tilt-strike) can play a note now.
+    pub strike_ready: bool,
+    pub summary: String,
+    pub hint: String,
+}
+
+fn param(params: &[(u8, u16)], id: u8) -> u16 {
+    params.iter().find(|(i, _)| *i == id).map(|x| x.1).unwrap_or(0)
+}
+
+/// Note sources for the live settings, given which sensors are running.
+pub fn note_path(params: &[(u8, u16)], trill_running: bool, imu_running: bool) -> NotePath {
+    let mode = param(params, 14);
+    let ch = param(params, 12) + 1;
+    let perc = param(params, 11) == 1;
+    let dirs = param(params, 31);
+    let mut parts: Vec<String> = vec![];
+    let mut strike = false;
+    match mode {
+        0 => {
+            if trill_running {
+                parts.push(format!("touch strip → notes on channel {}", param(params, 1) + 1));
+                strike = true;
+            }
+            if perc && imu_running {
+                if dirs == 0 {
+                    parts.push(format!("IMU tap → note {} on channel {ch}", param(params, 13)));
+                } else {
+                    parts.push(format!("IMU strike ({dirs} directions) → notes on channel {ch}"));
+                }
+                strike = true;
+            }
+        }
+        1 | 2 if imu_running => parts.push("tilt → notes (continuous, not strikes)".into()),
+        3 if imu_running => {
+            parts.push("IMU strike → the tilt-selected note".into());
+            strike = true;
+        }
+        _ => {}
+    }
+    if parts.is_empty() {
+        let hint = if mode == 0 && !trill_running {
+            "No touch strip, and tap percussion (parameter 11) is off, so a strike plays nothing. Turn tap percussion on, or use tilt-strike mode (parameter 14 = 3).".to_string()
+        } else if !imu_running {
+            "The motion sensor is not running.".to_string()
+        } else {
+            "Nothing is mapped to notes.".to_string()
+        };
+        NotePath { strike_ready: false, summary: "no note source enabled".into(), hint }
+    } else {
+        NotePath { strike_ready: strike, summary: parts.join("; "), hint: String::new() }
+    }
+}
+
+#[cfg(test)]
+mod sensor_tests {
+    use super::*;
+
+    fn frame(imu: u8, trill: u8) -> Telemetry {
+        Telemetry { seq: 0, time_ms: 0, imu_valid: true, gyro_calibrated: true, touching: false, safe_mode: false, imu_state: imu, trill_state: trill, accel: [0; 3], gyro: [0.0; 3], pitch: 0.0, roll: 0.0, touch_pos: 0.0, touch_size: 0.0, taps: 0, skipped: 0 }
+    }
+    fn st(v: &[Sensor], id: &str) -> &'static str {
+        v.iter().find(|s| s.id == id).unwrap().state
+    }
+
+    #[test]
+    fn trill_in_retry_is_not_fitted_after_enough_frames() {
+        let few: Vec<Telemetry> = (0..5).map(|_| frame(2, 3)).collect();
+        assert_eq!(st(&sensors(None, None, &few, false, false), "trill"), "checking");
+        let many: Vec<Telemetry> = (0..30).map(|_| frame(2, 3)).collect();
+        let s = sensors(None, None, &many, false, false);
+        assert_eq!(st(&s, "trill"), "not_fitted");
+        assert_eq!(st(&s, "imu"), "running");
+    }
+
+    #[test]
+    fn trill_that_ran_and_stopped_is_lost() {
+        let many: Vec<Telemetry> = (0..30).map(|_| frame(2, 3)).collect();
+        assert_eq!(st(&sensors(None, None, &many, false, true), "trill"), "lost");
+        assert_eq!(st(&sensors(None, None, &[frame(2, 2)], false, true), "trill"), "running");
+    }
+
+    #[test]
+    fn note_path_without_a_strip_needs_tap_percussion() {
+        let off = vec![(11u8, 0u16), (14, 0), (12, 9), (13, 39), (31, 0)];
+        let p = note_path(&off, false, true);
+        assert!(!p.strike_ready);
+        assert!(p.hint.contains("tap percussion"));
+        let on = vec![(11u8, 1u16), (14, 0), (12, 9), (13, 39), (31, 0)];
+        let p = note_path(&on, false, true);
+        assert!(p.strike_ready);
+        assert!(p.summary.contains("note 39 on channel 10"));
+        assert!(note_path(&[(14, 3)], false, true).strike_ready);
+        assert!(!note_path(&[(14, 1)], false, true).strike_ready);
+    }
+}

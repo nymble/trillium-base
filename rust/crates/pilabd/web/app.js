@@ -1431,7 +1431,12 @@ function tickDevices() {
       if (c) drawZeroPlot(c, z.frames || []);
       const live = $("#tele-live-" + z.key);
       const f = (z.frames || [])[(z.frames || []).length - 1];
-      if (live && f) live.textContent = `pitch ${f.pitch.toFixed(1)}° · roll ${f.roll.toFixed(1)}° · ${f.touching ? "touch " + (f.touch_pos * 100).toFixed(0) + "%" : "no touch"}`;
+      const strip = (z.sensors || []).some((s) => s.id === "trill" && s.state === "running");
+      if (live && f) live.textContent = `pitch ${f.pitch.toFixed(1)}° · roll ${f.roll.toFixed(1)}°${strip ? " · " + (f.touching ? "touch " + (f.touch_pos * 100).toFixed(0) + "%" : "no touch") : ""} · taps ${f.taps}`;
+      const sh = $("#sensors-" + z.key);
+      if (sh) { const h = sensorsHtml(z); if (sh.dataset.h !== h) { sh.innerHTML = h; sh.dataset.h = h; } }
+      const nh = $("#notepath-" + z.key);
+      if (nh) { const h = notePathHtml(z); if (nh.dataset.h !== h) { nh.innerHTML = h; nh.dataset.h = h; } }
     }
   }).catch(() => {});
 }
@@ -1479,6 +1484,27 @@ function drawZeroPlot(canvas, frames) {
   ctx.fillText("roll", 52, 14);
 }
 
+const SENSOR_BADGE = {
+  running: ["ok", "running"], on: ["ok", "on"], present: ["ok", "present"],
+  off: ["off", "off"], not_fitted: ["off", "not fitted"], absent: ["off", "absent"], unavailable: ["off", "unavailable"], checking: ["off", "checking"],
+  lost: ["caution", "lost"], disabled: ["caution", "disabled"],
+};
+
+// Sensor inventory table: state is always written as text, never colour alone.
+function sensorsHtml(z) {
+  const rows = (z.sensors || []).map((s) => {
+    const b = SENSOR_BADGE[s.state] || ["off", s.state];
+    return `<tr><th scope="row" style="font-weight:500;text-align:left">${esc(s.label)}</th><td><span class="badge ${b[0]}">${esc(b[1])}</span></td><td class="muted">${esc(s.detail)}</td></tr>`;
+  }).join("") || `<tr><td class="empty" colspan="3">Waiting for the device.</td></tr>`;
+  return `<table class="sensors"><caption class="sr">Sensors on this Trillium Zero</caption><thead><tr><th scope="col" style="text-align:left">Sensor</th><th scope="col" style="text-align:left">State</th><th scope="col" style="text-align:left">Detail</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function notePathHtml(z) {
+  const np = z.note_path || {};
+  if (!np.summary) return "";
+  return `<div class="muted" style="margin-top:8px">Notes come from: <span class="mono">${esc(np.summary)}</span> <span class="badge ${np.strike_ready ? "ok" : "caution"}">${np.strike_ready ? "strike ready" : "strikes play nothing"}</span></div>${np.hint ? `<div class="risk caution" style="margin-top:6px"><b>!</b> ${esc(np.hint)}</div>` : ""}`;
+}
+
 function zeroCard(z) {
   const h = z.hello || {}, st = z.status || {};
   const batt = st.battery === "present" ? `${st.charge_pct ?? "?"}% · ${st.battery_mv} mV${st.charging ? " · charging" : ""}` : (st.battery === "absent" ? "absent (switch off or unplugged)" : (st.battery || "—"));
@@ -1500,6 +1526,11 @@ function zeroCard(z) {
       <div class="field"><label>Profile</label><div class="mono">${z.profile ? esc(z.profile.captured_text) + " · " + z.profile.count + " settings" : "—"}</div></div>
     </div>
     ${z.reconnected && nd ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Nothing is sent until you re-apply.</div>` : ""}
+    <section aria-labelledby="sens-h-${esc(z.key)}" style="margin-top:12px">
+      <div class="lbl" id="sens-h-${esc(z.key)}" style="margin-bottom:4px">Sensors</div>
+      <div id="sensors-${esc(z.key)}" aria-live="polite">${sensorsHtml(z)}</div>
+      <div id="notepath-${esc(z.key)}" aria-live="polite">${notePathHtml(z)}</div>
+    </section>
     <canvas id="plot-${esc(z.key)}" width="600" height="140" style="width:100%;height:140px;margin-top:10px;border-radius:6px;background:rgba(0,0,0,0.2)"></canvas>
     <div class="muted" style="margin-top:4px">Live sensors at 20 Hz · <span class="mono" id="tele-live-${esc(z.key)}"></span>. Pitch and roll also leave the patch panel as <span class="mono">Trillium Synth:zero_motion</span> (MIDI CC 16 / 17 / 18), not connected automatically.</div>
     <div class="row" style="margin-top:10px;align-items:center">

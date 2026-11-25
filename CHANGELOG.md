@@ -5,6 +5,12 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 
 ## Unreleased
 
+### Trillium Zero sensors and strike measurement
+
+- Sensor inventory per Zero (Motion/IMU, Touch strip/Trill, Microphone, Battery) derived from telemetry and status, in `GET /api/v1/devices` (`sensors`, `note_path`), `trillium-base devices show [KEY]`, and a live **Sensors** table on the Devices Zero card. A Trill strip that stays in Retry is shown as "not fitted" (a motion-only Zero), not as a fault; the retry is logged once instead of repeating.
+- `measure strike` follows the sensors: no "touch the play surface" cue without a strip, and it says what makes a note (IMU tap percussion, strike directions, tilt-strike). It waits for the first Zero note-on and reports MIDI to synth and acoustic to synth in one result; `--rehearse` checks the path with an injected note. `GET /api/v1/measure/strike/cue` returns the cue.
+- Note-on timestamps are taken on the realtime MIDI thread, so the MIDI to synth delta is no longer quantised to the 66 ms status loop.
+
 ### Console polish
 
 - Header carries the Trillium lockup (glyph and wordmark, from the brand kit and the live Trillium pages) with "Base" and the host line. The old header and pairing mark used the glyph as an `<img>` with `currentColor`, which rendered black on black; both now use the lockup.
