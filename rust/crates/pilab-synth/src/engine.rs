@@ -559,11 +559,27 @@ impl Engine {
 
     /// Renders `l.len()` frames (l and r must be the same length). Allocation-free.
     pub fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
+        self.process_ext(l, r, None);
+    }
+
+    /// Like [`Engine::process`], with an external stereo source (FluidSynth, ZynAddSubFX)
+    /// mixed in before the master level, limiter and soft clip.
+    pub fn process_ext(&mut self, l: &mut [f32], r: &mut [f32], ext: Option<(&[f32], &[f32])>) {
         let n = l.len().min(r.len());
+        let ext = ext.filter(|(a, b)| a.len() >= n && b.len() >= n);
         let mut off = 0;
         while off < n {
             let len = (n - off).min(BLOCK);
             self.render_block(len);
+            if let Some((el, er)) = ext {
+                for i in 0..len {
+                    let (a, b) = (el[off + i], er[off + i]);
+                    if a.is_finite() && b.is_finite() {
+                        self.buf_l[i] += a;
+                        self.buf_r[i] += b;
+                    }
+                }
+            }
             self.post(&mut l[off..off + len], &mut r[off..off + len], len);
             off += len;
         }

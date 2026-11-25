@@ -11,7 +11,7 @@ attach the files to the GitHub release; commit them here when the version is tag
 | `trillium-base-0.4.0-beta.1-licenses.md` | Licence summary and conflict check against `GPL-3.0-or-later OR LicenseRef-Commercial` | Markdown | |
 | `trillium-base-0.4.0-beta.1-unit-debian-vulnerabilities.md` | grype scan of the lab unit, de-duplicated by source package and CVE | Markdown | |
 | `trillium-base-0.3.0-beta.1-image-vulnerabilities.md` | grype scan of the published image | Markdown | |
-| `sounds-manifest.md` | Every sound pack and instrument app with its licence (sample data is downloaded onto the device, not in the image) | Markdown | |
+| `sounds-manifest.md` | Every sound pack and instrument app with its licence (sample data is downloaded onto the device, not in the image). MuldjordKit is CC BY 4.0 and its credit line is listed there and shown in the console | Markdown | |
 | `trillium-base-0.4.0-beta.1-rust-osv.txt` | OSV (RustSec and GitHub advisories) scan of `Cargo.lock` | text | |
 
 There is no image built from 0.4.0-beta.1 yet; when one is built, run

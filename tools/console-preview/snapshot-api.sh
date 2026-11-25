@@ -10,7 +10,7 @@ TOKEN=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/pilab/console-token")
 mkdir -p "$OUT"
 for e in info status system versions storage audio/devices scene scenes midi/inputs library/samples \
          library/presets library/akwf graph mixer meters settings recordings input devices endpoints \
-         zero/schema zero/presets firmware setup; do
+         zero/schema zero/presets firmware setup midi/router midi/monitor engines; do
   curl -fsS -m 20 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8410/api/v1/$e" > "$OUT/$(echo "$e" | tr / _).json"
 done
 echo "saved $(ls "$OUT" | wc -l) files to $OUT (they contain this device's addresses and names; do not commit them)"

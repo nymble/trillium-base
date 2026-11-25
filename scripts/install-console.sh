@@ -45,6 +45,11 @@ for b in pilabd pilabctl; do [ -x "$BIN/$b" ] && cp -p "$BIN/$b" "$BIN/$b.prev";
 install -m 755 "$CARGO_TARGET_DIR/release/pilabd" "$CARGO_TARGET_DIR/release/pilabctl" "$BIN"/
 ln -sf pilabctl "$BIN/trillium-base"
 install -m 644 "$REPO/home/.config/systemd/user/pilabd.service" "$HOME/.config/systemd/user/pilabd.service"
+# Engines pilabd starts on demand (FluidSynth, ZynAddSubFX); not enabled at boot.
+for u in "$REPO"/home/.config/systemd/user/pilab-*.service; do
+  [ -f "$u" ] && install -m 644 "$u" "$HOME/.config/systemd/user/$(basename "$u")"
+done
+systemctl --user daemon-reload
 
 # Trillium Zero serial ports: no ModemManager probing, raw/no-echo, stable names.
 UDEV_RULE="$REPO/etc/udev/rules.d/70-trillium-zero.rules"

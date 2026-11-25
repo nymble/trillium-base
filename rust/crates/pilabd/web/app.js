@@ -228,7 +228,7 @@ function onStatus(d) {
     if (ev.port !== 8 && ev.port !== 9 && (ev.kind === "note-on" || ev.kind === "note-off")) markKey(ev.bytes[1], ev.kind === "note-on");
   }
   if (S.midiLog.length > 200) S.midiLog.length = 200;
-  if (d.midi.length) updateMonitor();
+  if (d.midi.length) { updateMonitor(); updateRouterMonitor(); }
   const lim = $("#lim-v"); if (lim) lim.textContent = d.limiter_db < -0.05 ? d.limiter_db.toFixed(1) + " dB" : "0.0 dB";
   $$(".act[data-port]").forEach((el) => el.classList.toggle("hot", performance.now() - (S.activity[el.dataset.port] || -1e9) < 400));
 }
@@ -262,12 +262,14 @@ function debounce(key, fn, ms) { clearTimeout(timers[key]); timers[key] = setTim
 $("#nav").addEventListener("click", (e) => { const a = e.target.closest("a[data-view]"); if (a) { location.hash = a.dataset.view; } });
 window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) || "play"; render(); });
 
-const VIEW_TITLE = { play: "Play", setup: "Set up", overview: "Overview", sounds: "Sounds", midimap: "MIDI Map", scenes: "Scenes", signals: "Signals", devices: "Devices", settings: "Settings" };
+const VIEW_TITLE = { play: "Play", listen: "Listen", record: "Record", setup: "Set up", overview: "System", sounds: "Sounds & apps", midimap: "Scene MIDI map", scenes: "Scenes", signals: "Patch panel", devices: "Devices", settings: "Settings" };
+// Views reached from inside another view: the nav highlights the parent, and the page shows a way back.
+const PARENT = { overview: "settings", signals: "settings", setup: "settings", scenes: "sounds", midimap: "sounds" };
 function render() {
-  $$("#nav a").forEach((a) => { const on = a.dataset.view === S.view; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  const navView = PARENT[S.view] || S.view;
+  $$("#nav a").forEach((a) => { const on = a.dataset.view === navView; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   document.title = `${VIEW_TITLE[S.view] || "Overview"} · ${PRODUCT} · ${(S.info && S.info.device) || "Trillium Base"}`;
-  const views = { play: renderPlay, setup: renderSetup, overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
-  document.body.classList.toggle("more-open", false);
+  const views = { play: renderPlay, listen: renderListen, record: renderRecord, setup: renderSetup, overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
   (views[S.view] || renderPlay)();
 }
 
@@ -318,13 +320,15 @@ async function refreshScene() {
 }
 
 function head(title, sub, right = "") {
-  return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div><div class="spacer"></div>${right}</div>`;
+  const up = PARENT[S.view];
+  const crumb = up ? `<a class="crumb" href="#${up}">‹ ${esc(VIEW_TITLE[up])}</a>` : "";
+  return `<div class="page-head"><div>${crumb}<h1>${esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div><div class="spacer"></div>${right}</div>`;
 }
 
 // ------------------------------------------------------------------ overview
 function renderOverview() {
   const s = S.sys;
-  if (!s) { $("#main").innerHTML = head("Overview") + `<div class="empty-state">Waiting for the device…</div>`; return; }
+  if (!s) { $("#main").innerHTML = head("System") + `<div class="empty-state">Waiting for the device…</div>`; return; }
   const b = s.backend;
   const cores = (s.cores || []).map((c) => `<div class="b"><i style="height:${Math.min(100, c).toFixed(0)}%"></i></div>`).join("");
   const coreLbl = (s.cores || []).map((c, i) => `<span>${i === 3 ? "cpu3·rt" : "cpu" + i} ${c.toFixed(0)}%</span>`).join("");
@@ -348,7 +352,7 @@ function renderOverview() {
   }).join("");
   const ev = (s.events || []).map((e) => `<div><span class="t">${e.time}</span><span>${e.level}</span><span></span><span>${esc(e.text)}</span></div>`).join("");
   const rec = s.recording;
-  $("#main").innerHTML = head("Overview", `${esc((S.info && S.info.device) || "Trillium Base")} · ${esc(s.hostname)}.local · ${esc((s.addresses || []).filter((a) => !a.includes(":")).join(" · "))} · port ${s.port}`) + `
+  $("#main").innerHTML = head("System", `${esc((S.info && S.info.device) || "Trillium Base")} · ${esc(s.hostname)}.local · ${esc((s.addresses || []).filter((a) => !a.includes(":")).join(" · "))} · port ${s.port}`) + `
   <div class="grid g4">
     <div class="card">
       <div class="card-head"><h3>Machine</h3></div>
@@ -541,7 +545,7 @@ function paramHtml(group, p, v) {
     <input type="range" min="${min}" max="${max}" step="${step}" value="${toPos(p, v)}" data-p="${group}.${p.key}"></div>`;
 }
 
-function renderSounds() {
+function renderSoundsBase() {
   if (!S.scene) return;
   const ids = Array.from({ length: 16 }, (_, i) => i + 1);
   const list = ids.map((id) => {
@@ -612,11 +616,11 @@ function renderSounds() {
     const CAT = { keys: "Keys", "strings-and-plucked": "Strings and plucked", winds: "Winds", "mallets-and-bells": "Mallets and bells", drums: "Drums and percussion", synths: "Synths" };
     smHtml = `<div class="lbl" style="margin-bottom:6px">Presets</div>
       <div class="presets">${pr.presets.filter((p) => p.installed).map((p) => `<div class="preset" data-preset="${p.id}" title="Use in slot ${S.selSlot}"><span>${esc(p.name)}</span>${p.drum ? `<span class="badge">ch 10</span>` : ""}${playBtn(`data-play="preset:${p.id}"`)}</div>`).join("")}</div>
-      <div class="banks">${Object.keys(CAT).filter((c) => cats[c]).map((c) => `<div class="lbl" style="margin:10px 0 4px">${CAT[c]}</div>` + cats[c].map((b) => `<div class="bank ${s && s.sample === b.id ? "sel" : ""}" data-bank="${esc(b.id)}" title="Use in slot ${S.selSlot}"><span>${esc(b.title)}</span><span class="mono muted small">${(b.bytes / 1048576).toFixed(1)} MiB</span>${playBtn(`data-play="bank:${esc(b.id)}"`)}</div>`).join("")).join("")}</div>
-      <div class="muted small" style="margin-top:8px">FreePats and VCSL, CC0 1.0. Banks load into RAM on first use${sm.loaded_mib ? ` (${sm.loaded_mib.toFixed(0)} MiB loaded)` : ""}.</div>`;
+      <div class="banks">${Object.keys(CAT).filter((c) => cats[c]).map((c) => `<div class="lbl" style="margin:10px 0 4px">${CAT[c]}</div>` + cats[c].map((b) => `<div class="bank ${s && s.sample === b.id ? "sel" : ""}" data-bank="${esc(b.id)}" title="Use in slot ${S.selSlot}"><span>${esc(b.title)}${b.credit ? `<span class="credit">${esc(b.credit)}</span>` : ""}</span><span class="mono muted small">${(b.bytes / 1048576).toFixed(1)} MiB</span>${playBtn(`data-play="bank:${esc(b.id)}"`)}</div>`).join("")).join("")}</div>
+      <div class="muted small" style="margin-top:8px">FreePats and VCSL are CC0 1.0${sm.banks.some((b) => b.credit) ? "; banks with a credit line are CC BY 4.0 and the credit goes with them" : ""}. Banks load into RAM on first use${sm.loaded_mib ? ` (${sm.loaded_mib.toFixed(0)} MiB loaded)` : ""}.</div>`;
   }
   const tab = S.browserTab;
-  $("#main").innerHTML = head("Sounds", `Sound slots for scene <b>${esc(S.scene.name)}</b>. Edits play live; save the scene in Scenes.`, `${outputSeg()}<button class="btn primary" id="save-now">Save scene</button>`) + `
+  $("#main").innerHTML = head("Sounds & apps", `Sound slots for scene <b>${esc(S.scene.name)}</b>. Edits play live; save the scene in Scenes.`, `${outputSeg()}<button class="btn primary" id="save-now">Save scene</button>`) + `
   <div class="sounds ${tab === "akwf" ? "wide" : ""}">
     <div class="card"><div class="card-head"><h3>Slots</h3></div><div class="slotlist">${list}</div></div>
     ${editor}
@@ -892,7 +896,7 @@ function renderMidiMap() {
     return `<div class="lane"><span class="small">${s.id} · ${esc(s.name)}</span><div class="bar">${rs.map((r, k) => `<i class="l${k % 3}" style="left:${r.note_lo / 127 * 100}%;width:${Math.max(0.8, (r.note_hi - r.note_lo + 1) / 128 * 100)}%" title="${esc(r.input)} ${r.channel ? "ch" + r.channel : "omni"} ${noteName(r.note_lo)}–${noteName(r.note_hi)}${r.transpose ? " " + (r.transpose > 0 ? "+" : "") + r.transpose : ""}"></i>`).join("")}</div></div>`;
   }).join("");
   const axis = [0, 24, 36, 48, 60, 72, 84, 96, 108, 127].map((n) => `<span style="left:${n / 127 * 100}%">${noteName(n)}</span>`).join("");
-  $("#main").innerHTML = head("MIDI Map", "Inputs × channels × note ranges → sounds. Overlapping routes layer; separate ranges split. Changes apply live.", `<button class="btn ghost" id="add-route">Add route</button><button class="btn primary" id="save-now">Save scene</button>`) + `
+  $("#main").innerHTML = head("Scene MIDI map", "Inputs × channels × note ranges → sounds. Overlapping routes layer; separate ranges split. Changes apply live.", `<button class="btn ghost" id="add-route">Add route</button><button class="btn primary" id="save-now">Save scene</button>`) + `
   <div class="grid g3">
     <div class="card span2"><div class="card-head"><h3>Routing matrix</h3><span class="spacer"></span><span class="muted small">● full-range route · ◍ split or channel-specific · click to toggle a full-range route</span></div>${matrix}</div>
     <div class="card"><div class="card-head"><h3>MIDI monitor</h3><span class="spacer"></span><button class="btn ghost small" id="mon-clear">Clear</button></div><div class="monitor" id="monitor"></div></div>
@@ -1126,7 +1130,7 @@ function renderSignalsNoFetch() {
     <button class="btn ghost small" id="sp-undo" ${SP.undo.length ? "" : "disabled"} title="Undo (⌘Z / Ctrl+Z)">Undo</button>
   </div>`;
   const empty = (t) => `<div class="pp-empty muted small">${t}</div>`;
-  $("#main").innerHTML = head("Signals", `Patch panel: sources on the left, destinations on the right (PipeWire via JACK, ${esc(SP.graph.backend)}). Drag from a jack to a jack to connect; drag a stereo bracket to patch both sides; click a cable to select it, Delete removes it.`, `<button class="btn ghost" id="sig-refresh">Refresh</button>`) + `
+  $("#main").innerHTML = head("Patch panel", `Sources on the left, destinations on the right (PipeWire via JACK, ${esc(SP.graph.backend)}). Drag from a jack to a jack to connect; drag a stereo bracket to patch both sides; click a cable to select it, Delete removes it.`, `<button class="btn ghost" id="sig-refresh">Refresh</button>`) + `
   <div class="card pp-card">${tool}
     <div class="pp" id="pp">
       <div class="pp-side src"><div class="pp-h"><span>Source</span><span class="r">Output</span><span></span><span></span></div>${model.L.map((g) => groupHtml(g, "out", model)).join("") || empty("No sources match.")}</div>
@@ -1338,7 +1342,7 @@ window.addEventListener("resize", () => { if (S.view === "signals" && SP.model) 
 // ------------------------------------------------------------------ devices
 // USB and Bluetooth devices, the audio input strip, and Trillium Zero profiles.
 // Re-applying a stored profile always needs an explicit click and a confirm.
-async function renderDevices() {
+async function renderDevicesBase() {
   let d, inp, fw = null;
   try { [d, inp] = await Promise.all([get("/devices"), get("/input"), zeroSchema()]); } catch (e) { fail(e); return; }
   try { fw = await get("/firmware"); } catch (e) {}
@@ -1553,11 +1557,13 @@ function zeroCard(z) {
   </div>`;
 }
 
-async function renderSettings() {
+async function renderSettingsBase() {
   let r, recs, ver = {}, eps = [], aud = { sinks: [] };
   try { r = await get("/settings"); recs = await get("/recordings"); } catch (e) { fail(e); return; }
   // About, API reference and the DAC list are extras: the page works without them.
-  [ver, eps, aud] = await Promise.all([get("/versions").catch(() => ({})), get("/endpoints").catch(() => []), get("/audio/devices").catch(() => ({ sinks: [] }))]);
+  let smp;
+  [ver, eps, aud, smp] = await Promise.all([get("/versions").catch(() => ({})), get("/endpoints").catch(() => []), get("/audio/devices").catch(() => ({ sinks: [] })), S.samples ? Promise.resolve(S.samples) : get("/library/samples").catch(() => null)]);
+  if (smp && !S.samples) S.samples = smp;
   if (S.view !== "settings") return;
   const st = r.settings; S.settings = st;
   const sys = S.sys || {};
@@ -1635,6 +1641,10 @@ async function renderSettings() {
         <span class="k">OS · kernel</span><span class="v small">${esc(ver.os || "—")} · ${esc(ver.kernel || "—")}</span>
         <span class="k">Audio</span><span class="v small">PipeWire ${esc(ver.pipewire || "—")}</span>
         <span class="k">Licence</span><span class="v small">GPL-3.0-or-later OR commercial</span>
+      </div>
+      <div class="credits"><div class="lbl">Sound credits</div>
+        ${((smp && smp.banks) || []).filter((b) => b.credit).map((b) => `<div class="small">${esc(b.title)}: ${esc(b.credit)}</div>`).join("")}
+        <div class="small">FreePats and VCSL sample banks: CC0 1.0. FluidR3 GM SoundFont (FluidSynth): MIT. ZynAddSubFX and its banks: GPL-2.0-or-later.</div>
       </div>
       <div class="about-links">
         <a href="https://m-of-n.com/ambient-lab/trillium/base/" target="_blank" rel="noopener noreferrer">Trillium Base</a>
@@ -1965,11 +1975,358 @@ async function renderSetup() {
   $$("[data-spad]").forEach((b) => b.addEventListener("pointerdown", () => post("/midi", { bytes: [0x99, +b.dataset.spad, 100] }).catch(fail)));
 }
 
-// Phone: the bottom bar shows Play, Devices, Sounds and More; More opens the rest.
-$("#btn-more").addEventListener("click", () => { const o = !document.body.classList.contains("more-open"); document.body.classList.toggle("more-open", o); $("#btn-more").setAttribute("aria-expanded", String(o)); });
-document.addEventListener("click", (e) => { if (document.body.classList.contains("more-open") && !e.target.closest("#nav")) { document.body.classList.remove("more-open"); $("#btn-more").setAttribute("aria-expanded", "false"); } });
 // First visit after pairing: open the setup steps once, unless they were finished or skipped.
 (async () => {
   if (location.hash || !S.token) return;
   try { const st = await get("/setup"); if (!st.done.length && !st.skipped.length && !st.dismissed) location.hash = "setup"; } catch (e) {}
 })();
+
+// ================================================================== six-view console
+// Play · Listen · Record · Devices · Sounds & apps · Settings. Depth stays one tap away:
+// the patch panel, system details, scenes and the scene MIDI map sit under Advanced.
+
+// ------------------------------------------------------------------ Listen
+async function renderListen() {
+  let recs = { recordings: [] };
+  try { recs = await get("/recordings"); } catch (e) { fail(e); }
+  if (S.view !== "listen") return;
+  const sys = S.sys || {}, dac = sys.dac;
+  const air = (sys.services || []).filter((x) => /airplay|shairport/i.test(x.id + " " + x.name));
+  const master = S.status ? S.status.master_db : -18;
+  const airRows = air.map((x) => `<div class="lrow"><span class="dot ${x.active ? "ok" : ""}"></span><div class="grow"><b>${esc(x.name)}</b><div class="muted small">${x.active ? "On: phones and Macs on this network can play here" : "Off"}</div></div>${x.control === "console" ? `<label class="switch"><input type="checkbox" data-lsvc="${esc(x.id)}" ${x.active ? "checked" : ""} aria-label="${esc(x.name)}"><span></span></label>` : `<span class="muted small">${x.active ? "on" : "off"}</span>`}</div>`).join("") || `<div class="muted">AirPlay is not installed on this unit.</div>`;
+  const recRows = recs.recordings.slice(0, 20).map((c) => `<div class="lrow"><button class="btn ghost" data-lplay="${esc(c.id)}" aria-label="Play ${esc(c.id)}">▶</button><div class="grow"><b>${esc(c.created.replace("T", " ").slice(0, 16))}</b><div class="muted small">${esc(c.scene || "")} · ${c.duration_s.toFixed(1)} s</div></div></div>`).join("") || `<div class="muted">Nothing recorded yet. Use Record to make a take.</div>`;
+  $("#main").innerHTML = head("Listen", "What is playing out of the DAC, and recordings to play back") + `
+    <div class="play">
+      <section class="pcard"><h2>Output</h2>
+        <div class="lrow"><span class="dot ${dac && dac.state === "RUNNING" ? "ok" : ""}"></span><div class="grow"><b>${esc((dac && (dac.description || dac.name)) || "DAC")}</b><div class="muted small">${dac ? esc(dac.state.toLowerCase()) : "no DAC sink"}</div></div></div>
+        <div class="plevel"><input type="range" id="l-master" min="-60" max="-6" step="0.5" value="${master}" aria-label="Master level"><output id="l-master-v" class="mono">${fmtDb(master)}</output></div>
+        <div class="muted small">The master level and limiter cover the synth, FluidSynth and ZynAddSubFX. AirPlay plays at its own level.</div>
+      </section>
+      <section class="pcard"><h2>AirPlay</h2>${airRows}</section>
+      <section class="pcard pads-card"><h2>Recordings <span class="muted small">on this unit</span></h2><div id="l-player"></div>${recRows}</section>
+    </div>`;
+  const m = $("#l-master");
+  m.addEventListener("input", () => { $("#l-master-v").textContent = fmtDb(+m.value); $("#master").value = m.value; $("#master-v").textContent = fmtDb(+m.value); debounce("master", () => post("/master", { db: +m.value }).catch(fail), 60); });
+  $$("[data-lsvc]").forEach((el) => el.addEventListener("change", async () => {
+    const x = air.find((v) => v.id === el.dataset.lsvc), on = el.checked;
+    if (on) { const go = await dialog({ title: `Turn on ${x.name}?`, body: `<p>${esc(x.risk)}</p>`, ok: "Turn on" }); if (go == null) { el.checked = false; return; } }
+    try { await post(`/services/${x.id}`, { on, confirm: "" }); toast(on ? "AirPlay on" : "AirPlay off"); } catch (e) { fail(e); el.checked = !on; }
+  }));
+  $$("[data-lplay]").forEach((b) => b.onclick = () => playRecording(b.dataset.lplay, $("#l-player")));
+}
+
+async function playRecording(id, where) {
+  try {
+    where.innerHTML = `<div class="muted small">Loading ${esc(id)}…</div>`;
+    const r = await fetch(`/api/v1/recordings/${encodeURIComponent(id)}/audio`, { headers: { Authorization: `Bearer ${S.token}` } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const url = URL.createObjectURL(await r.blob());
+    if (S.recUrl) URL.revokeObjectURL(S.recUrl);
+    S.recUrl = url;
+    where.innerHTML = `<div class="lplayer"><b>${esc(id)}</b><audio controls autoplay src="${url}"></audio><div class="muted small">Plays in this browser, not on the unit.</div></div>`;
+  } catch (e) { where.innerHTML = ""; fail(e); }
+}
+
+// ------------------------------------------------------------------ Record
+async function renderRecord() {
+  let recs = { recordings: [], location: "" };
+  try { recs = await get("/recordings"); } catch (e) { fail(e); }
+  if (S.view !== "record") return;
+  const rec = (S.status && S.status.rec) || {};
+  const inp = (S.status && S.status.input) || {};
+  const rows = recs.recordings.slice(0, 30).map((c) => `<tr><td><button class="btn ghost small" data-rplay="${esc(c.id)}" aria-label="Play ${esc(c.id)}">▶</button></td><td class="small">${esc(c.created.replace("T", " ").slice(0, 19))}</td><td class="small">${esc(c.scene || "")}</td><td class="num">${c.duration_s.toFixed(1)} s</td><td>${c.filed ? `<span class="badge ok">filed</span>` : `<span class="badge caution">on this unit</span>`}</td></tr>`).join("") || `<tr><td class="empty" colspan="5">No recordings yet.</td></tr>`;
+  $("#main").innerHTML = head("Record", "Takes of the synth output, and the input strip when it is armed") + `
+    <div class="play">
+      <section class="pcard"><h2>Take</h2>
+        <button class="btn big ${rec.recording ? "panic" : "primary"}" id="r-toggle" style="width:100%">${rec.recording ? `Stop · ${fmtTime(rec.seconds || 0)}` : "● Start recording"}</button>
+        <div class="muted small" style="margin-top:10px">Records the master output (after the limiter) as 32-bit float WAV with a record card. ${inp.connected ? "The audio input strip is connected; arm it on Devices to include it." : ""}</div>
+      </section>
+      <section class="pcard"><h2>Where takes go</h2><div class="mono small">${esc(recs.location)}</div><div class="muted small" style="margin-top:6px">Takes stay on this unit until filed to the NAS archive (Settings).</div><a class="btn ghost" href="#settings" style="margin-top:10px">Recording settings</a></section>
+      <section class="pcard pads-card"><h2>Recordings</h2><div id="r-player"></div><div class="tbl-scroll"><table class="tbl"><thead><tr><th><span class="sr">Play</span></th><th>When</th><th>Scene</th><th class="num">Length</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div></section>
+    </div>`;
+  $("#r-toggle").onclick = async () => {
+    const on = !(S.status && S.status.rec.recording);
+    try { const r = await post("/record", { on }); toast(on ? `Recording ${r.id}` : `Saved ${r.card.id} (${r.card.duration_s.toFixed(1)} s)`); setTimeout(renderRecord, 300); } catch (e) { fail(e); }
+  };
+  $$("[data-rplay]").forEach((b) => b.onclick = () => playRecording(b.dataset.rplay, $("#r-player")));
+  clearInterval(S.recTimer);
+  S.recTimer = setInterval(() => {
+    if (S.view !== "record") { clearInterval(S.recTimer); return; }
+    const b = $("#r-toggle"), r = S.status && S.status.rec;
+    if (b && r) b.textContent = r.recording ? `Stop · ${fmtTime(r.seconds || 0)}` : "● Start recording";
+  }, 500);
+}
+
+// ------------------------------------------------------------------ Devices: MIDI router + monitor
+async function renderDevices() {
+  await renderDevicesBase();
+  if (S.view !== "devices") return;
+  let r;
+  try { r = await get("/midi/router"); } catch (e) { fail(e); return; }
+  if (!S.midiLog || !S.midiLog.length) { try { const m = await get("/midi/monitor?limit=200"); S.midiLog = (m.events || []).slice(-200).reverse(); } catch (e) { /* the live stream fills it */ } }
+  if (S.view !== "devices") return;
+  S.router = r;
+  const main = $("#main");
+  let host = $("#router-host");
+  if (!host) {
+    host = document.createElement("div"); host.id = "router-host"; host.className = "grid g1";
+    const ph = $(".page-head", main); if (ph) ph.insertAdjacentElement("afterend", host); else main.appendChild(host);
+  }
+  host.innerHTML = routerCard(r) + monitorCard();
+  bindRouter();
+  updateRouterMonitor(true);
+}
+
+const RT_FROM = (r) => [["any", "Every input"], ["zero", "Trillium Zero"], ["console", "Console pads and keys"], ["zero-motion", "Zero motion (CC 16-18)"], ...(r.sources || []).filter((s) => s.port > 0).map((s) => [`*${s.label}*`, s.label])];
+const RT_TO = (r) => [["scene", `The scene (${r.scene_engine || "built-in synth"})`], ["synth", "Built-in synth"], ["fluidsynth", "FluidSynth (GM)"], ["zynaddsubfx", "ZynAddSubFX"], ...(r.destinations || []).map((d) => [`*${d.label}*`, d.label])];
+const epLabel = (list, v) => (list.find((x) => x[0] === v) || [v, v.replace(/^\*|\*$/g, "")])[1];
+
+function routeLine(rt, st, r) {
+  const bits = [];
+  if (rt.channels && rt.channels.length) bits.push(`ch ${rt.channels.join(",")}`);
+  if (rt.to_channel) bits.push(`→ ch ${rt.to_channel}`);
+  if (rt.note_lo > 0 || rt.note_hi < 127) bits.push(`${noteName(rt.note_lo)}–${noteName(rt.note_hi)}`);
+  if (rt.types && rt.types.length) bits.push(rt.types.join(" + "));
+  if (rt.transpose) bits.push(`${rt.transpose > 0 ? "+" : ""}${rt.transpose} st`);
+  const live = st && st.active;
+  return `<div class="rt" data-rid="${esc(rt.id)}">
+    <label class="switch"><input type="checkbox" data-rt-on="${esc(rt.id)}" ${rt.enabled ? "checked" : ""} aria-label="Route ${esc(rt.name || rt.id)} on"><span></span></label>
+    <div class="grow"><div><b>${esc(epLabel(RT_FROM(r), rt.from))}</b> <span class="muted">→</span> <b>${esc(epLabel(RT_TO(r), rt.to))}</b></div>
+      <div class="muted small">${esc(rt.name || "")}${rt.name && bits.length ? " · " : ""}${esc(bits.join(" · "))}</div></div>
+    <span class="badge ${live ? "ok" : "caution"}" title="${esc((st && st.note) || "")}">${live ? "live" : esc((st && st.note) || "idle")}</span>
+    <button class="btn ghost small" data-rt-edit="${esc(rt.id)}">Edit</button>
+    <button class="btn ghost small" data-rt-del="${esc(rt.id)}" aria-label="Delete route ${esc(rt.name || rt.id)}">✕</button>
+  </div>`;
+}
+
+function routerCard(r) {
+  const st = (id) => (r.status || []).find((s) => s.id === id);
+  const routes = r.config.routes.map((rt) => routeLine(rt, st(rt.id), r)).join("") || `<div class="muted">No routes: nothing plays. Add one, or reset.</div>`;
+  const srcs = (r.sources || []).filter((s) => s.port > 0);
+  const prof = srcs.map((s) => {
+    const p = r.config.profiles.find((x) => x.matches === `*${s.label}*`) || {};
+    return `<div class="prof" data-prof="${esc(`*${s.label}*`)}"><b>${esc(s.label)}</b>${s.device ? ` <span class="badge ok">${esc(s.device)}</span>` : ""}
+      <div class="prow">
+        <label class="row tight small"><input type="checkbox" data-pf="enabled" ${p.enabled === false ? "" : "checked"}> Use this device</label>
+        <label class="small">Force channel <select class="input" data-pf="channel">${[0, ...Array.from({ length: 16 }, (_, i) => i + 1)].map((c) => `<option value="${c}" ${(p.channel || 0) === c ? "selected" : ""}>${c ? c : "keep"}</option>`).join("")}</select></label>
+        <label class="small">Transpose <input class="input" type="number" min="-48" max="48" data-pf="transpose" value="${p.transpose || 0}"></label>
+        <label class="small">Fixed velocity <input class="input" type="number" min="0" max="127" data-pf="velocity_fixed" value="${p.velocity_fixed || 0}" title="0 keeps the played velocity"></label>
+        <label class="small">Velocity × <input class="input" type="number" min="0" max="4" step="0.05" data-pf="velocity_scale" value="${p.velocity_scale ?? 1}"></label>
+        <span class="small">Drop: ${(r.types || []).map((t) => `<label class="row tight"><input type="checkbox" data-pf-block="${t}" ${(p.block || []).includes(t) ? "checked" : ""}> ${t}</label>`).join(" ")}</span>
+      </div></div>`;
+  }).join("") || `<div class="muted small">Connect a MIDI device to give it a profile.</div>`;
+  return `<div class="card">
+    <div class="card-head"><h3>MIDI routing</h3><span class="muted small">Any input to any destination: split by keys, merge several inputs, remap channels, filter messages. Saved and live.</span>
+      <div class="spacer"></div><button class="btn primary small" id="rt-add">Add route</button></div>
+    <div class="rts">${routes}</div>
+    <div id="rt-form"></div>
+    <details class="zgroup"><summary>Device profiles <span class="muted small">per-device channel, transpose, velocity and filters, applied before routes</span></summary>${prof}</details>
+    <details class="zgroup"><summary>More <span class="muted small">reset, CLI</span></summary>
+      <div class="row wrap" style="gap:8px;padding:6px 0 10px 22px"><button class="btn ghost small" id="rt-reset">Reset to “every input to the scene”</button></div>
+      <pre class="mono small" style="margin-left:22px">trillium-base midi routes
+trillium-base midi route add "*Launchkey*" fluidsynth --keys C2-B3 --to-ch 2
+trillium-base midi profile set "*Launchkey*" channel=1 velocity_fixed=100
+trillium-base midi monitor --follow</pre></details>
+  </div>`;
+}
+
+function routeForm(r, rt) {
+  rt = rt || { id: "", name: "", enabled: true, from: "any", to: "scene", channels: [], to_channel: 0, note_lo: 0, note_hi: 127, types: [], transpose: 0 };
+  const opt = (list, v) => { const l = list.some((x) => x[0] === v) ? list : [...list, [v, v]]; return l.map(([k, n]) => `<option value="${esc(k)}" ${k === v ? "selected" : ""}>${esc(n)}</option>`).join(""); };
+  return `<form class="rtf" id="rt-edit" data-id="${esc(rt.id)}">
+    <div class="g2">
+      <label class="field"><span>From</span><select class="input" name="from">${opt(RT_FROM(r), rt.from)}</select></label>
+      <label class="field"><span>To</span><select class="input" name="to">${opt(RT_TO(r), rt.to)}</select></label>
+    </div>
+    <details ${rt.channels.length || rt.to_channel || rt.note_lo || rt.note_hi < 127 || rt.types.length || rt.transpose ? "open" : ""}><summary class="small">Channels, keys and filters</summary>
+      <div class="g2">
+        <label class="field"><span>Only channels (e.g. 1,10; empty = all)</span><input class="input" name="channels" value="${esc(rt.channels.join(","))}"></label>
+        <label class="field"><span>Send on channel</span><select class="input" name="to_channel">${[0, ...Array.from({ length: 16 }, (_, i) => i + 1)].map((c) => `<option value="${c}" ${rt.to_channel === c ? "selected" : ""}>${c ? c : "keep"}</option>`).join("")}</select></label>
+        <label class="field"><span>Lowest key</span><input class="input" name="note_lo" value="${noteName(rt.note_lo)}"></label>
+        <label class="field"><span>Highest key</span><input class="input" name="note_hi" value="${noteName(rt.note_hi)}"></label>
+        <label class="field"><span>Transpose (semitones)</span><input class="input" type="number" min="-48" max="48" name="transpose" value="${rt.transpose}"></label>
+        <div class="field"><span>Messages (none ticked = all)</span><div class="row wrap">${(r.types || []).map((t) => `<label class="row tight"><input type="checkbox" name="type" value="${t}" ${rt.types.includes(t) ? "checked" : ""}> ${t}</label>`).join(" ")}</div></div>
+      </div>
+    </details>
+    <label class="field"><span>Name (optional)</span><input class="input" name="name" value="${esc(rt.name)}"></label>
+    <div class="row" style="gap:8px;justify-content:flex-end"><button type="button" class="btn ghost" id="rt-cancel">Cancel</button><button type="submit" class="btn primary">${rt.id ? "Save route" : "Add route"}</button></div>
+  </form>`;
+}
+
+const noteNum = (v) => { v = String(v).trim(); if (/^\d+$/.test(v)) return Math.min(127, +v); const m = v.match(/^([A-Ga-g])([#b]?)(-?\d)$/); if (!m) return null; const pc = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()] + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0); const n = (+m[3] + 1) * 12 + pc; return n >= 0 && n <= 127 ? n : null; };
+
+function bindRouter() {
+  const r = S.router;
+  const save = async (fn) => { try { S.router = await fn(); renderDevicesRouterOnly(); } catch (e) { fail(e); } };
+  $("#rt-add").onclick = () => { $("#rt-form").innerHTML = routeForm(r); bindRouteForm(); };
+  $$("[data-rt-edit]").forEach((b) => b.onclick = () => { $("#rt-form").innerHTML = routeForm(r, r.config.routes.find((x) => x.id === b.dataset.rtEdit)); bindRouteForm(); $("#rt-form").scrollIntoView({ block: "nearest" }); });
+  $$("[data-rt-del]").forEach((b) => b.onclick = () => save(() => api("DELETE", `/midi/router/routes/${encodeURIComponent(b.dataset.rtDel)}`)));
+  $$("[data-rt-on]").forEach((el) => el.onchange = () => { const rt = { ...r.config.routes.find((x) => x.id === el.dataset.rtOn), enabled: el.checked }; save(() => put(`/midi/router/routes/${encodeURIComponent(rt.id)}`, rt)); });
+  $("#rt-reset").onclick = async () => { const go = await dialog({ title: "Reset MIDI routing?", body: "<p>Every route and device profile is replaced by one route: every input to the scene.</p>", ok: "Reset" }); if (go != null) save(() => post("/midi/router/reset")); };
+  $$("[data-prof]").forEach((box) => {
+    const send = () => {
+      const p = { matches: box.dataset.prof, enabled: box.querySelector('[data-pf="enabled"]').checked, channel: +box.querySelector('[data-pf="channel"]').value, transpose: +box.querySelector('[data-pf="transpose"]').value || 0, velocity_fixed: +box.querySelector('[data-pf="velocity_fixed"]').value || 0, velocity_scale: +box.querySelector('[data-pf="velocity_scale"]').value || 1, block: $$("[data-pf-block]", box).filter((c) => c.checked).map((c) => c.dataset.pfBlock) };
+      debounce("prof" + p.matches, () => put("/midi/router/profiles", p).then((x) => { S.router = x; toast("Device profile saved"); }).catch(fail), 400);
+    };
+    $$("input, select", box).forEach((el) => el.addEventListener("change", send));
+  });
+}
+
+function bindRouteForm() {
+  const f = $("#rt-edit");
+  $("#rt-cancel").onclick = () => { $("#rt-form").innerHTML = ""; };
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(f);
+    const lo = noteNum(fd.get("note_lo")), hi = noteNum(fd.get("note_hi"));
+    if (lo == null || hi == null) return toast("Keys are note names like C2 or numbers 0-127", true);
+    const chans = String(fd.get("channels") || "").split(",").map((x) => x.trim()).filter(Boolean).map(Number);
+    if (chans.some((c) => !(c >= 1 && c <= 16))) return toast("Channels are 1-16", true);
+    const rt = { name: fd.get("name") || "", enabled: true, from: fd.get("from"), to: fd.get("to"), channels: chans, to_channel: +fd.get("to_channel"), note_lo: lo, note_hi: hi, types: fd.getAll("type"), transpose: +fd.get("transpose") || 0 };
+    const id = f.dataset.id;
+    try {
+      S.router = id ? await put(`/midi/router/routes/${encodeURIComponent(id)}`, { ...rt, enabled: (S.router.config.routes.find((x) => x.id === id) || {}).enabled ?? true }) : await post("/midi/router/routes", rt);
+      toast(id ? "Route saved" : "Route added");
+      renderDevicesRouterOnly();
+    } catch (e) { fail(e); }
+  };
+}
+
+function renderDevicesRouterOnly() {
+  const host = $("#router-host"); if (!host || !S.router) return;
+  host.innerHTML = routerCard(S.router) + monitorCard();
+  bindRouter(); updateRouterMonitor(true);
+}
+
+function monitorCard() {
+  return `<div class="card">
+    <div class="card-head"><h3>MIDI monitor</h3><span class="muted small">Live: what came in and where it went</span><div class="spacer"></div>
+      <button class="btn ghost small" id="mon-pause" aria-pressed="${S.monPaused ? "true" : "false"}">${S.monPaused ? "Resume" : "Pause"}</button>
+      <button class="btn ghost small" id="mon-clear">Clear</button>
+      <button class="btn ghost small" id="mon-csv">Download CSV</button></div>
+    <div class="tbl-scroll mon"><table class="tbl"><thead><tr><th>Time</th><th>From</th><th>Ch</th><th>Message</th><th>To</th></tr></thead><tbody id="mon-body"></tbody></table></div>
+  </div>`;
+}
+
+function updateRouterMonitor(force) {
+  const b = $("#mon-body"); if (!b) return;
+  if (!force && S.monPaused) return;
+  if (!S.monBound) S.monBound = true;
+  const rows = (S.midiLog || []).slice(0, 60).map((e) => `<tr><td class="mono small">${(e.t || 0).toFixed(2)}</td><td class="small">${esc(e.source || (e.port === 8 ? "console" : ""))}</td><td class="num">${e.ch}</td><td class="small">${esc(e.kind)} <span class="muted">${esc(e.text)}</span></td><td class="small">${e.to && e.to.length ? esc(e.to.join(", ")) : `<span class="muted">filtered</span>`}</td></tr>`).join("") || `<tr><td class="empty" colspan="5">No MIDI yet. Play a pad, a key or the Zero.</td></tr>`;
+  b.innerHTML = rows;
+  const p = $("#mon-pause"); if (p && !p.onclick) {
+    p.onclick = () => { S.monPaused = !S.monPaused; p.textContent = S.monPaused ? "Resume" : "Pause"; p.setAttribute("aria-pressed", String(S.monPaused)); if (!S.monPaused) updateRouterMonitor(true); };
+    $("#mon-clear").onclick = async () => { try { await api("DELETE", "/midi/monitor"); S.midiLog = []; updateRouterMonitor(true); } catch (e) { fail(e); } };
+    $("#mon-csv").onclick = async () => {
+      try {
+        const r = await fetch("/api/v1/midi/monitor.csv", { headers: { Authorization: `Bearer ${S.token}` } });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
+        a.href = url; a.download = `midi-monitor-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (e) { fail(e); }
+    };
+  }
+}
+
+// ------------------------------------------------------------------ Sounds & apps: engines and credits
+function renderSounds() {
+  renderSoundsBase();
+  if (S.view !== "sounds" || !$("#main .page-head")) return;
+  if (!S.eng || Date.now() - S.eng.t > 8000) {
+    if (!S.engLoading) { S.engLoading = true; get("/engines").then((e) => { S.eng = { ...e, t: Date.now() }; S.engLoading = false; if (S.view === "sounds") renderSounds(); }).catch(() => { S.engLoading = false; }); }
+  }
+  const box = document.createElement("div");
+  box.id = "apps-host";
+  box.innerHTML = enginesCard() + `<div class="card"><div class="card-head"><h3>More</h3><span class="muted small">Scenes and the scene MIDI map</span></div><div class="row wrap" style="gap:8px"><a class="btn ghost" href="#scenes">Scenes</a><a class="btn ghost" href="#midimap">Scene MIDI map</a></div>${creditsHtml()}</div>`;
+  $("#main .page-head").insertAdjacentElement("afterend", box);
+  bindEngines();
+}
+
+function creditsHtml() {
+  const items = ((S.samples && S.samples.banks) || []).filter((b) => b.credit);
+  if (!items.length) return "";
+  return `<div class="credits"><div class="lbl">Credits</div>${items.map((b) => `<div class="small">${esc(b.title)}: ${esc(b.credit)} <span class="badge">${esc(b.license)}</span></div>`).join("")}</div>`;
+}
+
+function enginesCard() {
+  const e = S.eng;
+  if (!e) return `<div class="card"><div class="card-head"><h3>Engines</h3></div><div class="muted small">Loading…</div></div>`;
+  const fs = e.engines.find((x) => x.id === "fluidsynth") || {}, zy = e.engines.find((x) => x.id === "zynaddsubfx") || {};
+  const state = (x) => x.running ? `<span class="badge ok">running</span>` : x.installed ? `<span class="badge">stopped</span>` : `<span class="badge caution">not installed</span>`;
+  const toggle = (x) => x.installed ? `<button class="btn ${x.running ? "ghost" : "primary"} small" data-eng-toggle="${x.id}">${x.running ? "Stop" : "Start"}</button>` : "";
+  const sf = (e.soundfonts || []).map((f) => `<option value="${esc(f.path)}" ${f.path === fs.sound ? "selected" : ""}>${esc(f.name)} (${esc(f.license)})</option>`).join("");
+  const banks = [...new Set((e.zyn_instruments || []).map((i) => i.bank))];
+  const curBank = S.zynBank || ((e.zyn_instruments || []).find((i) => i.path === zy.sound) || {}).bank || banks[0] || "";
+  const insts = (e.zyn_instruments || []).filter((i) => i.bank === curBank).map((i) => `<option value="${esc(i.path)}" ${i.path === zy.sound ? "selected" : ""}>${esc(i.name)}</option>`).join("");
+  const gm = (e.gm_programs || []).map((n, i) => `<option value="${i}">${i + 1}. ${esc(n)}</option>`).join("");
+  return `<div class="card">
+    <div class="card-head"><h3>Engines</h3><span class="muted small">Sound engines beside the built-in synth; their audio goes through the master level and limiter</span></div>
+    <div class="engs">
+      <div class="eng"><div class="row"><b>FluidSynth</b> ${state(fs)}<div class="spacer"></div>${toggle(fs)}</div>
+        <div class="muted small">General MIDI: 128 instruments, drums on channel 10 · ${esc(fs.license || "")}</div>
+        <label class="field"><span>SoundFont</span><select class="input" id="eng-sf2">${sf}</select></label>
+        <div class="row wrap" style="gap:8px;align-items:flex-end">
+          <label class="field" style="flex:0 0 90px"><span>Channel</span><select class="input" id="eng-ch">${Array.from({ length: 16 }, (_, i) => `<option value="${i + 1}">${i + 1}${i === 9 ? " (drums)" : ""}</option>`).join("")}</select></label>
+          <label class="field" style="flex:1 1 200px"><span>Instrument</span><select class="input" id="eng-prog">${gm}</select></label>
+          <button class="btn ghost" id="eng-prog-send" ${fs.running ? "" : "disabled"}>Set</button>
+        </div>
+        <button class="btn primary" data-eng-scene="fluidsynth" ${fs.installed ? "" : "disabled"}>Play the General MIDI scene</button>
+      </div>
+      <div class="eng"><div class="row"><b>ZynAddSubFX</b> ${state(zy)}<div class="spacer"></div>${toggle(zy)}</div>
+        <div class="muted small">Additive, subtractive and pad synthesis, ${(e.zyn_instruments || []).length} instruments in ${banks.length} banks · ${esc(zy.license || "")}</div>
+        <div class="row wrap" style="gap:8px">
+          <label class="field" style="flex:1 1 140px"><span>Bank</span><select class="input" id="eng-zbank">${banks.map((b) => `<option ${b === curBank ? "selected" : ""}>${esc(b)}</option>`).join("")}</select></label>
+          <label class="field" style="flex:2 1 200px"><span>Instrument</span><select class="input" id="eng-zinst"><option value="">Choose…</option>${insts}</select></label>
+        </div>
+        <button class="btn primary" data-eng-scene="zynaddsubfx" ${zy.installed ? "" : "disabled"}>Play the ZynAddSubFX scene</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindEngines() {
+  const refresh = () => { S.eng = null; setTimeout(() => { if (S.view === "sounds") renderSounds(); }, 1500); };
+  $$("[data-eng-toggle]").forEach((b) => b.onclick = async () => {
+    const x = S.eng.engines.find((e) => e.id === b.dataset.engToggle);
+    try { b.disabled = true; await post(`/engines/${x.id}/${x.running ? "stop" : "start"}`); toast(`${x.name} ${x.running ? "stopped" : "starting"}`); refresh(); } catch (e) { fail(e); b.disabled = false; }
+  });
+  $$("[data-eng-scene]").forEach((b) => b.onclick = async () => { try { b.disabled = true; const r = await post(`/engines/${b.dataset.engScene}/scene`); toast(`Scene “${r.scene}” loaded`); refresh(); } catch (e) { fail(e); b.disabled = false; } });
+  const sf = $("#eng-sf2"); if (sf) sf.onchange = async () => { try { await post("/engines/fluidsynth/sound", { file: sf.value }); toast("SoundFont set"); refresh(); } catch (e) { fail(e); } };
+  const ps = $("#eng-prog-send"); if (ps) ps.onclick = async () => { try { await post("/engines/fluidsynth/program", { channel: +$("#eng-ch").value, program: +$("#eng-prog").value }); toast(`Channel ${$("#eng-ch").value}: ${$("#eng-prog").selectedOptions[0].textContent}`); } catch (e) { fail(e); } };
+  const zb = $("#eng-zbank"); if (zb) zb.onchange = () => { S.zynBank = zb.value; renderSounds(); };
+  const zi = $("#eng-zinst"); if (zi) zi.onchange = async () => { if (!zi.value) return; try { await post("/engines/zynaddsubfx/sound", { file: zi.value }); toast("ZynAddSubFX instrument set"); refresh(); } catch (e) { fail(e); } };
+}
+
+// ------------------------------------------------------------------ Settings: pair another device + Advanced
+async function renderSettings() {
+  await renderSettingsBase();
+  if (S.view !== "settings" || !$("#main .page-head")) return;
+  const box = document.createElement("div");
+  box.id = "set-top";
+  box.className = "play";
+  box.innerHTML = `
+    <section class="pcard"><h2>Pair another device</h2>
+      <div class="muted small">A one-time code for a phone, iPad or computer: scan it or type it on the new device. Valid 5 minutes, works once.</div>
+      <div id="pair-out"></div>
+      <button class="btn primary big" id="pair-new" style="width:100%;margin-top:10px">Show a pairing code</button>
+    </section>
+    <section class="pcard"><h2>Advanced</h2>
+      <div class="adv">
+        <a href="#signals"><b>Patch panel</b><span>Audio and MIDI connections between programs and devices</span></a>
+        <a href="#overview"><b>System</b><span>CPU, audio engine, services, network ports, storage</span></a>
+        <a href="#scenes"><b>Scenes</b><span>Save, load and duplicate whole setups</span></a>
+        <a href="#midimap"><b>Scene MIDI map</b><span>Which inputs and channels play which sound slot</span></a>
+        <a href="#setup"><b>Set up again</b><span>The six first-run steps</span></a>
+      </div>
+    </section>`;
+  $("#main .page-head").insertAdjacentElement("afterend", box);
+  $("#pair-new").onclick = async () => {
+    try {
+      const r = await post("/pair/code");
+      $("#pair-out").innerHTML = `<div class="pairbox">${r.qr_svg ? `<div class="qr" aria-hidden="true">${r.qr_svg.replace(/<\?xml[^>]*>/, "").replace(/<!DOCTYPE[^>]*>/, "")}</div>` : ""}<div><div class="lbl">Code</div><div class="code mono">${esc(r.code)}</div><div class="lbl" style="margin-top:8px">Or open</div><div class="mono small brk">${esc(r.url)}</div><div class="muted small" id="pair-ttl"></div></div></div>`;
+      const end = Date.now() + r.ttl * 1000;
+      clearInterval(S.pairTimer);
+      S.pairTimer = setInterval(() => { const el = $("#pair-ttl"); const left = Math.max(0, Math.round((end - Date.now()) / 1000)); if (!el || !left) { clearInterval(S.pairTimer); if (el) el.textContent = "Expired. Make a new one."; return; } el.textContent = `Expires in ${fmtTime(left)}`; }, 1000);
+    } catch (e) { fail(e); }
+  };
+}

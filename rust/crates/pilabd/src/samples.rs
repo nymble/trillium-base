@@ -22,6 +22,9 @@ pub struct Bank {
     pub bytes: u64,
     pub files: u64,
     pub source: String,
+    /// Attribution the licence requires (CC BY); shown wherever the bank is listed.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub credit: String,
 }
 
 #[derive(Default, Deserialize)]

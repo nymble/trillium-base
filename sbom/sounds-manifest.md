@@ -46,15 +46,18 @@ compatible with `GPL-3.0-or-later OR LicenseRef-Commercial` is not installed.
 | vcsl-glockenspiel | Glockenspiel | mallets-and-bells | CC0-1.0 | (in vcsl-tonal, 113.2 total) | VCSL c1ea7bc |
 | vcsl-balafon | Balafon | mallets-and-bells | CC0-1.0 | (in vcsl-tonal, 113.2 total) | VCSL c1ea7bc |
 | vcsl-mbira | Mbira, Tanzania | strings-and-plucked | CC0-1.0 | (in vcsl-tonal, 113.2 total) | VCSL c1ea7bc |
+| muldjord-kit | MuldjordKit (GM), acoustic rock kit | drums | **CC-BY-4.0** | 60.3 | sfzinstruments/DrumGizmo.MuldjordKit fc16571 |
+
+**Credit (required, CC BY 4.0):** Drum samples provided by DrumGizmo.org (MuldjordKit, CC BY 4.0; SFZ port by sfzinstruments). Shown in the Sounds browser, the Sounds & apps credits and Settings > About.
 
 ## Instruments and players (apps, from Debian)
 
 | App | Licence | Sound data | Data licence | Status |
 | --- | --- | --- | --- | --- |
 | Trillium Synth (pilab-synth) | GPL-3.0-or-later OR LicenseRef-Commercial | AKWF wavetables | CC0-1.0 | installed |
-| FluidSynth 2.4 (`fluidsynth`) | LGPL-2.1-or-later | TimGM6mb (`timgm6mb-soundfont`) | GPL-2.0-only | library and TimGM6mb installed; player binary not installed |
-| | | FluidR3_GM (`fluid-soundfont-gm`, about 140 MB) | MIT | not installed (decision) |
-| ZynAddSubFX 3.0 (`zynaddsubfx`) | GPL-2.0-or-later | `zynaddsubfx-data` banks | GPL-2.0-or-later | manifest only; not installed (decision) |
+| FluidSynth 2.4.4 (`fluidsynth`) | LGPL-2.1-or-later | FluidR3_GM (`fluid-soundfont-gm` 3.1, 148 MB), the default | MIT | installed; engine `pilab-fluidsynth.service`, scene "general midi" |
+| | | TimGM6mb (`timgm6mb-soundfont`) | GPL-2.0-only | installed, selectable |
+| ZynAddSubFX 3.0.6 (`zynaddsubfx`) | GPL-2.0-or-later | `zynaddsubfx-data` (32 banks) | GPL-2.0-or-later | installed; engine `pilab-zynaddsubfx.service`, scene "zynaddsubfx" |
 
 App manifests: `etc/trillium/apps.d/fluidsynth.toml`, `etc/trillium/apps.d/zynaddsubfx.toml`.
 
@@ -62,7 +65,6 @@ App manifests: `etc/trillium/apps.d/fluidsynth.toml`, `etc/trillium/apps.d/zynad
 
 | Pack | Licence | Why not |
 | --- | --- | --- |
-| MuldjordKit (acoustic drum kit) | CC-BY-4.0 | needs a visible credit line in the console and docs; VCSL covers the GM kit |
 | Surge XT | GPL-3.0 | no headless Pi build in Debian trixie arm64 yet; candidate app |
 | sfizz | BSD-2-Clause | pilab-synth has its own SFZ player; only needed for SFZ features it lacks |
 

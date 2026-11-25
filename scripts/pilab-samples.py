@@ -12,10 +12,12 @@ mbira) get key-mapped SFZ files from the note names in their file names. All VCS
 
 Every bank gets a pilab.manifest/v1 manifest plus a files.tsv sidecar, and the runtime
 index samples/index.json lists what the console can load. Anything whose licence text does
-not say CC0 / public domain is skipped.
+not say CC0 / public domain is skipped, except MuldjordKit, which is CC BY 4.0 and carries
+its credit line into the manifest, the index and the console.
 
 Usage: pilab-samples.py install [--root DIR] [--only id,id] [--cache DIR] [--no-flac]
-       ids: FreePats bank ids, vcsl-starter-kit, vcsl-full-kit, vcsl-tonal (all five tuned packs)
+       ids: FreePats bank ids, vcsl-starter-kit, vcsl-full-kit, vcsl-tonal (all five tuned packs),
+            muldjord-kit (CC BY 4.0, needs sox; shows its credit in the console)
        pilab-samples.py index   [--root DIR]
 """
 
@@ -23,6 +25,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -112,7 +115,7 @@ def write_manifest(root: Path, m: dict, bank_dir: Path):
         f"upstream: {m['upstream']}",
         f"version: {yq(m['version'])}",
         f"license: {m['license']}",
-        'credits: ""',
+        f"credits: {yq(m.get('credits', ''))}",
         "types: [samples]",
         f"root: {m['root']}",
         f"path: {rel_path}",
@@ -488,6 +491,128 @@ def install_vcsl_full(root: Path, cache: Path, flac: bool):
     log(f"  ok vcsl-full-kit: {count} files, {total / 1048576:.1f} MiB")
 
 
+
+# ------------------------------------------------------------------ MuldjordKit (CC-BY-4.0)
+# The SFZ port ships one mono file per microphone per hit. pilab plays one stereo voice per
+# hit, so the installer mixes each hit's own close mics with the overheads and room mics to
+# stereo (fixed pans, snare bottom phase-inverted as upstream advises), applies one gain for
+# the whole kit (dynamics between hits are kept) and writes a General MIDI drum map.
+MULDJORD_REPO = "sfzinstruments/DrumGizmo.MuldjordKit"
+MULDJORD_PAGE = "https://github.com/sfzinstruments/DrumGizmo.MuldjordKit"
+MULDJORD_CREDIT = "Drum samples provided by DrumGizmo.org (MuldjordKit, CC BY 4.0; SFZ port by sfzinstruments)"
+MK_BASE = "DrumGizmo/MuldjordKit/"
+MK_CLOSE = {"KdrumL": ["KdrumL"], "KdrumR": ["KdrumR"], "Snare": ["Snare_top", "Snare_bottom"],
+            "SnareRest": ["Snare_top", "Snare_bottom"], "Tom1": ["Tom1"], "Tom2": ["Tom2"], "Tom3": ["Tom3"],
+            "Tom4": ["Tom4"], "HihatClosed": ["Hihat"], "HihatOpen": ["Hihat"], "RideL": ["RideL"],
+            "RideLBell": ["RideL"], "RideR": ["RideR"], "RideRBell": ["RideR"], "CrashL": [], "CrashR": [], "China": []}
+# mic: (gain, pan 0 = left .. 1 = right, invert)
+MK_MIX = {"KdrumL": (1.0, 0.47, False), "KdrumR": (1.0, 0.53, False), "Snare_top": (0.9, 0.5, False),
+          "Snare_bottom": (0.5, 0.5, True), "Tom1": (0.9, 0.3, False), "Tom2": (0.9, 0.42, False),
+          "Tom3": (0.9, 0.58, False), "Tom4": (0.9, 0.72, False), "Hihat": (0.6, 0.3, False),
+          "RideL": (0.6, 0.25, False), "RideR": (0.6, 0.75, False), "OHL": (0.8, 0.0, False),
+          "OHR": (0.8, 1.0, False), "AmbL": (0.5, 0.1, False), "AmbR": (0.5, 0.9, False)}
+# GM drum note -> (instrument folder, note to choke it with an off_by group, or None)
+MK_GM = {35: "KdrumR", 36: "KdrumL", 37: "SnareRest", 38: "Snare", 40: "Snare", 41: "Tom4", 43: "Tom4",
+         45: "Tom3", 47: "Tom2", 48: "Tom1", 50: "Tom1", 42: "HihatClosed", 44: "HihatClosed",
+         46: "HihatOpen", 49: "CrashL", 57: "CrashR", 52: "China", 51: "RideR", 53: "RideRBell",
+         59: "RideL", 55: "RideLBell"}
+
+
+def mk_regions(text: str, macros: dict):
+    """(hit number, lovel, hivel, seq_length, seq_position) for each region of an upstream region file."""
+    out = []
+    for line in text.splitlines():
+        if not line.startswith("<region>"):
+            continue
+        kv = dict(re.findall(r"(\w+)=(\S+)", line))
+        lo, hi = macros.get(kv["lovel"], kv["lovel"]), macros.get(kv["hivel"], kv["hivel"])
+        n = int(re.search(r"/(\d+)-", kv["sample"]).group(1))
+        out.append((n, int(lo), int(hi), int(kv.get("seq_length", 1)), int(kv.get("seq_position", 1))))
+    return out
+
+
+def install_muldjord(root: Path, cache: Path):
+    sox = shutil.which("sox")
+    if not sox:
+        raise RuntimeError("MuldjordKit needs sox for the stereo mix: sudo apt install sox")
+    tsv = REPO / "library/muldjord-kit.tsv"
+    rows = read_tsv(tsv, ["path", "bytes", "blob"])
+    commit = next(l.split()[-1] for l in tsv.read_text().splitlines() if l.startswith("# commit"))
+    stage = cache / "muldjord"
+    for i, r in enumerate(rows):
+        local = stage / r["path"]
+        if not local.exists() or git_blob_sha(local) != r["blob"]:
+            fetch(f"https://raw.githubusercontent.com/{MULDJORD_REPO}/{commit}/" + urllib.request.quote(r["path"]), local)
+            if git_blob_sha(local) != r["blob"]:
+                raise RuntimeError(f"MuldjordKit blob mismatch for {r['path']}")
+        if i % 200 == 0:
+            log(f"  muldjord: {i}/{len(rows)} files")
+    lic = (stage / "LICENSE").read_text(errors="replace")
+    if "Attribution 4.0" not in lic:
+        raise RuntimeError("MuldjordKit licence text is not CC BY 4.0; not installing")
+    macros = dict(re.findall(r"#define\s+(\$v\d+[lh])\s+(\d+)", (stage / MK_BASE / "Data/macro.txt").read_text()))
+    dest = root / "samples/muldjord-kit"
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    tmp = Path(tempfile.mkdtemp(prefix="mk-", dir=cache))
+    regions, peaks = {}, {}
+    for inst, close in MK_CLOSE.items():
+        regions[inst] = mk_regions((stage / MK_BASE / f"Data/region/{inst}.txt").read_text(), macros)
+        for (n, *_rest) in regions[inst]:
+            mics = [m for m in close + ["OHL", "OHR", "AmbL", "AmbR"] if (stage / MK_BASE / f"Samples/{inst}/{n}-{inst}-{m}.flac").exists()]
+            args, left, right = [sox, "-M"], [], []
+            for k, m in enumerate(mics, 1):
+                g, pan, inv = MK_MIX[m]
+                args += (["-v", "-1"] if inv else []) + [str(stage / MK_BASE / f"Samples/{inst}/{n}-{inst}-{m}.flac")]
+                left.append(f"{k}v{g * math.cos(pan * math.pi / 2):.4f}")
+                right.append(f"{k}v{g * math.sin(pan * math.pi / 2):.4f}")
+            out = tmp / f"{inst}-{n}.wav"
+            if len(mics) == 1:
+                args.remove("-M")
+            args += ["-e", "floating-point", "-b", "32", str(out), "remix", "-m", ",".join(left), ",".join(right)]
+            subprocess.run(args, check=True, stderr=subprocess.DEVNULL)
+            st = subprocess.run([sox, str(out), "-n", "stat"], capture_output=True, text=True).stderr
+            mx = float(re.search(r"Maximum amplitude:\s+(\S+)", st).group(1))
+            mn = float(re.search(r"Minimum amplitude:\s+(\S+)", st).group(1))
+            peaks[out] = max(abs(mx), abs(mn))
+    gain = 0.89 / max(peaks.values())  # loudest hit at -1 dBFS
+    (dest / "samples").mkdir()
+    for out in peaks:
+        subprocess.run([sox, str(out), "-b", "24", str(dest / "samples" / (out.stem + ".flac")), "vol", f"{gain:.6f}"], check=True, stderr=subprocess.DEVNULL)
+    shutil.rmtree(tmp, ignore_errors=True)
+    sfz = ["// MuldjordKit, stereo mix by pilab-samples.py, General MIDI drum notes (channel 10).",
+           f"// {MULDJORD_CREDIT}", "<control> default_path=samples/", "<global> loop_mode=one_shot ampeg_release=0.05"]
+    groups = {"HihatClosed": 1, "HihatOpen": 2}
+    for note, inst in sorted(MK_GM.items()):
+        extra = ""
+        if inst == "HihatOpen":
+            extra = " group=2 off_by=1"
+        elif inst == "HihatClosed":
+            extra = " group=1"
+        sfz.append(f"// {inst}")
+        sfz.append(f"<group> key={note}{extra}")
+        for (n, lo, hi, sl, sp) in regions[inst]:
+            seq = f" seq_length={sl} seq_position={sp}" if sl > 1 else ""
+            sfz.append(f"<region> lovel={lo} hivel={hi}{seq} sample={inst}-{n}.flac")
+    (dest / "muldjord-kit.sfz").write_text("\n".join(sfz) + "\n")
+    shutil.copy(stage / "LICENSE", dest / "LICENSE.txt")
+    (dest / "SOURCE.txt").write_text(
+        "MuldjordKit (DrumGizmo), SFZ port, mixed to stereo for pilab.\n"
+        f"Source:  {MULDJORD_PAGE}\nCommit:  {commit}\nLicense: CC BY 4.0 (LICENSE.txt). Upstream page: https://drumgizmo.org/wiki/doku.php?id=kits:muldjordkit\n"
+        f"Credit:  {MULDJORD_CREDIT}\n"
+        "         Upstream asks that compositions using the kit credit \"Drum samples provided by DrumGizmo.org\".\n"
+        "Changes: each hit's close, overhead and room microphones mixed to one stereo FLAC (fixed pans,\n"
+        "         snare bottom phase-inverted), one gain for the whole kit, General MIDI key map.\n")
+    total, count = write_manifest(root, {
+        "id": "muldjord-kit", "title": "MuldjordKit (GM)", "source": "drumgizmo", "upstream": MULDJORD_PAGE,
+        "version": commit[:7], "license": "CC-BY-4.0", "root": root_id(root), "canonical": f"{MULDJORD_PAGE}/tree/{commit}",
+        "format": "audio/flac", "dc_source": "https://drumgizmo.org/", "category": "drums", "drum": True,
+        "sfz": "muldjord-kit.sfz", "credits": MULDJORD_CREDIT, "extra": {"upstream_commit": commit},
+    }, dest)
+    log(f"  ok muldjord-kit: {count} files, {total / 1048576:.1f} MiB, kit gain {20 * math.log10(gain):+.1f} dB")
+
+
 NOTE_RE = re.compile(r"(?:^|_)([A-G])(#|b)?(-?\d)(?=_|\.|$)")
 VEL_WORDS = {"soft": 2, "medium": 4, "med": 4, "loud": 7, "pp": 2, "p": 3, "mp": 4, "mf": 5, "f": 6, "ff": 7}
 TONAL = [
@@ -593,6 +718,7 @@ def build_index(root: Path):
             "id": kv["id"], "title": kv["title"], "category": kv.get("pilab.category", "other"),
             "drum": kv.get("pilab.drum") == "true", "sfz": f"{path}/{kv['pilab.sfz']}", "license": kv["license"],
             "bytes": int(kv.get("bytes", 0)), "files": int(kv.get("file_count", 0)), "source": kv.get("source", ""),
+            **({"credit": kv["credits"]} if kv.get("credits") else {}),
         })
     (root / "samples").mkdir(parents=True, exist_ok=True)
     (root / "samples/index.json").write_text(json.dumps({"schema": "pilab.samples-index/v1", "items": items}, indent=1) + "\n")
@@ -614,7 +740,7 @@ def main():
     log(f"library root: {root}")
     if a.cmd == "install":
         only = set(filter(None, a.only.split(",")))
-        vcsl_ids = {"vcsl-starter-kit", "vcsl-full-kit", "vcsl-tonal"} | {t[0] for t in TONAL}
+        vcsl_ids = {"vcsl-starter-kit", "vcsl-full-kit", "vcsl-tonal", "muldjord-kit"} | {t[0] for t in TONAL}
         skipped = []
         if not only or only - vcsl_ids:
             done, skipped = install_freepats(root, cache, only - vcsl_ids)
@@ -624,6 +750,8 @@ def main():
             install_vcsl_full(root, cache, not a.no_flac)
         if not only or only & ({"vcsl-tonal"} | {t[0] for t in TONAL}):
             install_vcsl_tonal(root, cache, not a.no_flac, only)
+        if not only or "muldjord-kit" in only:
+            install_muldjord(root, cache)
         for i, why in skipped:
             log(f"  skipped {i}: {why}")
     build_index(root)

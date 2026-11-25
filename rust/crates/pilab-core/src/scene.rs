@@ -90,6 +90,11 @@ pub struct Scene {
     pub slots: Vec<Slot>,
     #[serde(rename = "route")]
     pub routes: Vec<Route>,
+    /// External engine that plays this scene instead of the built-in synth: "fluidsynth" or
+    /// "zynaddsubfx". Empty = the built-in synth. The MIDI router's "scene" destination
+    /// follows it, and loading the scene starts the engine.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub engine: String,
 }
 
 impl Default for Scene {
@@ -104,6 +109,7 @@ impl Default for Scene {
             bend_range: 2.0,
             slots: vec![],
             routes: vec![],
+            engine: String::new(),
         }
     }
 }
@@ -244,6 +250,26 @@ impl Scene {
         }
     }
 
+    /// Every input through FluidSynth with a General MIDI SoundFont (drums on channel 10).
+    pub fn general_midi() -> Scene {
+        Scene {
+            name: "general midi".into(),
+            description: "General MIDI on FluidSynth: 128 instruments on channels 1-16, drums on channel 10 (FluidR3_GM, MIT)".into(),
+            engine: "fluidsynth".into(),
+            ..Scene::default()
+        }
+    }
+
+    /// Every input through ZynAddSubFX (the instrument picked in Sounds & apps).
+    pub fn zynaddsubfx() -> Scene {
+        Scene {
+            name: "zynaddsubfx".into(),
+            description: "ZynAddSubFX synthesizer: pick an instrument from its banks in Sounds & apps".into(),
+            engine: "zynaddsubfx".into(),
+            ..Scene::default()
+        }
+    }
+
     pub fn slot(&self, id: u8) -> Option<&Slot> {
         self.slots.iter().find(|s| s.id == id)
     }
@@ -257,6 +283,9 @@ impl Scene {
         }
         if !valid_name(&self.name) {
             return Err("name: letters, digits, space, _ - . only (max 64)".into());
+        }
+        if !self.engine.is_empty() && !crate::midi_router::ENGINES.contains(&self.engine.as_str()) {
+            return Err(format!("engine must be empty or one of {:?}", crate::midi_router::ENGINES));
         }
         if self.slots.len() > MAX_SLOTS {
             return Err(format!("at most {MAX_SLOTS} slots"));

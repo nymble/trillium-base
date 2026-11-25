@@ -30,6 +30,8 @@ files! {
     "/brand/app-icon-192.png" => "image/png",
     "/brand/app-icon-512.png" => "image/png",
     "/brand/ui-icons/axes-calibrate.svg" => "image/svg+xml",
+    "/brand/ui-icons/headphones.svg" => "image/svg+xml",
+    "/brand/ui-icons/record.svg" => "image/svg+xml",
     "/brand/ui-icons/midi.svg" => "image/svg+xml",
     "/brand/ui-icons/presets.svg" => "image/svg+xml",
     "/brand/ui-icons/instrument.svg" => "image/svg+xml",

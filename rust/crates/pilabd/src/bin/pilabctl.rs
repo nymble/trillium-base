@@ -219,6 +219,8 @@ fn main() {
         }
         ["zero", rest @ ..] => zero_cli(rest),
         ["firmware", rest @ ..] => firmware_cli(rest),
+        ["midi", rest @ ..] => midi_cli(rest),
+        ["engines", rest @ ..] => engines_cli(rest),
         ["inputs"] => out(http("GET", "/midi/inputs", None)),
         ["input"] => out(http("GET", "/input", None)),
         ["input", "source", glob] => out(http("POST", "/input", Some(format!("{{\"source\":{}}}", json_str(glob))))),
@@ -226,7 +228,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | zero [show|schema|presets|preset ID|set NAME=VALUE..|action A|export|import FILE|save-preset NAME|auto on|off] | firmware [status|latest|check FILE|update FILE --confirm] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | zero [show|schema|presets|preset ID|set NAME=VALUE..|action A|export|import FILE|save-preset NAME|auto on|off] | firmware [status|latest|check FILE|update FILE --confirm] | midi [routes | route add FROM TO [--ch 1,2] [--to-ch N] [--keys LO-HI] [--types note,cc] [--transpose N] [--name TEXT] | route rm|on|off ID | profile set MATCH key=value.. | profile rm MATCH | monitor [--follow|--csv|--clear] | reset] | engines [list | start ID | stop ID | sound ID FILE | program ID CH PROG | scene ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
             std::process::exit(2);
         }
     }
@@ -455,5 +457,158 @@ fn firmware_cli(args: &[&str]) {
             out(http_timeout("POST", "/firmware/update", Some(serde_json::json!({ "key": key, "name": name, "confirm": true, "allow_downgrade": down }).to_string()), 120));
         }
         other => die(format!("unknown: firmware {other}")),
+    }
+}
+
+
+fn qenc(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~*".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+fn note_arg(s: &str) -> u8 {
+    s.parse::<u8>().ok().or_else(|| pilab_core::zero_map::note_number(s).map(|n| n as u8)).filter(|n| *n <= 127).unwrap_or_else(|| die(format!("not a note: {s} (0-127 or a name like C4)")))
+}
+
+fn print_router(v: &serde_json::Value) {
+    let st = v["status"].as_array().cloned().unwrap_or_default();
+    println!("MIDI routes (scene plays on: {})", v["scene_engine"].as_str().filter(|s| !s.is_empty()).unwrap_or("built-in synth"));
+    for r in v["config"]["routes"].as_array().cloned().unwrap_or_default() {
+        let id = r["id"].as_str().unwrap_or("");
+        let s = st.iter().find(|x| x["id"] == id).cloned().unwrap_or_default();
+        let mut opts = vec![];
+        if let Some(c) = r["channels"].as_array().filter(|c| !c.is_empty()) {
+            opts.push(format!("ch {}", c.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")));
+        }
+        if r["to_channel"].as_u64().unwrap_or(0) > 0 {
+            opts.push(format!("-> ch {}", r["to_channel"]));
+        }
+        if r["note_lo"].as_u64() != Some(0) || r["note_hi"].as_u64() != Some(127) {
+            opts.push(format!("keys {}-{}", r["note_lo"], r["note_hi"]));
+        }
+        if let Some(t) = r["types"].as_array().filter(|c| !c.is_empty()) {
+            opts.push(t.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("+"));
+        }
+        if r["transpose"].as_i64().unwrap_or(0) != 0 {
+            opts.push(format!("transpose {:+}", r["transpose"].as_i64().unwrap_or(0)));
+        }
+        let state = if s["active"].as_bool() == Some(true) { "live".to_string() } else { s["note"].as_str().unwrap_or("idle").to_string() };
+        println!("  {id:<20} {} -> {}  {}  [{state}]", r["from"].as_str().unwrap_or(""), r["to"].as_str().unwrap_or(""), opts.join(", "));
+    }
+    let prof = v["config"]["profiles"].as_array().cloned().unwrap_or_default();
+    if !prof.is_empty() {
+        println!("Device profiles");
+        for p in prof {
+            println!("  {}  {}", p["matches"].as_str().unwrap_or(""), serde_json::to_string(&p).unwrap_or_default());
+        }
+    }
+    println!("Sources: {}", v["sources"].as_array().map(|a| a.iter().filter_map(|s| s["label"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default());
+    println!("Destinations: synth, scene, fluidsynth, zynaddsubfx{}", v["destinations"].as_array().map(|a| a.iter().filter_map(|s| s["label"].as_str()).map(|l| format!(", \"*{l}*\"")).collect::<String>()).unwrap_or_default());
+}
+
+fn midi_cli(args: &[&str]) {
+    match args {
+        [] | ["routes"] => print_router(&get_json("/midi/router")),
+        ["reset"] => out(http("POST", "/midi/router/reset", Some("{}".into())).map(|_| "router reset: every input to the scene".into())),
+        ["route", "add", from, to, rest @ ..] => {
+            let mut b = serde_json::json!({ "from": from, "to": to });
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                let v = it.next().unwrap_or_else(|| die(format!("{a} needs a value")));
+                match *a {
+                    "--ch" => b["channels"] = serde_json::json!(v.split(',').map(|c| c.trim().parse::<u8>().unwrap_or_else(|_| die("channels are 1-16"))).collect::<Vec<_>>()),
+                    "--to-ch" => b["to_channel"] = serde_json::json!(v.parse::<u8>().unwrap_or_else(|_| die("--to-ch 1-16"))),
+                    "--keys" => {
+                        let (lo, hi) = v.split_once('-').unwrap_or_else(|| die("--keys LO-HI, e.g. C2-B3 or 36-59"));
+                        b["note_lo"] = serde_json::json!(note_arg(lo));
+                        b["note_hi"] = serde_json::json!(note_arg(hi));
+                    }
+                    "--types" => b["types"] = serde_json::json!(v.split(',').collect::<Vec<_>>()),
+                    "--transpose" => b["transpose"] = serde_json::json!(v.parse::<i8>().unwrap_or_else(|_| die("--transpose -48..48"))),
+                    "--name" => b["name"] = serde_json::json!(v),
+                    _ => die(format!("unknown option {a}")),
+                }
+            }
+            match http("POST", "/midi/router/routes", Some(b.to_string())) {
+                Ok(t) => print_router(&serde_json::from_str(&t).unwrap_or_default()),
+                Err(e) => die(e),
+            }
+        }
+        ["route", "rm", id] => match http("DELETE", &format!("/midi/router/routes/{}", qenc(id)), None) {
+            Ok(t) => print_router(&serde_json::from_str(&t).unwrap_or_default()),
+            Err(e) => die(e),
+        },
+        ["route", on @ ("on" | "off"), id] => {
+            let v = get_json("/midi/router");
+            let mut r = v["config"]["routes"].as_array().and_then(|a| a.iter().find(|r| r["id"] == *id).cloned()).unwrap_or_else(|| die("no such route"));
+            r["enabled"] = serde_json::json!(*on == "on");
+            match http("PUT", &format!("/midi/router/routes/{}", qenc(id)), Some(r.to_string())) {
+                Ok(t) => print_router(&serde_json::from_str(&t).unwrap_or_default()),
+                Err(e) => die(e),
+            }
+        }
+        ["profile", "set", m, kv @ ..] => {
+            let v = get_json("/midi/router");
+            let mut p = v["config"]["profiles"].as_array().and_then(|a| a.iter().find(|p| p["matches"] == *m).cloned()).unwrap_or_else(|| serde_json::json!({ "matches": m }));
+            for a in kv {
+                let (k, val) = a.split_once('=').unwrap_or_else(|| die("profile settings are key=value: enabled, channel, transpose, velocity_scale, velocity_fixed, block, name"));
+                p[k] = match k {
+                    "enabled" => serde_json::json!(matches!(val, "on" | "true" | "yes" | "1")),
+                    "block" => serde_json::json!(val.split(',').filter(|x| !x.is_empty()).collect::<Vec<_>>()),
+                    "name" => serde_json::json!(val),
+                    "velocity_scale" => serde_json::json!(val.parse::<f32>().unwrap_or_else(|_| die("velocity_scale is a number"))),
+                    "channel" | "velocity_fixed" => serde_json::json!(val.parse::<u8>().unwrap_or_else(|_| die(format!("{k} is a number")))),
+                    "transpose" => serde_json::json!(val.parse::<i8>().unwrap_or_else(|_| die("transpose is a number"))),
+                    _ => die(format!("unknown profile setting {k}")),
+                };
+            }
+            match http("PUT", "/midi/router/profiles", Some(p.to_string())) {
+                Ok(t) => print_router(&serde_json::from_str(&t).unwrap_or_default()),
+                Err(e) => die(e),
+            }
+        }
+        ["profile", "rm", m] => match http("DELETE", &format!("/midi/router/profiles?matches={}", qenc(m)), None) {
+            Ok(t) => print_router(&serde_json::from_str(&t).unwrap_or_default()),
+            Err(e) => die(e),
+        },
+        ["monitor", "--csv"] => out(http("GET", "/midi/monitor.csv", None)),
+        ["monitor", "--clear"] => out(http("DELETE", "/midi/monitor", None).map(|_| "MIDI monitor cleared".into())),
+        ["monitor", rest @ ..] => {
+            let follow = rest.contains(&"--follow");
+            let mut since = 0u64;
+            let first = get_json("/midi/monitor?limit=40");
+            let mut batch = first;
+            loop {
+                for e in batch["events"].as_array().cloned().unwrap_or_default() {
+                    let to = e["to"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+                    println!("{:>9.3}s  {:<28} ch{:<2} {:<10} {:<16} -> {}", e["t"].as_f64().unwrap_or(0.0), e["source"].as_str().unwrap_or(""), e["ch"], e["kind"].as_str().unwrap_or(""), e["text"].as_str().unwrap_or(""), if to.is_empty() { "(filtered)".into() } else { to });
+                }
+                since = batch["last"].as_u64().unwrap_or(since);
+                if !follow {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                batch = get_json(&format!("/midi/monitor?since={since}"));
+            }
+        }
+        _ => die(format!("usage: {} midi [routes | route add FROM TO [opts] | route rm|on|off ID | profile set MATCH k=v.. | profile rm MATCH | monitor [--follow|--csv|--clear] | reset]", prog())),
+    }
+}
+
+fn engines_cli(args: &[&str]) {
+    match args {
+        [] | ["list"] => {
+            let v = get_json("/engines");
+            for e in v["engines"].as_array().cloned().unwrap_or_default() {
+                let state = if e["running"].as_bool() == Some(true) { "running" } else if e["installed"].as_bool() == Some(true) { "stopped" } else { "not installed" };
+                println!("{:<12} {:<26} {:<8} {}  sound: {}", e["id"].as_str().unwrap_or(""), e["name"].as_str().unwrap_or(""), state, e["license"].as_str().unwrap_or(""), e["sound"].as_str().unwrap_or("-"));
+            }
+            println!("{} SoundFonts, {} ZynAddSubFX instruments", v["soundfonts"].as_array().map(|a| a.len()).unwrap_or(0), v["zyn_instruments"].as_array().map(|a| a.len()).unwrap_or(0));
+        }
+        ["start", id] => out(http("POST", &format!("/engines/{id}/start"), Some("{}".into()))),
+        ["stop", id] => out(http("POST", &format!("/engines/{id}/stop"), Some("{}".into()))),
+        ["sound", id, file] => out(http("POST", &format!("/engines/{id}/sound"), Some(serde_json::json!({ "file": file }).to_string()))),
+        ["program", id, ch, p] => out(http("POST", &format!("/engines/{id}/program"), Some(serde_json::json!({ "channel": ch.parse::<u8>().unwrap_or(0), "program": p.parse::<u8>().unwrap_or(0) }).to_string()))),
+        ["scene", id] => out(http("POST", &format!("/engines/{id}/scene"), Some("{}".into()))),
+        _ => die(format!("usage: {} engines [list | start ID | stop ID | sound ID FILE | program ID CH PROG | scene ID]   (ID: fluidsynth, zynaddsubfx)", prog())),
     }
 }

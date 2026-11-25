@@ -1,0 +1,21 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# FluidSynth General MIDI engine for Trillium Base. Started and stopped by pilabd (Sounds &
+# apps, or a scene whose engine is fluidsynth); its MIDI comes from the MIDI router and its
+# audio goes into Trillium Synth:engine_l/r, so the master level and limiter apply.
+[Unit]
+Description=FluidSynth GM engine (Trillium Base)
+After=pipewire.service pilabd.service
+
+[Service]
+Environment=PIPEWIRE_LATENCY=64/48000
+Environment=SF2=/usr/share/sounds/sf2/FluidR3_GM.sf2
+EnvironmentFile=-%h/.config/pilab/fluidsynth.env
+# -s opens FluidSynth's command server; PrivateNetwork keeps it inside this unit.
+ExecStart=/usr/bin/pw-jack /usr/bin/fluidsynth -is -a jack -m jack -g 0.5 -r 48000 -o audio.jack.autoconnect=0 -o midi.autoconnect=0 -o midi.jack.id=fluidsynth-midi ${SF2}
+PrivateNetwork=yes
+CPUAffinity=0-2
+Nice=-5
+MemoryMax=512M
+Restart=on-failure
+RestartSec=2

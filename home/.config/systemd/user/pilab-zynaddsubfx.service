@@ -1,0 +1,21 @@
+# Copyright (C) 2026 M-of-N
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# ZynAddSubFX engine for Trillium Base. Started and stopped by pilabd; the instrument is
+# ZYN_XIZ from ~/.config/pilab/zynaddsubfx.env (written when one is picked in Sounds & apps).
+# Its MIDI comes from the MIDI router and its audio goes into Trillium Synth:engine_l/r.
+[Unit]
+Description=ZynAddSubFX engine (Trillium Base)
+After=pipewire.service pilabd.service
+
+[Service]
+Environment=PIPEWIRE_LATENCY=64/48000
+Environment=ZYN_XIZ=
+EnvironmentFile=-%h/.config/pilab/zynaddsubfx.env
+ExecStart=/bin/sh -c 'exec /usr/bin/pw-jack /usr/bin/zynaddsubfx -U -I jack -O jack -r 48000 ${ZYN_XIZ:+-L "$ZYN_XIZ"}'
+# ZynAddSubFX always opens an OSC (UDP) port; PrivateNetwork keeps it off the LAN.
+PrivateNetwork=yes
+CPUAffinity=0-2
+Nice=-5
+MemoryMax=768M
+Restart=on-failure
+RestartSec=2

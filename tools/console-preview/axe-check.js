@@ -10,7 +10,7 @@ const base=process.argv[2];
 for (const [w,h] of [[1440,900],[390,844]]) {
 const ctx=await b.newContext({viewport:{width:w,height:h}});await ctx.addInitScript(fakeInit());
 const pg=await ctx.newPage();
-for (const v of ["play","setup","overview","sounds","midimap","scenes","signals","devices","settings"]) {
+for (const v of ["play","listen","record","setup","overview","sounds","midimap","scenes","signals","devices","settings"]) {
  await pg.goto(base+"/#"+v);await pg.reload();await pg.waitForTimeout(1500);
  await pg.evaluate(axe);
  const r=await pg.evaluate(async()=>{const r=await axe.run(document,{runOnly:["wcag2a","wcag2aa","best-practice"]});return r.violations.map(x=>({id:x.id,impact:x.impact,n:x.nodes.length,ex:x.nodes[0].target.join(" ").slice(0,80)}))});

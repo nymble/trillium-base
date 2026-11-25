@@ -5,10 +5,25 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 
 ## Unreleased
 
+### Six-view console
+
+- Navigation is **Play, Listen, Record, Devices, Sounds & apps, Settings** (six tabs on the phone bar too). System, Patch panel (was Signals), Scenes, Scene MIDI map and Set up sit under Settings > Advanced or Sounds & apps, with a back link.
+- **Listen**: DAC state, master level, AirPlay on/off, recordings with in-browser playback (`GET /api/v1/recordings/{id}/audio`).
+- **Record**: one big start/stop with the take time, where takes go, and the recordings list.
+- **Settings > Pair another device**: one-time pairing code with QR and countdown (`POST /api/v1/pair/code`).
+
+### MIDI router
+
+- Any input (USB/Bluetooth MIDI, Trillium Zero, console, Zero motion out) to any destination (built-in synth, FluidSynth, ZynAddSubFX, any MIDI output port) with channel filter and remap, key-range splits, merges, message-type filters and transpose; per-device profiles; a live monitor with CSV export. Saved in `~/.config/pilab/midi-router.json`; console (Devices), API and `trillium-base midi ...`. See `docs/midi-router.md`.
+
+### Engines and sounds
+
+- FluidSynth 2.4.4 with FluidR3_GM, and ZynAddSubFX 3.0.6 with its 32 banks, installed on the lab unit and run as sandboxed user services; their audio goes through the master level and limiter. New scenes **general midi** (FluidSynth) and **zynaddsubfx**. Engines card in Sounds & apps: start/stop, SoundFont, GM program per channel, Zyn bank and instrument.
+- **MuldjordKit** (acoustic rock kit, CC BY 4.0) mixed to stereo with a GM map. Its credit, "Drum samples provided by DrumGizmo.org", is shown in the Sounds browser, Sounds & apps and Settings > About, and listed in the sounds manifest and ATTRIBUTION.
+
 ### Play view, navigation and setup
 
 - New **Play** view, the default: big scene chips, Zero mapping chips, twelve GM drum pads (velocity from where the pad is touched; channel 10 over `/midi`), master level and Panic. Built for iPad and phone touch (targets of 44 px or more, no hover-only controls).
-- Navigation is Play, Devices and Sounds, with Overview, Scenes, MIDI Map, Signals, Settings and Set up under **More** (a pop-up on the phone tab bar).
 - **Set up** walks the six first-run steps from `docs/first-run.md`; progress is stored with `GET|PUT /api/v1/setup` (`~/.config/pilab/setup.json`) and the console opens it once on a fresh install.
 - PNG home-screen icons (180, 192, 512 px, rendered from the existing app icon) and Apple web-app tags, so iPad Safari "Add to Home Screen" gets a proper icon.
 
@@ -26,7 +41,7 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 ### Sounds
 
 - VCSL Full Kit (GM notes 27-87: toms, ride, crash, splash, china, Latin percussion) and tuned VCSL packs: marimba, vibraphone, glockenspiel, balafon, mbira, all CC0, with presets in the Sounds browser.
-- FluidSynth and ZynAddSubFX app manifests (apt, started by hand).
+- FluidSynth and ZynAddSubFX app manifests.
 - `sbom/sounds-manifest.md` lists every pack and instrument app with its licence.
 
 ### Trillium Zero sensors and strike measurement

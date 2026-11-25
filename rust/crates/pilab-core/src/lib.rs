@@ -13,6 +13,7 @@ pub mod store;
 pub mod zero;
 pub mod zero_map;
 pub mod uf2;
+pub mod midi_router;
 pub mod pcm;
 
 pub use devices::{classify, DeviceClass, SourceIdentity, Transport};

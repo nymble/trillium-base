@@ -72,6 +72,28 @@ sources:
       SFZ mappings the README mentions are not there; plan to generate SFZ with our own
       tool (unverified whether a newer SFZ build exists elsewhere).
 
+  - id: muldjord-kit
+    name: MuldjordKit (DrumGizmo), SFZ port
+    type: samples
+    url: https://github.com/sfzinstruments/DrumGizmo.MuldjordKit
+    license: CC-BY-4.0
+    license_url: https://creativecommons.org/licenses/by/4.0/
+    attribution:
+      required: true
+      credit: "Drum samples provided by DrumGizmo.org (MuldjordKit, CC BY 4.0; SFZ port by sfzinstruments)"
+      shown_in: [console Sounds browser, Sounds & apps credits, Settings About, sbom/sounds-manifest.md, library/ATTRIBUTION.md, bank manifest and SOURCE.txt]
+    size:
+      upstream: "347 MB FLAC, 4,064 mono mic files (git tree API)"
+      installed: "library/muldjord-kit.tsv: 1,324 files fetched (close, overhead and room mics, ~147 MB); 253 stereo hits installed, ~60 MB FLAC"
+    tier: drive
+    status: shipped
+    verified: "2026-11-25: LICENSE is CC BY 4.0 (GitHub licence metadata and file); upstream page asks for \"Drum samples provided by DrumGizmo.org\" in album credits"
+    dc: { type: Collection, format: audio/flac, subject: [sound, samples] }
+    notes: >
+      pilab-samples.py mixes each hit's own close mics with the overheads and room mics to one
+      stereo FLAC (fixed pans, snare bottom phase-inverted), one gain for the whole kit, and
+      writes a General MIDI drum map. That is a modification under CC BY 4.0 and SOURCE.txt says so.
+
   - id: freepats-cc0
     name: FreePats sound banks, CC0 banks only
     type: samples

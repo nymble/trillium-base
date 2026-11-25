@@ -37,6 +37,23 @@ fn ok(v: Value) -> R {
 pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/info", "Product, version, device id, pairing requirement (no token needed)"),
     ("POST", "/api/v1/pair/check", "200 if the bearer token is valid"),
+    ("POST", "/api/v1/pair/code", "New one-time pairing code (5 min, single use) with its URL and QR code, to pair another device"),
+    ("GET", "/api/v1/midi/router", "MIDI router: routes, per-device profiles, live status, sources, destinations, engines"),
+    ("PUT", "/api/v1/midi/router", "{routes, profiles} replace the router configuration (saved, applied live)"),
+    ("POST", "/api/v1/midi/router/reset", "Back to one route: every input to the scene"),
+    ("POST", "/api/v1/midi/router/routes", "{from, to, channels, to_channel, note_lo, note_hi, types, transpose, name} add a route"),
+    ("PUT", "/api/v1/midi/router/routes/{id}", "Replace one route"),
+    ("DELETE", "/api/v1/midi/router/routes/{id}", "Remove one route"),
+    ("PUT", "/api/v1/midi/router/profiles", "{matches, enabled, channel, transpose, velocity_scale, velocity_fixed, block} add or replace a device profile"),
+    ("DELETE", "/api/v1/midi/router/profiles?matches=GLOB", "Remove a device profile"),
+    ("GET", "/api/v1/midi/monitor?since=SEQ&limit=N", "MIDI monitor: events with source, message and destinations (last 5000 kept)"),
+    ("GET", "/api/v1/midi/monitor.csv", "MIDI monitor history as CSV"),
+    ("DELETE", "/api/v1/midi/monitor", "Clear the MIDI monitor history"),
+    ("GET", "/api/v1/engines", "FluidSynth and ZynAddSubFX: installed, running, sound; SoundFonts, Zyn instruments, GM programs"),
+    ("POST", "/api/v1/engines/{id}/start|stop", "Start or stop an engine service"),
+    ("POST", "/api/v1/engines/{id}/sound", "{file} SoundFont (.sf2) or ZynAddSubFX instrument (.xiz); restarts the engine"),
+    ("POST", "/api/v1/engines/{id}/program", "{channel, program, bank?} program change to a running engine"),
+    ("POST", "/api/v1/engines/{id}/scene", "Create (if missing) and load the engine's scene: general midi or zynaddsubfx"),
     ("POST", "/api/v1/pair/redeem", "{code} exchange a one-time pairing code (pilabctl pair --qr) for the token; no token needed"),
     ("GET", "/api/v1/ws?token=", "WebSocket: status frames at 15 Hz, sys frames every 2 s; send {t:'midi',bytes:[..]}"),
     ("GET", "/api/v1/status", "Voices, peaks, limiter, master, xruns, recording"),
@@ -83,6 +100,7 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("PUT", "/api/v1/settings", "Replace settings (archive 'configured' is not settable here)"),
     ("POST", "/api/v1/record", "{on:bool} start/stop local recording"),
     ("GET", "/api/v1/recordings", "Recording cards, newest first"),
+    ("GET", "/api/v1/recordings/{id}/audio", "A recording's WAV (for playback in the browser)"),
     ("GET", "/api/v1/input", "Audio input strip: source glob, connected ports, gain, monitor (off by default), record"),
     ("POST", "/api/v1/input", "{source?, gain_db?, monitor?, record?, autoconnect?, confirm?} change the input strip; monitor on needs confirm"),
     ("GET", "/api/v1/devices", "USB and Bluetooth devices, and Trillium Zero controllers with identity, status, settings and stored profile"),
@@ -133,6 +151,20 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/scenes/{name}/duplicate", post(scene_dup))
         .route("/midi", post(midi))
         .route("/midi/inputs", get(midi_inputs))
+        .route("/midi/router", get(router_get).put(router_put))
+        .route("/midi/router/reset", post(router_reset))
+        .route("/midi/router/routes", post(route_add))
+        .route("/midi/router/routes/{id}", put(route_put).delete(route_delete))
+        .route("/midi/router/profiles", put(profile_put).delete(profile_delete))
+        .route("/midi/monitor", get(monitor_get).delete(monitor_clear))
+        .route("/midi/monitor.csv", get(monitor_csv))
+        .route("/engines", get(engines_get))
+        .route("/engines/{id}/start", post(engine_start))
+        .route("/engines/{id}/stop", post(engine_stop))
+        .route("/engines/{id}/sound", post(engine_sound))
+        .route("/engines/{id}/program", post(engine_program))
+        .route("/engines/{id}/scene", post(engine_scene))
+        .route("/pair/code", post(pair_code))
         .route("/audition", post(audition))
         .route("/audition/play", post(audition_play))
         .route("/audition/render", get(audition_render))
@@ -155,6 +187,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/settings", get(settings_get).put(settings_put))
         .route("/record", post(record_toggle))
         .route("/recordings", get(recordings))
+        .route("/recordings/{id}/audio", get(recording_audio))
         .route("/input", get(input_get).post(input_set))
         .route("/devices", get(devices_list))
         .route("/devices/{key}/snapshot", post(device_snapshot))
@@ -863,6 +896,19 @@ async fn record_toggle(State(app): S, Json(b): Json<On>) -> R {
     ok(app.record(b.on).map_err(bad)?)
 }
 
+async fn recording_audio(State(app): S, Path(id): Path<String>) -> Result<Response, (StatusCode, Json<Value>)> {
+    if !id.starts_with("pilab-rec-") || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return Err(bad("bad recording id"));
+    }
+    let p = app.recordings_dir().join(&id).join(format!("{id}.wav"));
+    let meta = std::fs::metadata(&p).map_err(|_| (StatusCode::NOT_FOUND, Json(json!({ "error": "no such recording" }))))?;
+    if meta.len() > 512 * 1024 * 1024 {
+        return Err(bad("recording is too large to play in the browser; copy it from the device"));
+    }
+    let body = tokio::task::spawn_blocking(move || std::fs::read(&p)).await.map_err(bad)?.map_err(bad)?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "private, max-age=3600")], body).into_response())
+}
+
 async fn recordings(State(app): S) -> R {
     ok(json!({ "location": app.recordings_dir().display().to_string(), "recordings": record::list(&app.recordings_dir()) }))
 }
@@ -1111,4 +1157,198 @@ async fn setup_put(State(app): S, Json(b): Json<Value>) -> R {
     let v = json!({ "done": pick("done"), "skipped": pick("skipped"), "dismissed": b["dismissed"].as_bool().unwrap_or(false) });
     crate::paths::write_atomic(&app.paths.config.join("setup.json"), serde_json::to_string_pretty(&v).unwrap().as_bytes()).map_err(bad)?;
     ok(v)
+}
+
+
+// ------------------------------------------------------------------ MIDI router, monitor, engines
+
+async fn router_get(State(app): S) -> R {
+    app.router_refresh(false);
+    ok(app.router_json())
+}
+
+fn router_save(app: &App, c: pilab_core::midi_router::RouterConfig) -> R {
+    app.router.set_config(c).map_err(bad)?;
+    app.router_refresh(true);
+    ok(app.router_json())
+}
+
+async fn router_put(State(app): S, Json(mut c): Json<pilab_core::midi_router::RouterConfig>) -> R {
+    c.format = "pilab-midi-router".into();
+    c.version = 1;
+    router_save(&app, c)
+}
+
+async fn router_reset(State(app): S) -> R {
+    router_save(&app, Default::default())
+}
+
+async fn route_add(State(app): S, Json(mut r): Json<pilab_core::midi_router::RouteCfg>) -> R {
+    let mut c = app.router.config();
+    if r.id.is_empty() || c.routes.iter().any(|x| x.id == r.id) {
+        let base = if r.name.is_empty() { format!("{}-to-{}", r.from, r.to) } else { r.name.clone() };
+        r.id = c.new_id(&base.replace(['*', ' ', '/', ':'], "-"));
+    }
+    c.routes.push(r);
+    router_save(&app, c)
+}
+
+async fn route_put(State(app): S, Path(id): Path<String>, Json(mut r): Json<pilab_core::midi_router::RouteCfg>) -> R {
+    let mut c = app.router.config();
+    let i = c.routes.iter().position(|x| x.id == id).ok_or_else(|| bad("no such route"))?;
+    r.id = id;
+    c.routes[i] = r;
+    router_save(&app, c)
+}
+
+async fn route_delete(State(app): S, Path(id): Path<String>) -> R {
+    let mut c = app.router.config();
+    let n = c.routes.len();
+    c.routes.retain(|x| x.id != id);
+    if c.routes.len() == n {
+        return Err(bad("no such route"));
+    }
+    router_save(&app, c)
+}
+
+async fn profile_put(State(app): S, Json(p): Json<pilab_core::midi_router::Profile>) -> R {
+    let mut c = app.router.config();
+    match c.profiles.iter().position(|x| x.matches == p.matches) {
+        Some(i) => c.profiles[i] = p,
+        None => c.profiles.push(p),
+    }
+    router_save(&app, c)
+}
+
+#[derive(Deserialize)]
+struct MatchQ {
+    matches: String,
+}
+
+async fn profile_delete(State(app): S, Query(q): Query<MatchQ>) -> R {
+    let mut c = app.router.config();
+    c.profiles.retain(|x| x.matches != q.matches);
+    router_save(&app, c)
+}
+
+#[derive(Deserialize)]
+struct MonQ {
+    #[serde(default)]
+    since: u64,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn monitor_get(State(app): S, Query(q): Query<MonQ>) -> R {
+    let ev = app.router.since(q.since, q.limit.unwrap_or(500).min(5000));
+    let last = ev.last().map(|e| e.seq).unwrap_or(q.since);
+    ok(json!({ "events": ev, "last": last, "kept": crate::router::HISTORY }))
+}
+
+async fn monitor_clear(State(app): S) -> R {
+    app.router.clear();
+    ok(json!({ "ok": true }))
+}
+
+async fn monitor_csv(State(app): S) -> Response {
+    let name = format!("midi-monitor-{}.csv", crate::timefmt::iso_local(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)).replace(':', "").replace('T', "-"));
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()), (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))],
+        app.router.csv(),
+    )
+        .into_response()
+}
+
+async fn engines_get(State(app): S) -> R {
+    let sinks = app.backend.midi_sinks();
+    let running = crate::router::Router::engine_ports(&sinks);
+    ok(json!({
+        "engines": crate::engines::status(&app.paths.config, &running),
+        "soundfonts": crate::engines::soundfonts(),
+        "zyn_instruments": crate::engines::zyn_instruments(),
+        "gm_programs": crate::engines::GM_PROGRAMS.to_vec(),
+    }))
+}
+
+async fn engine_start(State(app): S, Path(id): Path<String>) -> R {
+    crate::engines::start(&id).map_err(bad)?;
+    app.event("info", format!("engine {id} started"));
+    ok(json!({ "ok": true }))
+}
+
+async fn engine_stop(State(app): S, Path(id): Path<String>) -> R {
+    crate::engines::stop(&id).map_err(bad)?;
+    app.event("info", format!("engine {id} stopped"));
+    app.router_refresh(true);
+    ok(json!({ "ok": true }))
+}
+
+#[derive(Deserialize)]
+struct SoundB {
+    file: String,
+}
+
+async fn engine_sound(State(app): S, Path(id): Path<String>, Json(b): Json<SoundB>) -> R {
+    crate::engines::set_sound(&app.paths.config, &id, &b.file).map_err(bad)?;
+    app.event("info", format!("engine {id}: sound {}", b.file.rsplit('/').next().unwrap_or("")));
+    ok(json!({ "ok": true }))
+}
+
+#[derive(Deserialize)]
+struct ProgB {
+    channel: u8,
+    program: u8,
+    #[serde(default)]
+    bank: Option<u8>,
+}
+
+async fn engine_program(State(app): S, Path(id): Path<String>, Json(b): Json<ProgB>) -> R {
+    if !(1..=16).contains(&b.channel) || b.program > 127 {
+        return Err(bad("channel 1-16, program 0-127"));
+    }
+    app.router_refresh(false);
+    let ch = b.channel - 1;
+    if let Some(bank) = b.bank {
+        app.router.send_to_engine(&id, &[0xB0 | ch, 0, bank.min(127)]).map_err(bad)?;
+    }
+    app.router.send_to_engine(&id, &[0xC0 | ch, b.program]).map_err(bad)?;
+    ok(json!({ "ok": true }))
+}
+
+async fn engine_scene(State(app): S, Path(id): Path<String>) -> R {
+    let sc = match id.as_str() {
+        "fluidsynth" => pilab_core::Scene::general_midi(),
+        "zynaddsubfx" => pilab_core::Scene::zynaddsubfx(),
+        _ => return Err(bad("unknown engine")),
+    };
+    if app.store.load(&sc.name).is_err() {
+        app.store.save(&sc, &sc.name).map_err(bad)?;
+    }
+    let applied = app.load_scene(&sc.name).map_err(bad)?;
+    ok(json!({ "ok": true, "scene": applied.name }))
+}
+
+/// A one-time pairing code for another phone, tablet or computer (same rules as
+/// `trillium-base pair --qr`: 5 minutes, single use, destroyed after 5 wrong guesses).
+async fn pair_code(State(app): S) -> R {
+    use std::io::{Read, Write};
+    const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    const TTL: u64 = 300;
+    let mut buf = [0u8; 8];
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).map_err(bad)?;
+    let code: String = buf.iter().map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char).collect();
+    let shown = format!("{}-{}", &code[..4], &code[4..]);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let path = app.paths.pair_code();
+    let tmp = path.with_extension("tmp");
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).map_err(bad)?;
+        writeln!(f, "{code} {}", now + TTL).map_err(bad)?;
+    }
+    std::fs::rename(&tmp, &path).map_err(bad)?;
+    let url = format!("http://{}.local:{}/#pair={shown}", app.hostname, app.port);
+    let svg = std::process::Command::new("qrencode").args(["-t", "svg", "-m", "2", "-o", "-", &url]).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+    app.event("info", "pairing code created for another device");
+    ok(json!({ "code": shown, "url": url, "expires": now + TTL, "ttl": TTL, "qr_svg": svg }))
 }

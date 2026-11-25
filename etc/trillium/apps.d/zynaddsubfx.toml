@@ -13,9 +13,13 @@ kind = "audio"
 source = "apt"
 homepage = "https://zynaddsubfx.sourceforge.io"
 
-# No [service]: start it by hand, for example
-#   zynaddsubfx -I jack -O jack -U -l /usr/share/zynaddsubfx/banks/...xiz
-# Packages: zynaddsubfx, zynaddsubfx-data (banks, GPL-2.0-or-later).
+# Started and stopped by pilabd (Sounds & apps, or a scene that uses it as its engine).
+# MIDI comes from the MIDI router; audio goes into Trillium Synth:engine_l/r, so the master
+# level and the limiter apply.
+
+[service]
+unit = "pilab-zynaddsubfx.service"
+scope = "user"
 
 [resources]
 rt_class = "soft"
@@ -26,5 +30,5 @@ memory_max = "768M"
 nodes = ["zynaddsubfx"]
 
 [security]
-risk = "Its OSC control port listens on localhost UDP while running; loads banks and parameter files, open only files you trust."
+risk = "Loads instrument and parameter files; open only files you trust. Its OSC (UDP) port is inside the unit's private network namespace, so nothing listens on the LAN."
 hardening = "none"

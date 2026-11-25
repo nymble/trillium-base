@@ -13,10 +13,13 @@ kind = "audio"
 source = "apt"
 homepage = "https://www.fluidsynth.org"
 
-# No [service]: start it by hand when a full GM set is wanted, for example
-#   fluidsynth -a jack -m jack -g 0.4 -j /usr/share/sounds/sf2/FluidR3_GM.sf2
-# and connect its MIDI input and audio output in the patch panel. Packages:
-# fluidsynth, fluid-soundfont-gm (MIT, about 140 MB) or timgm6mb-soundfont (GPL-2.0, 6 MB).
+# Started and stopped by pilabd (Sounds & apps, or a scene that uses it as its engine).
+# MIDI comes from the MIDI router; audio goes into Trillium Synth:engine_l/r, so the master
+# level and the limiter apply.
+
+[service]
+unit = "pilab-fluidsynth.service"
+scope = "user"
 
 [resources]
 rt_class = "soft"
@@ -27,5 +30,5 @@ memory_max = "512M"
 nodes = ["fluidsynth"]
 
 [security]
-risk = "Plays SoundFont files; open only files you trust. No network listener unless its shell server is enabled (off by default here)."
+risk = "Plays SoundFont files; open only files you trust. Its command server runs inside the unit's private network namespace, so nothing listens on the LAN."
 hardening = "none"

@@ -36,6 +36,12 @@ pub const INPUT_PORTS: [&str; 2] = ["input_l", "input_r"];
 pub const MIDI_PORTS: [&str; 8] = ["midi_in", "in_1", "in_2", "in_3", "in_4", "in_5", "in_6", "in_7"];
 /// MIDI output: live Trillium Zero motion and touch, for the patch panel (not auto-routed).
 pub const ZERO_MOTION_PORT: &str = "zero_motion";
+/// MIDI outputs driven by the MIDI router (FluidSynth, ZynAddSubFX, USB MIDI devices).
+pub const ROUTER_OUT_PREFIX: &str = "midi_out_";
+/// Stereo input for external engines (FluidSynth, ZynAddSubFX); mixed before the master
+/// level and limiter, so the master and the headphone-safety ceiling apply to them too.
+pub const ENGINE_PORTS: [&str; 2] = ["engine_l", "engine_r"];
+use pilab_core::midi_router::{Table as RouterTable, DST_SYNTH, MAX_OUTS as ROUTER_OUTS, SRC_ZERO_MOTION};
 
 #[derive(Clone, Copy)]
 pub struct MidiEv {
@@ -44,6 +50,8 @@ pub struct MidiEv {
     pub b: [u8; 3],
     /// CLOCK_MONOTONIC nanoseconds when the realtime thread saw the event.
     pub t_ns: u64,
+    /// Router destinations it reached (bit 0 the synth, bit k external output k); 0 = dropped.
+    pub to: u32,
 }
 
 /// Rings between the realtime thread and the rest of the service.
@@ -52,6 +60,10 @@ pub struct RtLinks {
     pub gc_rx: rtrb::Consumer<Garbage>,
     pub mon_rx: rtrb::Consumer<MidiEv>,
     pub rec_rx: rtrb::Consumer<f32>,
+    pub router_tx: rtrb::Producer<Box<RouterTable>>,
+    pub router_gc: rtrb::Consumer<Box<RouterTable>>,
+    /// Direct sends to a router output: [dst, len, b0, b1, b2] (engine program changes).
+    pub direct_tx: rtrb::Producer<[u8; 5]>,
 }
 
 /// Shared flags/counters written by the realtime side.
@@ -115,6 +127,10 @@ pub struct RtHost {
     shared: Arc<RtShared>,
     audio_cpu: usize,
     pinned: bool,
+    router: Box<RouterTable>,
+    router_rx: rtrb::Consumer<Box<RouterTable>>,
+    router_gc: rtrb::Producer<Box<RouterTable>>,
+    direct_rx: rtrb::Consumer<[u8; 5]>,
 }
 
 pub fn rt_pair(engine: Engine, shared: Arc<RtShared>, audio_cpu: usize, sr: f32) -> (RtHost, RtLinks) {
@@ -122,20 +138,47 @@ pub fn rt_pair(engine: Engine, shared: Arc<RtShared>, audio_cpu: usize, sr: f32)
     let (gc_tx, gc_rx) = rtrb::RingBuffer::new(256);
     let (mon_tx, mon_rx) = rtrb::RingBuffer::new(1024);
     let (rec_tx, rec_rx) = rtrb::RingBuffer::new((sr as usize) * 2 * 4); // 4 s stereo
+    let (router_tx, router_rx) = rtrb::RingBuffer::new(8);
+    let (router_gc_tx, router_gc) = rtrb::RingBuffer::new(16);
+    let (direct_tx, direct_rx) = rtrb::RingBuffer::new(256);
     (
-        RtHost { engine, cmd_rx, gc_tx, mon_tx, rec_tx, shared, audio_cpu, pinned: false },
-        RtLinks { cmd_tx, gc_rx, mon_rx, rec_rx },
+        RtHost { engine, cmd_rx, gc_tx, mon_tx, rec_tx, shared, audio_cpu, pinned: false, router: Box::default(), router_rx, router_gc: router_gc_tx, direct_rx },
+        RtLinks { cmd_tx, gc_rx, mon_rx, rec_rx, router_tx, router_gc, direct_tx },
     )
 }
 
 impl RtHost {
     #[inline]
     fn begin(&mut self) {
+        self.begin_with(&mut |_, _, _| {});
+    }
+
+    /// Applies queued commands; console MIDI goes through the router like device input.
+    /// `out(dst, bytes, time)` writes to external router output `dst` (1-based).
+    #[inline]
+    fn begin_with(&mut self, out: &mut dyn FnMut(u8, &[u8], u32)) {
         if !self.pinned {
             self.pinned = true;
             self.pin();
         }
+        // A new router table: swap it in and hand the old one back to be freed outside.
+        while let Ok(t) = self.router_rx.pop() {
+            let old = std::mem::replace(&mut self.router, t);
+            let _ = self.router_gc.push(old);
+        }
+        while let Ok(d) = self.direct_rx.pop() {
+            let n = (d[1] as usize).min(3);
+            if d[0] >= 1 && n > 0 {
+                out(d[0], &d[2..2 + n], 0);
+            }
+        }
         while let Ok(c) = self.cmd_rx.pop() {
+            if let Cmd::Midi { port, len, bytes } = c {
+                if port != pilab_synth::PORT_AUDITION && (len as usize) <= 3 {
+                    self.midi(port, &bytes[..len as usize], 0, out);
+                    continue;
+                }
+            }
             if let Some(g) = self.engine.apply(c) {
                 let _ = self.gc_tx.push(g);
             }
@@ -158,15 +201,37 @@ impl RtHost {
         }
     }
 
+    /// One channel message from source `port` through the router.
     #[inline]
-    fn midi(&mut self, port: u8, bytes: &[u8]) {
+    fn midi(&mut self, port: u8, bytes: &[u8], time: u32, out: &mut dyn FnMut(u8, &[u8], u32)) {
         if bytes.is_empty() || bytes.len() > 3 || bytes[0] < 0x80 || bytes[0] >= 0xF0 {
             return;
         }
-        self.engine.midi(port, bytes);
+        let (router, engine) = (&self.router, &mut self.engine);
+        let to = router.route(port, bytes, |d, b, n| {
+            if d == DST_SYNTH {
+                engine.midi(port, &b[..n]);
+            } else {
+                out(d, &b[..n], time);
+            }
+        });
         let mut b = [0u8; 3];
         b[..bytes.len()].copy_from_slice(bytes);
-        let _ = self.mon_tx.push(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns() });
+        let _ = self.mon_tx.push(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns(), to });
+    }
+
+    /// Zero motion CCs into the router (source `zero-motion`); not logged (they are continuous).
+    #[inline]
+    fn motion(&mut self, bytes: &[u8], out: &mut dyn FnMut(u8, &[u8], u32)) {
+        let (router, engine) = (&self.router, &mut self.engine);
+        router.route(SRC_ZERO_MOTION, bytes, |d, b, n| {
+            if d == DST_SYNTH {
+                // into the synth as its own (virtual) port
+                engine.midi(pilab_synth::PORT_VIRTUAL, &b[..n]);
+            } else {
+                out(d, &b[..n], 0);
+            }
+        });
     }
 
     /// Renders one block. `input` is the input strip's source (left, right), if any:
@@ -174,7 +239,12 @@ impl RtHost {
     /// recording when recording of the input is on. Sums are clamped to ±1.
     #[inline]
     fn render(&mut self, l: &mut [f32], r: &mut [f32], input: Option<(&[f32], &[f32])>) {
-        self.engine.process(l, r);
+        self.render_ext(l, r, input, None);
+    }
+
+    #[inline]
+    fn render_ext(&mut self, l: &mut [f32], r: &mut [f32], input: Option<(&[f32], &[f32])>, ext: Option<(&[f32], &[f32])>) {
+        self.engine.process_ext(l, r, ext);
         let g = f32::from_bits(self.shared.in_gain.load(Ordering::Relaxed));
         let monitor = self.shared.in_monitor.load(Ordering::Relaxed);
         let rec_in = self.shared.in_record.load(Ordering::Relaxed);
@@ -241,6 +311,10 @@ pub trait AudioBackend: Send + Sync {
     fn midi_sources(&self) -> Vec<String>;
     /// Full name of our input port for slot `k`.
     fn input_port(&self, k: usize) -> Option<String>;
+    /// MIDI input ports in the graph that are not ours (router destinations).
+    fn midi_sinks(&self) -> Vec<String> {
+        vec![]
+    }
     fn output_ports(&self) -> [String; 2];
     /// Full name of meter input `k` (0..METER_PORTS), if the backend has meters.
     fn meter_port(&self, _k: usize) -> Option<String> {
@@ -264,33 +338,47 @@ struct Proc {
     in_r: jack::Port<jack::AudioIn>,
     zero_motion: jack::Port<jack::MidiOut>,
     zero_cc_seen: u32,
+    outs: Vec<jack::Port<jack::MidiOut>>,
+    eng_l: jack::Port<jack::AudioIn>,
+    eng_r: jack::Port<jack::AudioIn>,
 }
 
 impl jack::ProcessHandler for Proc {
     fn process(&mut self, _: &jack::Client, ps: &jack::ProcessScope) -> jack::Control {
-        self.host.begin();
+        // Router outputs: one writer per port for this cycle (no allocation).
+        let mut it = self.outs.iter_mut();
+        let mut writers: [Option<jack::MidiWriter>; ROUTER_OUTS] = std::array::from_fn(|_| it.next().map(|p| p.writer(ps)));
+        let mut out = |d: u8, b: &[u8], time: u32| {
+            if let Some(Some(w)) = writers.get_mut(d as usize - 1) {
+                let _ = w.write(&jack::RawMidi { time, bytes: b });
+            }
+        };
+        self.host.begin_with(&mut out);
         for (k, p) in self.midi.iter().enumerate() {
             for ev in p.iter(ps) {
-                self.host.midi(k as u8, ev.bytes);
+                self.host.midi(k as u8, ev.bytes, ev.time, &mut out);
+            }
+        }
+        // Live Zero motion as CC 16/17/18 on a patch-panel MIDI output (only when the value
+        // changes), and into the router as the `zero-motion` source.
+        {
+            let gen = self.host.shared.zero_cc_gen.load(Ordering::Relaxed);
+            if gen != self.zero_cc_seen {
+                self.zero_cc_seen = gen;
+                let mut w = self.zero_motion.writer(ps);
+                let packed = self.host.shared.zero_cc.load(Ordering::Relaxed);
+                let (p, r, t) = ((packed & 0xff) as u8, ((packed >> 8) & 0xff) as u8, ((packed >> 16) & 0xff) as u8);
+                for m in [[0xB0, 16, p], [0xB0, 17, r], [0xB0, 18, t]] {
+                    let _ = w.write(&jack::RawMidi { time: 0, bytes: &m });
+                    self.host.motion(&m, &mut out);
+                }
             }
         }
         let l = self.out_l.as_mut_slice(ps);
         let r = self.out_r.as_mut_slice(ps);
         let (il, ir) = (self.in_l.as_slice(ps), self.in_r.as_slice(ps));
-        self.host.render(l, r, Some((il, ir)));
-        // Live Zero motion as CC 16/17/18 on a patch-panel MIDI output (only when the value changes).
-        {
-            let mut w = self.zero_motion.writer(ps);
-            let gen = self.host.shared.zero_cc_gen.load(Ordering::Relaxed);
-            if gen != self.zero_cc_seen {
-                self.zero_cc_seen = gen;
-                let packed = self.host.shared.zero_cc.load(Ordering::Relaxed);
-                let (p, r, t) = ((packed & 0xff) as u8, ((packed >> 8) & 0xff) as u8, ((packed >> 16) & 0xff) as u8);
-                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 16, p] });
-                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 17, r] });
-                let _ = w.write(&jack::RawMidi { time: 0, bytes: &[0xB0, 18, t] });
-            }
-        }
+        let (el, er) = (self.eng_l.as_slice(ps), self.eng_r.as_slice(ps));
+        self.host.render_ext(l, r, Some((il, ir)), Some((el, er)));
         // Meters: peak per block, max-held until pilabd reads it. No allocation, no locks.
         for (k, p) in self.meters.iter().enumerate() {
             let pk = p.as_slice(ps).iter().fold(0.0f32, |a, &x| a.max(x.abs()));
@@ -339,11 +427,17 @@ impl JackBackend {
         let in_l = client.register_port(INPUT_PORTS[0], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
         let in_r = client.register_port(INPUT_PORTS[1], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
         let zero_motion = client.register_port(ZERO_MOTION_PORT, jack::MidiOut::default()).map_err(|e| format!("{e:?}"))?;
+        let mut outs = Vec::new();
+        for k in 0..ROUTER_OUTS {
+            outs.push(client.register_port(&format!("{ROUTER_OUT_PREFIX}{}", k + 1), jack::MidiOut::default()).map_err(|e| format!("{e:?}"))?);
+        }
+        let eng_l = client.register_port(ENGINE_PORTS[0], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
+        let eng_r = client.register_port(ENGINE_PORTS[1], jack::AudioIn::default()).map_err(|e| format!("{e:?}"))?;
         let engine = Engine::new(sr);
         let (host, links) = rt_pair(engine, shared.clone(), audio_cpu, sr);
         let stats = host.stats();
         let active = client
-            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters, in_l, in_r, zero_motion, zero_cc_seen: 0 })
+            .activate_async(Notes { shared }, Proc { host, midi, out_l, out_r, meters, in_l, in_r, zero_motion, zero_cc_seen: 0, outs, eng_l, eng_r })
             .map_err(|e| format!("activate: {e:?}"))?;
         Ok((JackBackend { client: Mutex::new(Some(active)), sr, bufsize }, links, stats))
     }
@@ -432,6 +526,15 @@ impl AudioBackend for JackBackend {
     }
     fn input_port(&self, k: usize) -> Option<String> {
         MIDI_PORTS.get(k).map(|n| format!("{CLIENT_NAME}:{n}"))
+    }
+    fn midi_sinks(&self) -> Vec<String> {
+        self.with(|c| {
+            c.ports(None, Some("midi"), jack::PortFlags::IS_INPUT)
+                .into_iter()
+                .filter(|n| !n.starts_with(&format!("{CLIENT_NAME}:")))
+                .collect()
+        })
+        .unwrap_or_default()
     }
     fn output_ports(&self) -> [String; 2] {
         [format!("{CLIENT_NAME}:out_l"), format!("{CLIENT_NAME}:out_r")]

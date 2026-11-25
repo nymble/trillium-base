@@ -13,6 +13,8 @@ mod audio;
 mod brand;
 mod devices;
 mod firmware;
+mod engines;
+mod router;
 mod zeromic;
 mod identity;
 mod library;
@@ -245,6 +247,7 @@ async fn main() {
         });
     }
     app.refresh_midi_inputs(true);
+    app.router_refresh(true);
     if app.settings().audio.start_engine {
         let _ = app.engine_run(true);
     }

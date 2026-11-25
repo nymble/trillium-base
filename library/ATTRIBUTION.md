@@ -27,6 +27,18 @@ with any per-item credit lines the upstream licence requires.
 - Checked: 2026-11-19: README and GitHub licence metadata say CC0 1.0; sizes from git tree API
 - Installed packs: vcsl-starter-kit, vcsl-full-kit, vcsl-marimba, vcsl-vibraphone, vcsl-glockenspiel, vcsl-balafon, vcsl-mbira (see `sbom/sounds-manifest.md`)
 
+### MuldjordKit (DrumGizmo), SFZ port
+
+- Source: <https://github.com/sfzinstruments/DrumGizmo.MuldjordKit> (upstream kit: <https://drumgizmo.org/wiki/doku.php?id=kits:muldjordkit>)
+- Licence: CC-BY-4.0
+- Type: samples; tier: drive
+- Attribution required: **yes**
+- Credit: Drum samples provided by DrumGizmo.org (MuldjordKit, CC BY 4.0; SFZ port by sfzinstruments)
+- Shown: the console Sounds browser (under the bank name), Sounds & apps credits, Settings > About, the bank's manifest and SOURCE.txt
+- Changes: each hit mixed from its close, overhead and room microphones to stereo, one gain for the kit, General MIDI key map (`scripts/pilab-samples.py`)
+- Checked: 2026-11-25: LICENSE file and GitHub licence metadata say CC BY 4.0
+- Installed pack: muldjord-kit
+
 ### FreePats sound banks, CC0 banks only
 
 - Source: <https://freepats.zenvoid.org/>

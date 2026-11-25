@@ -46,6 +46,8 @@ pub struct MidiLog {
     pub ch: u8,
     pub text: String,
     pub bytes: Vec<u8>,
+    /// MIDI router destinations reached; empty = filtered out.
+    pub to: Vec<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -142,6 +144,7 @@ pub struct App {
     gc_rx: Mutex<rtrb::Consumer<Garbage>>,
     mon_rx: Mutex<rtrb::Consumer<MidiEv>>,
     rec_rx: Mutex<rtrb::Consumer<f32>>,
+    pub router: crate::router::Router,
     inner: Mutex<Inner>,
 }
 
@@ -231,6 +234,7 @@ fn compile_all(routes: &[Route], ports: &PortNames, devices: &PortDevices, audit
 
 impl App {
     pub fn new(paths: Paths, port: u16, backend: Arc<dyn AudioBackend>, links: RtLinks, stats: Arc<Stats>, shared: Arc<RtShared>) -> Result<Arc<App>, String> {
+        let router_path = paths.config.join("midi-router.json");
         std::fs::create_dir_all(&paths.config).map_err(|e| e.to_string())?;
         let token = paths::ensure_token(&paths.token()).map_err(|e| format!("token: {e}"))?;
         let store = SceneStore::new(paths.scenes()).map_err(|e| e.to_string())?;
@@ -296,6 +300,7 @@ impl App {
             token: RwLock::new(token),
             tx,
             started: Instant::now(),
+            router: crate::router::Router::new(router_path, links.router_tx, links.router_gc, links.direct_tx),
             cmd: Mutex::new(links.cmd_tx),
             gc_rx: Mutex::new(links.gc_rx),
             mon_rx: Mutex::new(links.mon_rx),
@@ -512,7 +517,58 @@ impl App {
         self.send(Cmd::SetTuning { a4_hz: sc.a4_hz, bend_range: sc.bend_range })?;
         let db = if startup { sc.master_db.min(pilab_synth::engine::START_MASTER_DB) } else { sc.master_db };
         self.send(Cmd::SetMaster { db })?;
+        if !sc.engine.is_empty() {
+            if let Err(e) = crate::engines::start(&sc.engine) {
+                self.event("warn", format!("scene \"{}\": {e}", sc.name));
+            }
+        }
+        self.router_refresh_with(&sc.engine, true);
         Ok(())
+    }
+
+    /// Recompiles the MIDI router against the current ports (cheap when nothing changed).
+    pub fn router_refresh(&self, force: bool) {
+        let engine = self.inner.lock().unwrap().scene.engine.clone();
+        self.router_refresh_with(&engine, force);
+    }
+
+    fn router_refresh_with(&self, scene_engine: &str, force: bool) {
+        let (sources, zeros) = {
+            let g = self.inner.lock().unwrap();
+            let mut v: Vec<Option<String>> = g.ports.iter().cloned().collect();
+            v.resize(pilab_core::midi_router::MAX_SRC, None);
+            let zeros: Vec<u8> = (0..MAX_PORTS).filter(|&k| g.devices[k].as_deref() == Some("trillium")).map(|k| k as u8).collect();
+            (v, zeros)
+        };
+        self.router.refresh(self.backend.as_ref(), &sources, &zeros, scene_engine, force);
+    }
+
+    pub fn router_json(&self) -> Value {
+        let c = self.router.compiled.lock().unwrap().clone();
+        let sinks: Vec<String> = self.backend.midi_sinks();
+        let engines_running = crate::router::Router::engine_ports(&sinks);
+        let (sources, scene_engine) = {
+            let g = self.inner.lock().unwrap();
+            let s: Vec<Value> = (0..MAX_PORTS)
+                .filter_map(|k| g.ports[k].as_ref().map(|n| json!({ "port": k, "name": n, "label": short_source(n), "device": g.devices[k] })))
+                .collect();
+            (s, g.scene.engine.clone())
+        };
+        let dests: Vec<Value> = sinks
+            .iter()
+            .filter(|s| !crate::engines::is_engine_port(s) && !s.contains("Midi Through"))
+            .map(|s| json!({ "name": s, "label": short_source(s).replace(" (playback)", "") }))
+            .collect();
+        json!({
+            "config": self.router.config(),
+            "status": c.status,
+            "outs": c.outs,
+            "sources": sources,
+            "destinations": dests,
+            "engines": crate::engines::status(&self.paths.config, &engines_running),
+            "scene_engine": scene_engine,
+            "types": pilab_core::midi_router::TYPE_NAMES.iter().map(|t| t.0).collect::<Vec<_>>(),
+        })
     }
 
     /// Sends a wavetable frame set to engine slot `i` when the group changed.
@@ -1039,7 +1095,10 @@ impl App {
         b[..bytes.len()].copy_from_slice(bytes);
         let port = if port == PORT_AUDITION { PORT_AUDITION } else { PORT_CONSOLE };
         self.send(Cmd::Midi { port, len: bytes.len() as u8, bytes: b })?;
-        self.log_midi(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns() });
+        // Console notes are logged by the realtime thread after routing; audition is not routed.
+        if port == PORT_AUDITION {
+            self.log_midi(MidiEv { port, len: bytes.len() as u8, b, t_ns: crate::measure::now_ns(), to: 1 });
+        }
         Ok(())
     }
 
@@ -1052,7 +1111,9 @@ impl App {
         if (ev.port as usize) < MAX_PORTS {
             g.midi_counts[ev.port as usize] += 1;
         }
-        let log = MidiLog { t_ns: ev.t_ns, t, port: ev.port, source, kind, ch, text, bytes };
+        let to = self.router.dest_names(ev.to);
+        let log = MidiLog { t_ns: ev.t_ns, t, port: ev.port, source: source.clone(), kind, ch, text: text.clone(), bytes: bytes.clone(), to: to.clone() };
+        self.router.record(crate::router::MonEv { seq: 0, t, source, kind, ch, text, bytes, to });
         if g.midi_pending.len() < 256 {
             g.midi_pending.push(log.clone());
         }
@@ -1136,6 +1197,7 @@ impl App {
             .midi_sources()
             .into_iter()
             .filter(|s| !settings.midi.ignore.iter().any(|g| glob::matches(g, s)))
+            .filter(|s| !crate::engines::is_engine_port(s))
             .collect();
         // BLE peers can connect without the graph changing, so poll BlueZ (at most every 6 s).
         let aliases = if raw.iter().any(|s| identity::is_ble(s)) {
@@ -1510,14 +1572,14 @@ impl App {
                 let (pch, pnote) = plan.as_ref().map(|p| (p.path.probe[0], p.path.probe[1])).unwrap_or((0, 60));
                 let b = [0x90 | pch, pnote, 100];
                 self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
-                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
+                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns(), to: 1 });
             }
             if rehearse && inj_on && !inj_off && ms >= 1000.0 {
                 inj_off = true;
                 let (pch, pnote) = plan.as_ref().map(|p| (p.path.probe[0], p.path.probe[1])).unwrap_or((0, 60));
                 let b = [0x80 | pch, pnote, 0];
                 self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
-                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
+                self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns(), to: 1 });
             }
             if ms < 300.0 {
                 base_zm = base_zm.max(zm);
@@ -1779,6 +1841,7 @@ pub fn spawn_loops(app: Arc<App>) {
                 }
                 app.refresh_midi_inputs(false);
                 app.connect_input();
+                app.router_refresh(false);
                 if tick % 15 == 0 {
                     app.scan_unfiled();
                 }
