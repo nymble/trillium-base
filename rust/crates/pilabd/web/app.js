@@ -1780,7 +1780,7 @@ function zeroEditor(z) {
     <div class="row" style="align-items:baseline;margin-top:14px"><div class="lbl" id="zed-${esc(z.key)}">Mapping</div><span class="spacer"></span>
       <span class="row tight muted small" title="The Zero forgets its settings at every power cycle; the Base sends them back when it connects"><span>Restore on connect</span><label class="switch"><input type="checkbox" data-zauto="${esc(z.key)}" ${z.manual ? "" : "checked"} ${z.profile ? "" : "disabled"}><span></span></label></span></div>
     <div class="zsum mono" id="zsum-${esc(z.key)}">${esc(z.summary || "")}</div>
-    <div class="chips">${presets}</div>
+    <div class="zchips">${presets}</div>
     ${groups}
     <div class="row wrap" style="margin-top:10px;gap:8px">
       <button class="btn small ghost" data-zact="recalibrate" data-zkey="${esc(z.key)}" ${z.found ? "" : "disabled"} title="Keep the Zero still for about a second">Recalibrate</button>

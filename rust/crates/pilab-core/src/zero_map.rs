@@ -348,12 +348,17 @@ pub fn describe(values: &[(u8, u16)]) -> String {
     let g = |id: u8| values.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or_else(|| spec(id).map(|s| s.default).unwrap_or(0));
     let mut parts = vec![];
     let mode = g(14);
-    parts.push(match mode {
+    // Touch-strip mode is listed last when taps play: a motion-only Zero has no strip.
+    let strip_last = mode == 0 && g(11) == 1;
+    let lead = match mode {
         1 => format!("tilt notes from {} over {} semitones", note_name(g(2)), g(3)),
         2 => format!("theremin from {}", note_name(g(2))),
         3 => "tilt chooses, strike plays".to_string(),
-        _ => format!("touch strip from {} on ch {}", note_name(g(2)), g(1) + 1),
-    });
+        _ => format!("touch strip (if fitted) from {} on ch {}", note_name(g(2)), g(1) + 1),
+    };
+    if !strip_last {
+        parts.push(lead.clone());
+    }
     if g(11) == 1 {
         let ch = g(12) + 1;
         let dirs = g(31);
@@ -370,6 +375,9 @@ pub fn describe(values: &[(u8, u16)]) -> String {
     }
     if g(27) != 0 {
         parts.push(format!("flicks → {}..{}", g(30), g(30) + 2));
+    }
+    if strip_last {
+        parts.push(lead);
     }
     parts.join(" · ")
 }

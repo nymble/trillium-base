@@ -9,7 +9,7 @@ const SNAP = process.env.SNAP || "./api-snap";
 const sys = JSON.parse(fs.readFileSync(SNAP + "/system.json")); sys.t = "sys";
 const status = JSON.parse(fs.readFileSync(SNAP + "/status.json"));
 const views = process.env.VIEWS ? process.env.VIEWS.split(",") : ["overview", "sounds", "midimap", "scenes", "signals", "devices", "settings"];
-const sizes = { desktop: [1440, 900], tall: [1440, 2200], ipad: [820, 1180], phone: [390, 844], "ipad-land": [1180, 820] };
+const sizes = { desktop: [1440, 900], tall: [1440, 2200], ipad: [820, 1180], phone: [390, 844], "ipad-land": [1180, 820], "ipad-tall": [820, 3400] };
 const fake = `(() => {
   const status = ${JSON.stringify(status)}, sys = ${JSON.stringify(sys)};
   class FW { constructor() { this.readyState = 1; let n = 0; setTimeout(() => { this.onmessage && this.onmessage({ data: JSON.stringify(sys) }); }, 50);
@@ -26,7 +26,7 @@ const fake = `(() => {
   for (const sz of only) {
     const [w, h] = sizes[sz];
     for (const scheme of (process.env.SCHEMES || "dark").split(",")) {
-      const ctx = await b.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, deviceScaleFactor: 1 });
+      const ctx = await b.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, deviceScaleFactor: 1, hasTouch: sz !== "desktop" && sz !== "tall" });
       await ctx.addInitScript(process.env.PAIR ? fake.replace('localStorage.setItem("pilab.token", "mock");', "") : fake);
       const pg = await ctx.newPage();
       pg.on("pageerror", (e) => console.log("PAGEERROR", sz, e.stack.split("\n").slice(0,3).join(" | ")));

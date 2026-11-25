@@ -486,9 +486,9 @@ dialog.dlg .row .btn.primary { order: 2; }
 
 /* ---------------------------------------------------------------- Trillium Zero mapping editor */
 .zsum { margin: 6px 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--panel-deep); color: var(--text); font-size: 12.5px; line-height: 1.5; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.zchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chip { border: 1px solid var(--line); background: var(--panel-deep); color: var(--text); border-radius: 999px; padding: 7px 14px; min-height: 36px; font: inherit; font-size: 13px; cursor: pointer; }
-.chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+.chip.on { border-color: var(--accent); color: var(--text); background: var(--accent-tint); font-weight: 600; }
 .chip:disabled { opacity: .5; cursor: default; }
 .zgroup { border-top: 1px solid var(--line); padding: 4px 0; }
 .zgroup > summary { display: flex; gap: 10px; align-items: baseline; padding: 10px 2px; cursor: pointer; font-weight: 600; list-style: none; min-height: 44px; box-sizing: border-box; }
@@ -518,7 +518,7 @@ dialog.dlg .row .btn.primary { order: 2; }
 .pads-card { grid-column: 1 / -1; }
 .bigchips { display: flex; flex-wrap: wrap; gap: 10px; }
 .bigchip { min-height: 56px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel-deep); color: var(--text); font: inherit; font-size: 16px; font-weight: 500; cursor: pointer; text-transform: capitalize; }
-.bigchip.on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
+.bigchip.on { border-color: var(--accent); background: var(--accent-tint); color: var(--text); font-weight: 600; }
 .psum { color: var(--muted); margin: -4px 0 12px; line-height: 1.5; }
 .pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .pads.small { grid-template-columns: repeat(4, minmax(0, 120px)); }
@@ -542,3 +542,8 @@ dialog.dlg .row .btn.primary { order: 2; }
 .ssteps li.skip button { color: var(--muted); }
 .cli { margin-top: 14px; } .cli summary { cursor: pointer; color: var(--muted); min-height: 32px; } .cli pre { background: var(--panel-deep); padding: 10px; border-radius: 8px; white-space: pre-wrap; }
 @media (max-width: 900px) { .setup { grid-template-columns: 1fr; } .ssteps { flex-direction: row; overflow-x: auto; } .ssteps button { white-space: nowrap; } }
+@media (pointer: coarse) {
+  .btn, .btn.small, .chip, .zgroup > summary, .zraw > summary { min-height: 44px; }
+  .zrow select.input, .znum input { min-height: 44px; }
+}
+.sel > .muted { color: var(--text-2); }
