@@ -77,11 +77,24 @@ are offered on the Signals patch panel as the MIDI output
 `Trillium Synth:zero_motion` (CC 16 = pitch, 17 = roll, 18 = touch), not
 connected to the synth automatically.
 
-The Zero's own microphone is a 16 kHz mono test stream on `/dev/trillium-zero-pcm`,
-off by default. Turning it on requires a write (an ACTION) to the device, so this
-build leaves it off and does not expose it as a source. The usual USB microphone
-path is the input strip (Yeti Nano, or the Nordic `1915:1025` capture, selected
-from Devices or `[input] source`).
+The Zero's own microphone is a testing-only 16 kHz 16-bit mono PDM capture,
+off at firmware boot. Action 7 starts it and action 8 (or unplug) stops it and
+drives the microphone power pin low. The stream is framed `TRPC` on
+`/dev/trillium-zero-pcm` (not USB Audio Class). The console toggle on the Zero
+card, `POST /api/v1/devices/{key}/mic {on, confirm}`, or
+`trillium-base devices mic KEY on|off` sends only that action, then checks that
+the 41 settings (including tap percussion = off) are unchanged. The on/off flag
+is stored in the device's profile (`mic = true`) and is sent again on reconnect.
+
+While the stream is on, pilabd publishes a PipeWire source named
+**Trillium Zero Mic** (`capture_FL` / `capture_FR`), resampling 16 kHz to 48 kHz
+(exact 3× linear interpolation). It is selectable as the input strip source
+(`Trillium Zero Mic*:capture_*`) and appears on the Signals patch panel. It is
+not connected to the DAC unless you turn input monitoring on (confirm required).
+The capture thread stays off CPU 3.
+
+The Yeti Nano and the Nordic `1915:1025` capture remain available as input
+strip sources.
 
 ## Battery
 

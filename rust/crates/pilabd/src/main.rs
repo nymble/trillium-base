@@ -12,6 +12,7 @@ mod assets;
 mod audio;
 mod brand;
 mod devices;
+mod zeromic;
 mod identity;
 mod library;
 mod mixer;

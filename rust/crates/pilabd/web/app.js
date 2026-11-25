@@ -1399,6 +1399,19 @@ async function renderDevices() {
   $$("[data-as-input]").forEach((b) => b.onclick = async () => {
     try { await post("/input", { source: b.dataset.asInput }); toast("Input source saved"); renderDevices(); } catch (e) { fail(e); }
   });
+  $$("[data-mic]").forEach((b) => b.onchange = async () => {
+    const on = b.checked;
+    if (on && !(await ask("Start the microphone test stream?", "This writes ACTION 7 to the device. The stream appears as <span class=\"mono\">Trillium Zero Mic</span> and is not sent to the DAC unless you turn monitoring on.", "Start stream"))) {
+      b.checked = false;
+      return;
+    }
+    b.disabled = true;
+    try {
+      await post(`/devices/${encodeURIComponent(b.dataset.mic)}/mic`, { on, confirm: on });
+      toast(on ? "Microphone test stream on" : "Microphone test stream off");
+      renderDevices();
+    } catch (e) { fail(e); b.checked = !on; b.disabled = false; }
+  });
   (d.zeros || []).forEach((z) => drawZeroPlot($("#plot-" + z.key), z.frames || []));
   if (!S.devTimer) S.devTimer = setInterval(tickDevices, 400);
 }
@@ -1488,7 +1501,11 @@ function zeroCard(z) {
     </div>
     ${z.reconnected && nd ? `<div class="risk caution" style="margin-top:8px"><b>!</b> Reconnected with ${nd} setting(s) different from its stored profile. Nothing is sent until you re-apply.</div>` : ""}
     <canvas id="plot-${esc(z.key)}" width="600" height="140" style="width:100%;height:140px;margin-top:10px;border-radius:6px;background:rgba(0,0,0,0.2)"></canvas>
-    <div class="muted" style="margin-top:4px">Live sensors at 20 Hz · <span class="mono" id="tele-live-${esc(z.key)}"></span>. Pitch and roll also leave the patch panel as <span class="mono">Trillium Synth:zero_motion</span> (MIDI CC 16 / 17 / 18), not connected automatically. The Zero's own 16 kHz test mic stays off; enabling it would write to the device, so it is not a source yet.</div>
+    <div class="muted" style="margin-top:4px">Live sensors at 20 Hz · <span class="mono" id="tele-live-${esc(z.key)}"></span>. Pitch and roll also leave the patch panel as <span class="mono">Trillium Synth:zero_motion</span> (MIDI CC 16 / 17 / 18), not connected automatically.</div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <div class="field"><label>Microphone test stream</label><label class="switch"><input type="checkbox" data-mic="${esc(z.key)}" ${z.mic ? "checked" : ""} ${z.found ? "" : "disabled"}><span></span></label></div>
+      <div class="muted" style="flex:1">${z.mic ? "On: 16 kHz PDM capture, resampled to 48 kHz as <span class=\"mono\">Trillium Zero Mic</span> (selectable as the input strip; DAC monitor stays off unless confirmed). Stored in this device's profile and restored on reconnect." : "Off at firmware boot. Turning it on writes ACTION 7 to the device and opens the PCM port. Not part of the instrument mapping."}</div>
+    </div>
     <div style="margin:10px 0;display:flex;gap:8px;align-items:center">
       <button class="btn small ghost" data-snap="${esc(z.key)}" ${z.found ? "" : "disabled"}>Store current settings as profile</button>
       ${nd && z.found ? `<button class="btn small" data-reapply="${esc(z.key)}" data-n="${nd}">Re-apply ${nd} stored setting(s)…</button>` : ""}

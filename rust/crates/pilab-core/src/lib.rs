@@ -11,6 +11,7 @@ pub mod scene;
 pub mod settings;
 pub mod store;
 pub mod zero;
+pub mod pcm;
 
 pub use devices::{classify, DeviceClass, SourceIdentity, Transport};
 pub use routing::{compile_routes, compile_routes_with, PortDevices, PortNames};

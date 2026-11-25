@@ -55,8 +55,10 @@ bytes. Read-only requests: HELLO (`01`), GET_CONFIG (`02`, pages 0–2),
 GET_STATUS (`07`). TELEMETRY_START (`05`, 1–100 Hz, 5 s lease) streams 54-byte
 IMU/touch frames. Settings are RAM only on this firmware; a replug restores
 defaults. Writes (`03` SET_CONFIG, `04` ACTION): the console can send a stored profile
-with SET_CONFIG only from an explicit, confirmed Devices action. ACTION is unused
-here (it would be needed to enable the 16 kHz test mic, which stays off).
+with SET_CONFIG only from an explicit, confirmed Devices action. ACTION 7 starts
+the 16 kHz microphone test stream and ACTION 8 stops it; the Devices toggle and
+`trillium-base devices mic` send only those codes. ACTION 6 (bootloader) is not
+sent from this console.
 
 
 ## Battery and the pack switch

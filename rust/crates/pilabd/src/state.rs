@@ -124,6 +124,7 @@ pub struct App {
     pub library: Library,
     pub mixer: crate::mixer::Mixer,
     pub devmgr: crate::devices::Manager,
+    pub zeromic: Mutex<Option<crate::zeromic::Bridge>>,
     pub samples: SampleLib,
     aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
@@ -268,6 +269,7 @@ impl App {
             samples: SampleLib::new(paths.samples_root()),
             mixer: crate::mixer::Mixer::new(),
             devmgr,
+            zeromic: Mutex::new(None),
             aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
@@ -1375,6 +1377,56 @@ impl App {
     pub fn broadcast(&self, v: &Value) {
         let _ = self.tx.send(v.to_string());
     }
+
+    /// Starts or stops the "Trillium Zero Mic" PipeWire source to match the profile
+    /// and the last commanded microphone state. Off the synth's audio core.
+    pub fn sync_zero_mic(&self) {
+        let want = self.devmgr.mic_wanted();
+        let mut g = self.zeromic.lock().unwrap();
+        if want && g.is_none() {
+            match crate::zeromic::Bridge::start(std::path::Path::new(crate::zeromic::DEVICE)) {
+                Ok(b) => {
+                    self.event("info", "Trillium Zero Mic source started (16 kHz → 48 kHz, monitor off)");
+                    *g = Some(b);
+                }
+                Err(e) => self.event("warn", format!("Trillium Zero Mic source: {e}")),
+            }
+        } else if !want {
+            if g.is_some() {
+                *g = None;
+                self.event("info", "Trillium Zero Mic source stopped");
+            }
+        }
+    }
+
+    /// ACTION 7/8 plus the PipeWire source. `confirm` is required to start.
+    pub fn set_zero_mic(&self, key: &str, on: bool, confirm: bool) -> Result<Value, String> {
+        if on {
+            // Open the CDC port first so the firmware can write frames as soon as ACTION 7 acks.
+            let mut g = self.zeromic.lock().unwrap();
+            if g.is_none() {
+                match crate::zeromic::Bridge::start(std::path::Path::new(crate::zeromic::DEVICE)) {
+                    Ok(b) => *g = Some(b),
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        match self.devmgr.set_mic(key, on, confirm) {
+            Ok(v) => {
+                if !on {
+                    *self.zeromic.lock().unwrap() = None;
+                }
+                self.event("info", format!("Trillium Zero ({key}): microphone test stream {}", if on { "on" } else { "off" }));
+                Ok(v)
+            }
+            Err(e) => {
+                if on {
+                    *self.zeromic.lock().unwrap() = None;
+                }
+                Err(e)
+            }
+        }
+    }
 }
 
 /// Background loops: realtime ring draining + status at 15 Hz; machine state every 2 s.
@@ -1391,11 +1443,20 @@ pub fn spawn_loops(app: Arc<App>) {
                     for (level, text) in d.devmgr.poll(&classes) {
                         d.event(level, text);
                     }
+                    for key in d.devmgr.connected_keys_live() {
+                        if d.devmgr.profile_wants_mic(&key) {
+                            match d.set_zero_mic(&key, true, true) {
+                                Ok(_) => d.event("info", format!("Trillium Zero ({key}): microphone test stream started from its stored profile")),
+                                Err(e) => d.event("warn", format!("Trillium Zero ({key}): could not apply the stored microphone setting: {e}")),
+                            }
+                        }
+                    }
                     last_poll = Instant::now();
                 }
                 if let Some(t) = d.devmgr.harvest_motion() {
                     d.shared.set_zero_motion(t.pitch, t.roll, t.touch_pos, t.touching);
                 }
+                d.sync_zero_mic();
                 std::thread::sleep(Duration::from_millis(50));
             }
         })

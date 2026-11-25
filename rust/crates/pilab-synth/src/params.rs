@@ -39,7 +39,7 @@ pub struct Env {
 
 impl Default for Env {
     fn default() -> Self {
-        Env { a: 0.01, d: 0.3, s: 0.7, r: 0.4 }
+        Env { a: 0.001, d: 0.3, s: 0.7, r: 0.4 }
     }
 }
 

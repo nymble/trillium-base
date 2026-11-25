@@ -89,6 +89,7 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/devices/{key}/snapshot", "Re-read a Trillium Zero and store its settings as its profile (read-only towards the device)"),
     ("POST", "/api/v1/devices/{key}/reapply", "{confirm:true} send the stored profile's differing settings to the device, then read it back"),
     ("GET", "/api/v1/devices/{key}/telemetry?hz=&ms=", "Sensor frames from a short telemetry lease (read-only)"),
+    ("POST", "/api/v1/devices/{key}/mic", "{on, confirm?} start or stop the 16 kHz microphone test stream (on needs confirm); stored in the profile"),
     ("GET", "/api/v1/endpoints", "This list"),
 ];
 
@@ -142,6 +143,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/devices/{key}/snapshot", post(device_snapshot))
         .route("/devices/{key}/reapply", post(device_reapply))
         .route("/devices/{key}/telemetry", get(device_telemetry))
+        .route("/devices/{key}/mic", post(device_mic))
         .route("/endpoints", get(endpoints))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
     let guard = Arc::new(crate::security::Guard::new(&app.hostname));
@@ -628,10 +630,15 @@ async fn input_set(State(app): S, Json(b): Json<InputSet>) -> R {
 async fn devices_list(State(app): S) -> R {
     let v = tokio::task::spawn_blocking(move || {
         let s = app.system_json();
+        let mut zeros = app.devmgr.zeros_json();
+        let underruns = app.zeromic.lock().ok().and_then(|g| g.as_ref().map(|b| b.dropped())).unwrap_or(0);
+        for z in zeros.iter_mut() {
+            z["mic_underruns"] = json!(underruns);
+        }
         json!({
             "usb": s.get("usb").cloned().unwrap_or(Value::Null),
             "ble_connected": crate::identity::ble_connected_aliases(),
-            "zeros": app.devmgr.zeros_json(),
+            "zeros": zeros,
             "midi_inputs": app.midi_inputs_json(),
         })
     })
@@ -676,6 +683,20 @@ struct TelemetryQ {
 async fn device_telemetry(State(app): S, Path(key): Path<String>, Query(q): Query<TelemetryQ>) -> R {
     let v = tokio::task::spawn_blocking(move || app.devmgr.telemetry(&key, q.hz.unwrap_or(20), q.ms.unwrap_or(1000))).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     ok(json!({ "frames": v }))
+}
+
+#[derive(Deserialize)]
+struct MicBody {
+    on: bool,
+    #[serde(default)]
+    confirm: bool,
+}
+
+async fn device_mic(State(app): S, Path(key): Path<String>, Json(b): Json<MicBody>) -> R {
+    let a = app.clone();
+    let k = key.clone();
+    let v = tokio::task::spawn_blocking(move || a.set_zero_mic(&k, b.on, b.confirm)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    ok(v)
 }
 
 async fn midi_inputs(State(app): S) -> R {

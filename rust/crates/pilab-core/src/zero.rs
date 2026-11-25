@@ -7,7 +7,7 @@
 //! `F0 7D 54 52 <version 01> <type> <request id> <payload> F7`, at most 64 bytes, all
 //! data 7-bit, 14-bit values as (high 7, low 7). Replies set bit 6 of the type.
 //! This module only encodes and decodes; sending is the caller's job. Nothing here
-//! writes to a device unless the caller sends a frame built by [`set_config`].
+//! writes to a device unless the caller sends a frame built by [`set_config`] or [`action`].
 
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +62,15 @@ pub fn telemetry_start(req: u8, hz: u8) -> Vec<u8> {
 }
 pub fn telemetry_stop(req: u8) -> Vec<u8> {
     frame(T_TELEMETRY_STOP, req, &[])
+}
+
+/// ACTION codes (firmware 0.8.0). 6 enters the bootloader and is never sent by this crate's helpers.
+pub const ACTION_START_MIC: u8 = 7;
+pub const ACTION_STOP_MIC: u8 = 8;
+
+/// One ACTION frame. This can change device state (microphone power, and other codes).
+pub fn action(req: u8, code: u8) -> Vec<u8> {
+    frame(T_ACTION, req, &[code])
 }
 /// One SET_CONFIG frame (1..=16 parameters). This changes the device's settings.
 pub fn set_config(req: u8, params: &[(u8, u16)]) -> Vec<u8> {
@@ -368,6 +377,9 @@ pub struct Profile {
     /// Unix seconds when the snapshot was read.
     pub captured: u64,
     pub params: Vec<Param>,
+    /// Start the onboard 16 kHz microphone test stream when this profile is applied
+    /// (ACTION 7). Off at firmware boot; stored here so a reconnect can turn it back on.
+    pub mic: bool,
 }
 
 impl Profile {
@@ -375,7 +387,7 @@ impl Profile {
         let mut p: Vec<Param> = params.iter().map(|&(id, value)| Param { id, value }).collect();
         p.sort_by_key(|x| x.id);
         p.dedup_by_key(|x| x.id);
-        Profile { key: key.into(), label: label.into(), usb_id: usb_id.into(), firmware: firmware.into(), captured, params: p }
+        Profile { key: key.into(), label: label.into(), usb_id: usb_id.into(), firmware: firmware.into(), captured, params: p, mic: false }
     }
     pub fn to_toml(&self) -> Result<String, String> {
         toml::to_string_pretty(self).map_err(|e| e.to_string())

@@ -58,6 +58,8 @@ pub struct ZeroState {
     pub differs: Vec<(u8, u16, u16)>,
     /// The device restarted or was replugged since the Base last read it.
     pub reconnected: bool,
+    /// Last commanded microphone test-stream state (ACTION 7/8). Not reported by GET_STATUS.
+    pub mic: bool,
     #[serde(skip)]
     last_hello: Option<Instant>,
 }
@@ -296,6 +298,10 @@ impl Manager {
         st.key = f.key.clone();
         st.found = Some(f.clone());
         st.last_hello = Some(Instant::now());
+        if reconnected {
+            // Reset or replug: the firmware drives the mic power pin low.
+            st.mic = false;
+        }
         match r {
             Ok((h, status, generation, params)) => {
                 st.error.clear();
@@ -352,6 +358,9 @@ impl Manager {
                     if let Some(s) = z.get_mut(&k) {
                         s.found = None;
                         s.reconnected = false;
+                        // Firmware stops the PCM stream on unplug; the live flag must not
+                        // hide a later profile re-apply after a replug.
+                        s.mic = false;
                     }
                     self.close_telem(&k);
                 }
@@ -419,7 +428,8 @@ impl Manager {
             return Err(st.error);
         }
         let fw = st.hello.as_ref().map(|h| h.firmware.clone()).unwrap_or_default();
-        let p = Profile::from_params(&f.key, &f.label, &f.usb_id, &fw, st.read_at as u64, &st.params);
+        let mut p = Profile::from_params(&f.key, &f.label, &f.usb_id, &fw, st.read_at as u64, &st.params);
+        p.mic = st.mic || self.load_profile(key).map(|o| o.mic).unwrap_or(false);
         self.save_profile(&p)?;
         if let Some(s) = self.zeros.lock().unwrap().get_mut(key) {
             s.profile_state = "matches".into();
@@ -521,6 +531,8 @@ impl Manager {
                         json!({ "id": id, "page": zero::page_of(*id), "name": zero::param_name(*id), "value": v, "stored": stored })
                     }).collect::<Vec<_>>(),
                     "differs": s.differs.iter().map(|(id, want, have)| json!({ "id": id, "name": zero::param_name(*id), "stored": want, "device": have })).collect::<Vec<_>>(),
+                    "mic": s.mic,
+                    "mic_profile": profile.as_ref().map(|p| p.mic).unwrap_or(false),
                     "frames": live,
                 })
             })
@@ -574,6 +586,106 @@ impl Manager {
             s.close();
         }
         self.lease_until.lock().unwrap().remove(key);
+    }
+
+
+    /// Stored or live request for the microphone test stream on a connected device.
+    pub fn mic_wanted(&self) -> bool {
+        let z = self.zeros.lock().unwrap();
+        z.values().any(|s| s.found.is_some() && (s.mic || self.load_profile(&s.key).map(|p| p.mic).unwrap_or(false)))
+    }
+
+    /// Start or stop the onboard 16 kHz microphone test stream (ACTION 7 / 8).
+    /// Only that action is sent. Settings are read before and after; if they
+    /// change, the stream is stopped and the previous settings are restored.
+    /// Turning the microphone on needs `confirm`. The flag is stored on the profile
+    /// so a reconnect can start the stream again.
+    pub fn set_mic(&self, key: &str, on: bool, confirm: bool) -> Result<Value, String> {
+        if on && !confirm {
+            return Err("starting the microphone test stream writes to the device; send confirm: true".into());
+        }
+        let f = self.found(key)?;
+        let can = self.zeros.lock().unwrap().get(key).and_then(|s| s.hello.as_ref().map(|h| h.caps & zero::CAP_ACTION != 0 && h.mic())).unwrap_or(false);
+        if !can {
+            return Err("this firmware does not offer the microphone test stream".into());
+        }
+        let before = {
+            let _ = self.refresh(&f, false);
+            self.zeros.lock().unwrap().get(key).map(|s| s.params.clone()).unwrap_or_default()
+        };
+        let tap_before = before.iter().find(|(id, _)| *id == 11).map(|(_, v)| *v).unwrap_or(0);
+        if tap_before != 0 {
+            // Leave percussion alone unless we can see it is off; we will not turn it on.
+        }
+        let code = if on { zero::ACTION_START_MIC } else { zero::ACTION_STOP_MIC };
+        {
+            let _io = self.io.lock().unwrap();
+            let s = Session::open(f.client)?;
+            match s.ask(&zero::action(0x50, code))? {
+                Reply::Ack { action } if action == code => {}
+                Reply::Error { code: c, detail } => return Err(format!("ACTION {code}: {} ({detail})", zero::error_name(c))),
+                other => return Err(format!("unexpected reply to microphone ACTION: {other:?}")),
+            }
+        }
+        let _ = self.refresh(&f, false);
+        let after = self.zeros.lock().unwrap().get(key).map(|s| s.params.clone()).unwrap_or_default();
+        let tap = after.iter().find(|(id, _)| *id == 11).map(|(_, v)| *v).unwrap_or(0);
+        if after != before || tap != 0 && tap_before == 0 {
+            let _ = self.restore_params(&f, &before);
+            let _io = self.io.lock().unwrap();
+            if let Ok(s) = Session::open(f.client) {
+                let _ = s.ask(&zero::action(0x51, zero::ACTION_STOP_MIC));
+            }
+            return Err("settings changed after the microphone action; the previous settings were restored and the stream was stopped".into());
+        }
+        if let Some(st) = self.zeros.lock().unwrap().get_mut(key) {
+            st.mic = on;
+        }
+        if let Some(mut p) = self.load_profile(key) {
+            p.mic = on;
+            let _ = self.save_profile(&p);
+        } else {
+            let st = self.zeros.lock().unwrap().get(key).cloned().unwrap_or_default();
+            let fw = st.hello.as_ref().map(|h| h.firmware.clone()).unwrap_or_default();
+            let mut p = Profile::from_params(&f.key, &f.label, &f.usb_id, &fw, st.read_at as u64, &st.params);
+            p.mic = on;
+            let _ = self.save_profile(&p);
+        }
+        Ok(json!({
+            "ok": true,
+            "mic": on,
+            "params_unchanged": true,
+            "tap_percussion": tap,
+            "settings": after.len(),
+        }))
+    }
+
+    fn restore_params(&self, f: &Found, params: &[(u8, u16)]) -> Result<(), String> {
+        let current = self.zeros.lock().unwrap().get(&f.key).map(|s| s.params.clone()).unwrap_or_default();
+        let changes: Vec<(u8, u16)> = params.iter().copied().filter(|(id, want)| current.iter().find(|(i, _)| i == id).map(|(_, v)| v) != Some(want)).collect();
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let _io = self.io.lock().unwrap();
+        let s = Session::open(f.client)?;
+        let mut req = 0x60u8;
+        for frame in zero::set_config_frames(req, &changes) {
+            let _ = s.ask(&frame);
+            req = req.wrapping_add(1) & 0x7F;
+        }
+        Ok(())
+    }
+
+    /// True when the stored profile wants the microphone on and it is not yet running.
+    /// The caller must open `/dev/trillium-zero-pcm` first, then send ACTION 7.
+    pub fn profile_wants_mic(&self, key: &str) -> bool {
+        let want = self.load_profile(key).map(|p| p.mic).unwrap_or(false);
+        let already = self.zeros.lock().unwrap().get(key).map(|s| s.mic).unwrap_or(false);
+        want && !already
+    }
+
+    pub fn connected_keys_live(&self) -> Vec<String> {
+        self.zeros.lock().unwrap().values().filter(|s| s.found.is_some()).map(|s| s.key.clone()).collect()
     }
 
     /// Keep a 20 Hz telemetry lease on each connected Zero, drain new frames into the

@@ -104,3 +104,13 @@ fn profile_diff_and_reapply_frames() {
     assert_eq!(Profile::from_toml(&t).unwrap(), stored);
     assert!(diff(&stored, &[(4, 2), (11, 0), (16, 74), (40, 1)]).is_empty());
 }
+
+#[test]
+fn start_and_stop_mic_actions() {
+    let on = pilab_core::zero::action(0x21, pilab_core::zero::ACTION_START_MIC);
+    assert_eq!(on, [0xF0, 0x7D, 0x54, 0x52, 0x01, 0x04, 0x21, 0x07, 0xF7]);
+    let off = pilab_core::zero::action(0x22, pilab_core::zero::ACTION_STOP_MIC);
+    assert_eq!(off, [0xF0, 0x7D, 0x54, 0x52, 0x01, 0x04, 0x22, 0x08, 0xF7]);
+    let p = pilab_core::zero::Profile::default();
+    assert!(!p.mic);
+}
