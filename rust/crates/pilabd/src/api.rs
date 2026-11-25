@@ -90,6 +90,7 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/devices/{key}/reapply", "{confirm:true} send the stored profile's differing settings to the device, then read it back"),
     ("GET", "/api/v1/devices/{key}/telemetry?hz=&ms=", "Sensor frames from a short telemetry lease (read-only)"),
     ("POST", "/api/v1/devices/{key}/mic", "{on, confirm?} start or stop the 16 kHz microphone test stream (on needs confirm); stored in the profile"),
+    ("POST", "/api/v1/measure/strike", "{timeout_s?} arm a strike-to-sound take (up to 60 s after GO); writes ~/.local/share/pilab/measurements/strike-*.json"),
     ("GET", "/api/v1/endpoints", "This list"),
 ];
 
@@ -144,6 +145,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/devices/{key}/reapply", post(device_reapply))
         .route("/devices/{key}/telemetry", get(device_telemetry))
         .route("/devices/{key}/mic", post(device_mic))
+        .route("/measure/strike", post(measure_strike))
         .route("/endpoints", get(endpoints))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
     let guard = Arc::new(crate::security::Guard::new(&app.hostname));
@@ -696,6 +698,18 @@ async fn device_mic(State(app): S, Path(key): Path<String>, Json(b): Json<MicBod
     let a = app.clone();
     let k = key.clone();
     let v = tokio::task::spawn_blocking(move || a.set_zero_mic(&k, b.on, b.confirm)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    ok(v)
+}
+
+#[derive(Deserialize)]
+struct StrikeBody {
+    #[serde(default)]
+    timeout_s: Option<u64>,
+}
+
+async fn measure_strike(State(app): S, body: Option<Json<StrikeBody>>) -> R {
+    let timeout = body.and_then(|Json(b)| b.timeout_s).unwrap_or(60);
+    let v = tokio::task::spawn_blocking(move || app.measure_strike(timeout)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     ok(v)
 }
 

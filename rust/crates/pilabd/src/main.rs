@@ -19,6 +19,7 @@ mod mixer;
 mod paths;
 mod samples;
 mod record;
+mod measure;
 mod security;
 mod state;
 mod sys;

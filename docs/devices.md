@@ -93,6 +93,8 @@ While the stream is on, pilabd publishes a PipeWire source named
 not connected to the DAC unless you turn input monitoring on (confirm required).
 The capture thread stays off CPU 3.
 
+A strike-to-sound take is `trillium-base measure strike` (or `POST /api/v1/measure/strike`). It prints GO, waits up to 60 s, and writes `~/.local/share/pilab/measurements/strike-*.json` plus a console event.
+
 The Yeti Nano and the Nordic `1915:1025` capture remain available as input
 strip sources.
 

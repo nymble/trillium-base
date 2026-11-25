@@ -61,6 +61,9 @@ pub struct Stats {
     pub voices: AtomicU32,
     peak_l: AtomicU32,
     peak_r: AtomicU32,
+    /// Peaks that stay until a measurement reads them (not drained by the status loop).
+    sticky_l: AtomicU32,
+    sticky_r: AtomicU32,
     pub limiter_db: AtomicU32,
     pub clips: AtomicU64,
     pub running: AtomicBool,
@@ -78,6 +81,13 @@ impl Stats {
         (
             f32::from_bits(self.peak_l.swap(0, Ordering::Relaxed)),
             f32::from_bits(self.peak_r.swap(0, Ordering::Relaxed)),
+        )
+    }
+    /// Peak since the last measurement read, not affected by status-loop drains.
+    pub fn take_sticky_peaks(&self) -> (f32, f32) {
+        (
+            f32::from_bits(self.sticky_l.swap(0, Ordering::Relaxed)),
+            f32::from_bits(self.sticky_r.swap(0, Ordering::Relaxed)),
         )
     }
     pub fn f32(a: &AtomicU32) -> f32 {
@@ -733,6 +743,8 @@ impl Engine {
         }
         Stats::hold_peak(&self.stats.peak_l, pl);
         Stats::hold_peak(&self.stats.peak_r, pr);
+        Stats::hold_peak(&self.stats.sticky_l, pl);
+        Stats::hold_peak(&self.stats.sticky_r, pr);
         let db = crate::tuning::gain_to_db(min_gain);
         self.stats.limiter_db.store(db.to_bits(), Ordering::Relaxed);
     }

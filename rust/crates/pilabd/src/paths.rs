@@ -71,6 +71,10 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.config.join("state.toml")
     }
+    /// Strike-to-sound and similar measurement results (JSON).
+    pub fn measurements(&self) -> PathBuf {
+        self.data.join("measurements")
+    }
     /// Sample library root (holds samples/index.json): user, drive, then base tier.
     pub fn samples_root(&self) -> PathBuf {
         let cands = [

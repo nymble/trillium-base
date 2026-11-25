@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -125,6 +125,8 @@ pub struct App {
     pub mixer: crate::mixer::Mixer,
     pub devmgr: crate::devices::Manager,
     pub zeromic: Mutex<Option<crate::zeromic::Bridge>>,
+    /// Held true while ACTION 7 is in flight so sync_zero_mic cannot drop the just-opened port.
+    mic_hold: AtomicBool,
     pub samples: SampleLib,
     aud_gen: std::sync::atomic::AtomicU64,
     pub store: SceneStore,
@@ -271,6 +273,7 @@ impl App {
             mixer: crate::mixer::Mixer::new(),
             devmgr,
             zeromic: Mutex::new(None),
+            mic_hold: AtomicBool::new(false),
             aud_gen: std::sync::atomic::AtomicU64::new(0),
             paths,
             port,
@@ -1382,6 +1385,9 @@ impl App {
     /// Starts or stops the "Trillium Zero Mic" PipeWire source to match the profile
     /// and the last commanded microphone state. Off the synth's audio core.
     pub fn sync_zero_mic(&self) {
+        if self.mic_hold.load(Ordering::SeqCst) {
+            return;
+        }
         let want = self.devmgr.mic_wanted();
         let mut g = self.zeromic.lock().unwrap();
         if want && g.is_none() {
@@ -1404,15 +1410,22 @@ impl App {
     pub fn set_zero_mic(&self, key: &str, on: bool, confirm: bool) -> Result<Value, String> {
         if on {
             // Open the CDC port first so the firmware can write frames as soon as ACTION 7 acks.
+            // Hold off sync_zero_mic so it cannot drop the port before ACTION 7 finishes.
+            self.mic_hold.store(true, Ordering::SeqCst);
             let mut g = self.zeromic.lock().unwrap();
             if g.is_none() {
                 match crate::zeromic::Bridge::start(std::path::Path::new(crate::zeromic::DEVICE)) {
                     Ok(b) => *g = Some(b),
-                    Err(e) => return Err(e),
+                    Err(e) => {
+                        self.mic_hold.store(false, Ordering::SeqCst);
+                        return Err(e);
+                    }
                 }
             }
         }
-        match self.devmgr.set_mic(key, on, confirm) {
+        let result = self.devmgr.set_mic(key, on, confirm);
+        self.mic_hold.store(false, Ordering::SeqCst);
+        match result {
             Ok(v) => {
                 if !on {
                     *self.zeromic.lock().unwrap() = None;
@@ -1427,6 +1440,102 @@ impl App {
                 Err(e)
             }
         }
+    }
+
+    /// Arm a take, announce GO, and wait up to `timeout_s` (max 60) for an acoustic
+    /// onset and the synth's first sound. Writes a JSON result under measurements/.
+    pub fn measure_strike(&self, timeout_s: u64) -> Result<Value, String> {
+        use crate::measure::{self, GO};
+        use pilab_synth::tuning::gain_to_db;
+        let timeout = Duration::from_secs(timeout_s.clamp(5, 60));
+        let _ = self.stats.take_sticky_peaks();
+        if let Some(b) = self.zeromic.lock().unwrap().as_ref() {
+            let _ = b.take_peak();
+        }
+        let rec = self.record(true);
+        let recording = match &rec {
+            Ok(v) => v.get("id").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            Err(e) => {
+                self.event("warn", format!("strike measure: recording not started ({e}); using live peaks only"));
+                None
+            }
+        };
+        self.event("info", GO);
+        let go = Instant::now();
+        let mut base_ac = 0.0f32;
+        let mut base_sy = 0.0f32;
+        let mut acoustic: Option<(f32, &'static str, f32)> = None;
+        let mut synth: Option<(f32, f32)> = None;
+        let has_zm = self.zeromic.lock().unwrap().is_some();
+        while go.elapsed() < timeout {
+            let zm = self.zeromic.lock().unwrap().as_ref().map(|b| b.take_peak()).unwrap_or(0.0);
+            let (sl, sr) = self.stats.take_sticky_peaks();
+            let sy = sl.max(sr);
+            let (ac, src) = if has_zm {
+                (zm, "zero_mic")
+            } else {
+                let ip = self.shared.take_input_peaks();
+                (ip[0].max(ip[1]), "input_strip")
+            };
+            if go.elapsed() < Duration::from_millis(300) {
+                base_ac = base_ac.max(ac);
+                base_sy = base_sy.max(sy);
+            } else {
+                let ac_thr = measure::threshold(base_ac, 12.0, -40.0);
+                let sy_thr = measure::threshold(base_sy, 12.0, -50.0);
+                if acoustic.is_none() && ac >= ac_thr {
+                    acoustic = Some((go.elapsed().as_secs_f32() * 1000.0, src, ac));
+                }
+                if synth.is_none() && sy >= sy_thr {
+                    let t = go.elapsed().as_secs_f32() * 1000.0;
+                    if acoustic.map(|(ta, _, _)| t + 0.01 >= ta).unwrap_or(true) {
+                        synth = Some((t, sy));
+                    }
+                }
+                if acoustic.is_some() && synth.is_some() {
+                    std::thread::sleep(Duration::from_millis(250));
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let timed_out = acoustic.is_none() || synth.is_none();
+        let rec_stop = if recording.is_some() { self.record(false).ok() } else { None };
+        let rec_dir = rec_stop.as_ref().and_then(|v| v.get("card").and_then(|c| c.get("id")).and_then(|x| x.as_str()).map(|s| s.to_string()));
+        let ac_ms = acoustic.map(|(t, _, _)| t);
+        let sy_ms = synth.map(|(t, _)| t);
+        let delta = match (ac_ms, sy_ms) {
+            (Some(a), Some(b)) if b >= a => Some(((b - a) * 10.0).round() / 10.0),
+            _ => None,
+        };
+        let stamp = timefmt::stamp(timefmt::now_secs());
+        let dir = self.paths.measurements();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("strike-{stamp}.json"));
+        let result = json!({
+            "ok": !timed_out || ac_ms.is_some() || sy_ms.is_some(),
+            "go": GO,
+            "timeout_s": timeout.as_secs(),
+            "timed_out": timed_out,
+            "acoustic_ms": ac_ms.map(|t| (t * 10.0).round() / 10.0),
+            "acoustic_source": acoustic.map(|(_, s, _)| s),
+            "acoustic_peak_db": acoustic.map(|(_, _, p)| (gain_to_db(p) * 10.0).round() / 10.0),
+            "synth_ms": sy_ms.map(|t| (t * 10.0).round() / 10.0),
+            "synth_peak_db": synth.map(|(_, p)| (gain_to_db(p) * 10.0).round() / 10.0),
+            "strike_to_sound_ms": delta,
+            "baseline_acoustic_db": (gain_to_db(base_ac) * 10.0).round() / 10.0,
+            "baseline_synth_db": (gain_to_db(base_sy) * 10.0).round() / 10.0,
+            "recording": rec_dir,
+            "path": path.display().to_string(),
+        });
+        std::fs::write(&path, serde_json::to_vec_pretty(&result).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let summary = match delta {
+            Some(ms) => format!("strike-to-sound {ms} ms (result {})", path.display()),
+            None if timed_out => format!("strike measure timed out with no complete onset pair (result {})", path.display()),
+            None => format!("strike measure finished (result {})", path.display()),
+        };
+        self.event("info", summary);
+        Ok(result)
     }
 }
 

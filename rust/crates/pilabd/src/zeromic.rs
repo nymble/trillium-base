@@ -9,7 +9,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -26,6 +26,7 @@ const RING: usize = 48_000; // 1 s at 48 kHz
 pub struct Bridge {
     stop: Arc<AtomicBool>,
     dropped: Arc<AtomicU64>,
+    peak: Arc<AtomicU32>,
     reader: Option<JoinHandle<()>>,
     // Held so the JACK client stays active.
     _client: Option<jack::AsyncClient<(), Proc>>,
@@ -34,6 +35,7 @@ pub struct Bridge {
 struct Proc {
     rx: rtrb::Consumer<f32>,
     dropped: Arc<AtomicU64>,
+    peak: Arc<AtomicU32>,
     ports: Vec<jack::Port<jack::AudioOut>>,
     scratch: [f32; 2048],
 }
@@ -49,9 +51,13 @@ impl jack::ProcessHandler for Proc {
             }
             return jack::Control::Continue;
         }
+        let mut pk = 0.0f32;
         for s in self.scratch[..n].iter_mut() {
-            *s = self.rx.pop().unwrap_or(0.0);
+            let v = self.rx.pop().unwrap_or(0.0);
+            *s = v;
+            pk = pk.max(v.abs());
         }
+        self.peak.fetch_max(pk.to_bits(), Ordering::Relaxed);
         for p in &mut self.ports {
             p.as_mut_slice(ps)[..n].copy_from_slice(&self.scratch[..n]);
         }
@@ -76,19 +82,25 @@ impl Bridge {
         let (mut tx, rx) = rtrb::RingBuffer::<f32>::new(RING);
         let stop = Arc::new(AtomicBool::new(false));
         let dropped = Arc::new(AtomicU64::new(0));
+        let peak = Arc::new(AtomicU32::new(0));
         let active = client
-            .activate_async((), Proc { rx, dropped: dropped.clone(), ports: vec![fl, fr], scratch: [0.0; 2048] })
+            .activate_async((), Proc { rx, dropped: dropped.clone(), peak: peak.clone(), ports: vec![fl, fr], scratch: [0.0; 2048] })
             .map_err(|e| format!("activate: {e:?}"))?;
         let stop_r = stop.clone();
         let reader = std::thread::Builder::new()
             .name("zero-mic".into())
             .spawn(move || read_loop(path, &mut tx, &stop_r))
             .map_err(|e| e.to_string())?;
-        Ok(Bridge { stop, dropped, reader: Some(reader), _client: Some(active) })
+        Ok(Bridge { stop, dropped, peak, reader: Some(reader), _client: Some(active) })
     }
 
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Linear peak since the last call (max of both published channels).
+    pub fn take_peak(&self) -> f32 {
+        f32::from_bits(self.peak.swap(0, Ordering::Relaxed))
     }
 
     pub fn stop(&mut self) {

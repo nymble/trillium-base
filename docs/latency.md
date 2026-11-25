@@ -99,7 +99,15 @@ MIDI responsiveness (Zero plugged in, mic already in the desired state):
 python3 tools/measure-midi-responsiveness.py --seconds 20 --label mic-off
 ```
 
-Strike-to-sound (one-line cue): when the script prints GO, strike the Trillium Zero once, then keep still.
+Strike-to-sound, from the Pi (preferred):
+
+```
+trillium-base measure strike
+```
+
+One-line cue: when it prints `GO — strike the Trillium Zero once, then keep still.`, strike the Trillium Zero once, then keep still. It waits up to 60 seconds. The result is printed, logged as a console event, and written to `~/.local/share/pilab/measurements/strike-YYYYMMDD-HHMMSS.json` (America/Los_Angeles on the lab unit). If the Zero mic stream is on, that is used for the acoustic onset; otherwise the input strip is used. The synth onset is taken from a sticky peak that the status loop does not drain.
+
+The older helper still works:
 
 ```
 python3 tools/measure-strike-to-sound.py --pre 1 --listen 2

@@ -45,8 +45,12 @@ fn port() -> u16 {
 }
 
 fn http(method: &str, path: &str, body: Option<String>) -> Result<String, String> {
+    http_timeout(method, path, body, 10)
+}
+
+fn http_timeout(method: &str, path: &str, body: Option<String>, secs: u64) -> Result<String, String> {
     let mut s = TcpStream::connect(("127.0.0.1", port())).map_err(|e| format!("cannot reach pilabd on port {}: {e}", port()))?;
-    s.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    s.set_read_timeout(Some(Duration::from_secs(secs))).ok();
     let body = body.unwrap_or_default();
     let req = format!(
         "{method} /api/v1{path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -185,6 +189,12 @@ fn main() {
         ["devices", "telemetry", key, hz, ms] => out(http("GET", &format!("/devices/{}/telemetry?hz={}&ms={}", key.replace(' ', "%20"), hz, ms), None)),
         ["devices", "mic", key, "on"] => out(http("POST", &format!("/devices/{}/mic", key.replace(' ', "%20")), Some("{\"on\":true,\"confirm\":true}".into()))),
         ["devices", "mic", key, "off"] => out(http("POST", &format!("/devices/{}/mic", key.replace(' ', "%20")), Some("{\"on\":false}".into()))),
+        ["measure", "strike"] => {
+            // Print the cue immediately; the HTTP call blocks for up to 60 s.
+            println!("GO — strike the Trillium Zero once, then keep still.");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            out(http_timeout("POST", "/measure/strike", Some("{\"timeout_s\":60}".into()), 75))
+        }
         ["apps", rest @ ..] => {
             if let Err(e) = apps_cli::run(rest) {
                 eprintln!("{e}");
@@ -198,7 +208,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off] | apps [list | show ID | validate FILE | enable ID | disable ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off] | measure strike | apps [list | show ID | validate FILE | enable ID | disable ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
             std::process::exit(2);
         }
     }
