@@ -20,7 +20,7 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 
 - Devices toggle, API and CLI (`devices mic KEY on|off`). ACTION 7/8 only; settings are checked afterwards; the flag is stored in the profile and restored on reconnect. PipeWire source `Trillium Zero Mic` at 48 kHz (from 16 kHz `TRPC` on `/dev/trillium-zero-pcm`). DAC monitor still off by default. The console toggle uses the same styled dialog as other device writes.
 - Default synth amplitude-envelope attack 10 ms → 1 ms (existing saved scenes are unchanged).
-- Measurement helpers: `tools/measure-midi-responsiveness.py`, `tools/measure-strike-to-sound.py`. Latency notes in `docs/latency.md`.
+- Measurement helpers: `tools/measure-midi-responsiveness.py`, `tools/measure-strike-to-sound.py`. Latency notes and before/after numbers in `docs/latency.md` (`PIPEWIRE_LATENCY=32/48000` was tried on the lab unit and reverted: xruns and ~100 % DSP load).
 
 ## 0.4.0-beta.1 — 2026-11-24
 
