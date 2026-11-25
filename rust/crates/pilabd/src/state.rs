@@ -1503,13 +1503,15 @@ impl App {
             let ms = go.elapsed().as_secs_f32() * 1000.0;
             if rehearse && !inj_on && ms >= 600.0 {
                 inj_on = true;
-                let b = [0x90, 60, 100];
+                let (pch, pnote) = plan.as_ref().map(|p| (p.path.probe[0], p.path.probe[1])).unwrap_or((0, 60));
+                let b = [0x90 | pch, pnote, 100];
                 self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
                 self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
             }
             if rehearse && inj_on && !inj_off && ms >= 1000.0 {
                 inj_off = true;
-                let b = [0x80, 60, 0];
+                let (pch, pnote) = plan.as_ref().map(|p| (p.path.probe[0], p.path.probe[1])).unwrap_or((0, 60));
+                let b = [0x80 | pch, pnote, 0];
                 self.send(Cmd::Midi { port: 1, len: 3, bytes: b })?;
                 self.log_midi(MidiEv { port: 1, len: 3, b, t_ns: now_ns() });
             }
@@ -1576,6 +1578,7 @@ impl App {
             .lock()
             .unwrap()
             .drain(..)
+            .filter(|e| e.port != PORT_CONSOLE && e.port != PORT_AUDITION && e.port != PORT_VIRTUAL)
             .map(|e| {
                 json!({
                     "ms": r1((e.t_ns as i64 - go_ns as i64) as f32 / 1.0e6),
@@ -1594,7 +1597,11 @@ impl App {
                 Some(_) => "No note-on arrived from the Zero.".to_string(),
             }
         } else if synth.is_none() {
-            "A note-on reached the Base but the synth stayed silent: check the scene route, master level and that the synth is running.".to_string()
+            if base_sy > 0.0035 {
+                format!("A note-on reached the Base, but the synth was already sounding at {:.0} dBFS before it (something else is playing or auditioning), so its onset could not be told apart. Stop other playback and rerun.", gain_to_db(base_sy))
+            } else {
+                "A note-on reached the Base but the synth stayed silent: check the scene route (the note's channel must be routed to a voice), master level and that the synth is running.".to_string()
+            }
         } else {
             "ok".to_string()
         };

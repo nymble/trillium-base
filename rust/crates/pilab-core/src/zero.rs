@@ -499,6 +499,8 @@ pub struct NotePath {
     pub strike_ready: bool,
     pub summary: String,
     pub hint: String,
+    /// Channel (0-based) and note a strike would play, for a host-side rehearsal.
+    pub probe: [u8; 2],
 }
 
 fn param(params: &[(u8, u16)], id: u8) -> u16 {
@@ -543,9 +545,16 @@ pub fn note_path(params: &[(u8, u16)], trill_running: bool, imu_running: bool) -
         } else {
             "Nothing is mapped to notes.".to_string()
         };
-        NotePath { strike_ready: false, summary: "no note source enabled".into(), hint }
+        NotePath { strike_ready: false, summary: "no note source enabled".into(), hint, probe: [0, 60] }
     } else {
-        NotePath { strike_ready: strike, summary: parts.join("; "), hint: String::new() }
+        let probe = if perc && imu_running && mode == 0 {
+            [(param(params, 12) & 15) as u8, (if dirs == 0 { param(params, 13) } else { param(params, 32) } & 127) as u8]
+        } else if trill_running && mode == 0 {
+            [(param(params, 1) & 15) as u8, (param(params, 3) & 127) as u8]
+        } else {
+            [0, 60]
+        };
+        NotePath { strike_ready: strike, summary: parts.join("; "), hint: String::new(), probe }
     }
 }
 
