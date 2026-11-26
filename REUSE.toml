@@ -1,20 +1,27 @@
 version = 1
 
-# Files that cannot carry a comment header. Files with a header keep their own.
+# First-party files that cannot carry a comment header (or where a header
+# would break the format). A file that has its own header keeps only that
+# ("closest"), so nothing here adds a second licence to a file.
 [[annotations]]
 path = [
   "**.md", "**.svg", "**.png", "**.json", "**.tsv", "**.txt", "**.webmanifest",
   "**.html", "**.gitignore", ".gitignore", "Cargo.lock", "rust/Cargo.lock",
   "sbom/**", "library/**", "docs/**",
+  "etc/**", "home/**", "boot/**", "kernel/**", "packages/**",
 ]
-precedence = "aggregate"
+precedence = "closest"
 SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert"
 SPDX-License-Identifier = "GPL-3.0-or-later OR LicenseRef-Commercial"
 
-# Configuration snapshots captured from a Raspberry Pi image (see NOTICE.md).
+# Real captures from a Raspberry Pi image or upstream installs (see NOTICE.md).
+# Only these paths are LicenseRef-System-Snapshot; they are not first-party code.
 [[annotations]]
-path = ["etc/**", "home/**", "boot/**", "kernel/**", "packages/**"]
-precedence = "aggregate"
+path = [
+  "packages/*", "kernel/configs/*", "kernel/snapshots/*", "boot/issue.txt",
+  "boot/config.txt", "etc/systemd/system/nqptp.service.installed",
+]
+precedence = "override"
 SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert"
 SPDX-License-Identifier = "LicenseRef-System-Snapshot"
 
