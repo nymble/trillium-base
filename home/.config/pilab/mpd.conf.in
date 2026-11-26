@@ -1,0 +1,33 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+# Trillium Base player (MPD, a separate GPL process). Rendered to ~/.config/pilab/mpd.conf by
+# scripts/install-music.sh (@STATE@ = ~/.local/state/pilab). pilabd is the only client: it
+# talks to the private socket below and sends file:// paths from its own library index,
+# so MPD keeps no database of its own.
+
+bind_to_address     "@STATE@/mpd/socket"
+state_file          "@STATE@/mpd/state"
+state_file_interval "120"
+restore_paused      "yes"
+auto_update         "no"
+zeroconf_enabled    "no"
+log_level           "notice"
+filesystem_charset  "UTF-8"
+
+# No level changes on the way out: no ReplayGain, no normalisation.
+replaygain            "off"
+volume_normalization  "no"
+
+input {
+    plugin "curl"
+}
+
+# The default PipeWire sink (the DAC), beside the synth. The DAC level (0.70) and the synth
+# master are not touched; volume is MPD's own (software), so a fresh start is never loud and
+# pilabd holds it at or below its cap. At 100% and a 48 kHz source nothing is changed on the
+# way to PipeWire; other rates are resampled by PipeWire to the synth's 48 kHz graph.
+audio_output {
+    type        "pipewire"
+    name        "Trillium Base player"
+    mixer_type  "software"
+}

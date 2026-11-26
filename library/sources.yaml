@@ -340,3 +340,25 @@ sources:
     verified: "2026-11-19 partial: FAQ confirms per-track Creative Commons licences including NonCommercial"
     dc: { type: Sound, format: audio/mpeg, subject: [sound, music] }
     notes: "NC tracks: personal listening only, never venue playback packs."
+
+  - id: music-demo
+    name: Music page demo albums (Internet Archive, CC0)
+    type: music
+    homepage: https://archive.org/
+    url: https://archive.org/download/
+    license: CC0-1.0
+    license_url: https://creativecommons.org/publicdomain/zero/1.0/
+    attribution:
+      required: false
+      credit: "Demo albums: Anchore State, Changes of Life EP (Genetic Trance GT459); Steam Flow, With Trains and Bones (Genetic Trance GT458); Chopin Ballades 1-4 from the Musopen Complete Chopin Collection. All CC0 1.0, from the Internet Archive."
+    banks:
+      - { name: "Anchore State - Changes of Life EP (archive.org item gt459AnchoreState-ChangesOfLifeEp, 3 MP3 + cover)", license: CC0-1.0, size: "19.8 MB" }
+      - { name: "Steam Flow - With Trains and Bones (archive.org item gt458SteamFlow-WithTrainsAndBones, 3 MP3 + cover)", license: CC0-1.0, size: "36.8 MB" }
+      - { name: "Chopin - Ballades (archive.org item musopen-chopin, 4 Ogg Vorbis files)", license: CC0-1.0, size: "28.1 MB" }
+    size:
+      upstream: "84.8 MB for the 12 files fetched (sizes from the archive.org file lists)"
+    tier: network
+    status: allowed-not-shipped
+    verified: "2026-11-25: archive.org metadata licenseurl is http://creativecommons.org/publicdomain/zero/1.0/ for all three items; files checked by SHA-256 in scripts/fetch-music-demo.sh"
+    dc: { type: Sound, format: "audio/mpeg, audio/ogg", subject: [sound, music] }
+    notes: "Fetched on install into ~/.local/share/pilab/music/demo by scripts/fetch-music-demo.sh; not in the base image. Internet radio stations in home/.config/pilab/music/streams.m3u are links only, nothing is stored."

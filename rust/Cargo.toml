@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/pilab-synth", "crates/pilab-core", "crates/pilabd"]
+members = ["crates/pilab-synth", "crates/pilab-core", "crates/pilab-music", "crates/pilabd"]
 
 [workspace.package]
 version = "0.4.0-beta.1"
@@ -21,6 +21,8 @@ zpod-midi = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d
 zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
 pilab-synth = { path = "crates/pilab-synth" }
 pilab-core = { path = "crates/pilab-core" }
+pilab-music = { path = "crates/pilab-music" }
+zpod-mpd = { git = "https://github.com/nymble/zpod", rev = "2dedb10863d3d9dbc6d312504faaafaf637c71e0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

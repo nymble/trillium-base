@@ -18,6 +18,7 @@
 //! pilabctl apps [list | show ID | validate FILE | enable ID | disable ID]   app manifests
 //! pilabctl zero [show | schema | presets | preset ID | set NAME=VALUE... | action A | export | import FILE | save-preset NAME | auto on|off] [--key KEY]
 //! pilabctl firmware [status | latest | check FILE.uf2 | update FILE.uf2 --confirm [--allow-downgrade]] [--key KEY]
+//! pilabctl music [status | scan | sources | albums | search TEXT | play KIND ID | queue | pause | next | vol N ...]
 //! ```
 
 use std::io::{Read, Write};
@@ -27,6 +28,8 @@ use std::time::Duration;
 
 #[path = "../apps_cli.rs"]
 mod apps_cli;
+#[path = "../music_cli.rs"]
+mod music_cli;
 
 const PORT: u16 = 8410;
 
@@ -221,6 +224,7 @@ fn main() {
         ["firmware", rest @ ..] => firmware_cli(rest),
         ["midi", rest @ ..] => midi_cli(rest),
         ["engines", rest @ ..] => engines_cli(rest),
+        ["music", rest @ ..] => music_cli::run(rest, &http),
         ["inputs"] => out(http("GET", "/midi/inputs", None)),
         ["input"] => out(http("GET", "/input", None)),
         ["input", "source", glob] => out(http("POST", "/input", Some(format!("{{\"source\":{}}}", json_str(glob))))),
@@ -228,7 +232,7 @@ fn main() {
         ["input", "record", v] => out(http("POST", "/input", Some(format!("{{\"record\":{}}}", *v == "on")))),
         ["input", "monitor", "off"] => out(http("POST", "/input", Some("{\"monitor\":false}".into()))),
         _ => {
-            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | zero [show|schema|presets|preset ID|set NAME=VALUE..|action A|export|import FILE|save-preset NAME|auto on|off] | firmware [status|latest|check FILE|update FILE --confirm] | midi [routes | route add FROM TO [--ch 1,2] [--to-ch N] [--keys LO-HI] [--types note,cc] [--transpose N] [--name TEXT] | route rm|on|off ID | profile set MATCH key=value.. | profile rm MATCH | monitor [--follow|--csv|--clear] | reset] | engines [list | start ID | stop ID | sound ID FILE | program ID CH PROG | scene ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off]", prog());
+            eprintln!("usage: {} pair [--rotate|--qr] | status | system | note N [VEL] [SECS] | gain DB | run on|off | panic | scenes | load NAME | save NAME | record on|off | devices [snapshot KEY | reapply KEY | telemetry KEY [HZ [MS]] | mic KEY on|off | show [KEY]] | measure strike [--rehearse] | apps [list | show ID | validate FILE | enable ID | disable ID] | zero [show|schema|presets|preset ID|set NAME=VALUE..|action A|export|import FILE|save-preset NAME|auto on|off] | firmware [status|latest|check FILE|update FILE --confirm] | midi [routes | route add FROM TO [--ch 1,2] [--to-ch N] [--keys LO-HI] [--types note,cc] [--transpose N] [--name TEXT] | route rm|on|off ID | profile set MATCH key=value.. | profile rm MATCH | monitor [--follow|--csv|--clear] | reset] | engines [list | start ID | stop ID | sound ID FILE | program ID CH PROG | scene ID] | inputs | input [source GLOB | gain DB | record on|off | monitor off] | {}", prog(), music_cli::USAGE);
             std::process::exit(2);
         }
     }

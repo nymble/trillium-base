@@ -74,6 +74,9 @@ rm -f "$TMP"
 
 [ -d "$HOME/.local/share/pilab/library/akwf" ] || sh "$REPO/scripts/fetch-akwf.sh"
 
+# Music page: MPD as a separate player process, its config and the demo albums.
+sh "$REPO/scripts/install-music.sh"
+
 systemctl --user daemon-reload
 systemctl --user enable pilabd.service >/dev/null 2>&1
 systemctl --user restart pilabd.service

@@ -262,14 +262,14 @@ function debounce(key, fn, ms) { clearTimeout(timers[key]); timers[key] = setTim
 $("#nav").addEventListener("click", (e) => { const a = e.target.closest("a[data-view]"); if (a) { location.hash = a.dataset.view; } });
 window.addEventListener("hashchange", () => { S.view = location.hash.slice(1) || "play"; render(); });
 
-const VIEW_TITLE = { play: "Play", listen: "Listen", record: "Record", setup: "Set up", overview: "System", sounds: "Sounds & apps", midimap: "Scene MIDI map", scenes: "Scenes", signals: "Patch panel", devices: "Devices", settings: "Settings" };
+const VIEW_TITLE = { play: "Play", listen: "Listen", music: "Music", record: "Record", setup: "Set up", overview: "System", sounds: "Sounds & apps", midimap: "Scene MIDI map", scenes: "Scenes", signals: "Patch panel", devices: "Devices", settings: "Settings" };
 // Views reached from inside another view: the nav highlights the parent, and the page shows a way back.
 const PARENT = { overview: "settings", signals: "settings", setup: "settings", scenes: "sounds", midimap: "sounds" };
 function render() {
   const navView = PARENT[S.view] || S.view;
   $$("#nav a").forEach((a) => { const on = a.dataset.view === navView; a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   document.title = `${VIEW_TITLE[S.view] || "Overview"} · ${PRODUCT} · ${(S.info && S.info.device) || "Trillium Base"}`;
-  const views = { play: renderPlay, listen: renderListen, record: renderRecord, setup: renderSetup, overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
+  const views = { play: renderPlay, listen: renderListen, music: renderMusic, record: renderRecord, setup: renderSetup, overview: renderOverview, sounds: renderSounds, midimap: renderMidiMap, scenes: renderScenes, signals: renderSignals, devices: renderDevices, settings: renderSettings };
   (views[S.view] || renderPlay)();
 }
 

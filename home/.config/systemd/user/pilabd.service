@@ -11,6 +11,8 @@ Type=simple
 ExecStart=/usr/bin/pw-jack %h/.local/bin/pilabd serve
 # Ask PipeWire for a 64-frame period at 48 kHz (the graph's quantum may still differ).
 Environment=PIPEWIRE_LATENCY=64/48000
+# The Music page's player (pilab-mpd.service) listens only on this socket.
+Environment=MPD_HOST=%h/.local/state/pilab/mpd/socket
 # Control threads on CPUs 0-2; the audio thread moves itself to CPU 3 (pilabd --audio-cpu).
 CPUAffinity=0-2
 LimitRTPRIO=95

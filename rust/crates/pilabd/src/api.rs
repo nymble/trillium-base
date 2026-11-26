@@ -210,6 +210,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/firmware/check", post(firmware_check))
         .route("/firmware/update", post(firmware_update))
         .route("/endpoints", get(endpoints))
+        .merge(crate::music::routes())
         .route_layer(middleware::from_fn_with_state(app.clone(), auth));
     let guard = Arc::new(crate::security::Guard::new(&app.hostname));
     Router::new()
@@ -311,7 +312,7 @@ async fn info(State(app): S) -> Json<Value> {
 }
 
 async fn endpoints() -> Json<Value> {
-    Json(Value::Array(ENDPOINTS.iter().map(|(m, p, d)| json!({ "method": m, "path": p, "what": d })).collect()))
+    Json(Value::Array(ENDPOINTS.iter().chain(crate::music::ENDPOINTS).map(|(m, p, d)| json!({ "method": m, "path": p, "what": d })).collect()))
 }
 
 async fn ws(State(app): S, up: WebSocketUpgrade) -> Response {

@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="/brand/tokens.css?v={{BUILD}}">
 <link rel="stylesheet" href="/theme.css?v={{BUILD}}">
 <link rel="stylesheet" href="/app.css?v={{BUILD}}">
+<link rel="stylesheet" href="/music.css?v={{BUILD}}">
 </head>
 <body data-product="{{PRODUCT_NAME}}" data-version="{{VERSION}}">
 <a class="skip" href="#main">Skip to content</a>
@@ -77,6 +78,7 @@
   <nav class="side" id="nav" aria-label="Console sections">
     <a href="#play" data-view="play"><img src="/brand/ui-icons/trillium.svg?v={{BUILD}}" alt=""><span>Play</span></a>
     <a href="#listen" data-view="listen"><img src="/brand/ui-icons/headphones.svg?v={{BUILD}}" alt=""><span>Listen</span></a>
+    <a href="#music" data-view="music"><img src="/icons/music.svg?v={{BUILD}}" alt=""><span>Music</span></a>
     <a href="#record" data-view="record"><img src="/brand/ui-icons/record.svg?v={{BUILD}}" alt=""><span>Record</span></a>
     <a href="#devices" data-view="devices"><img src="/brand/ui-icons/touch.svg?v={{BUILD}}" alt=""><span>Devices</span></a>
     <a href="#sounds" data-view="sounds" aria-label="Sounds &amp; apps"><img src="/brand/ui-icons/instrument.svg?v={{BUILD}}" alt=""><span class="lg">Sounds &amp; apps</span><span class="sm" aria-hidden="true">Sounds</span></a>
@@ -113,6 +115,7 @@
   </div>
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 </div>
+<script src="/music.js?v={{BUILD}}"></script>
 <script src="/app.js?v={{BUILD}}"></script>
 </body>
 </html>

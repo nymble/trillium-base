@@ -136,6 +136,19 @@ with any per-item credit lines the upstream licence requires.
 - Credit: Per track; recorded in the pack manifest.
 - Checked: 2026-11-19 partial: FAQ confirms per-track Creative Commons licences including NonCommercial
 
+### Music page demo albums (Internet Archive, CC0)
+
+- Source: <https://archive.org/>
+- Fetched from: <https://archive.org/download/>
+- Licence: CC0-1.0
+- Type: music; tier: network
+- Attribution required: no
+- Credit: Demo albums: Anchore State, Changes of Life EP (Genetic Trance GT459); Steam Flow, With Trains and Bones (Genetic Trance GT458); Chopin Ballades 1-4 from the Musopen Complete Chopin Collection. All CC0 1.0, from the Internet Archive.
+  - Anchore State - Changes of Life EP (archive.org item gt459AnchoreState-ChangesOfLifeEp, 3 MP3 + cover), CC0-1.0 (19.8 MB)
+  - Steam Flow - With Trains and Bones (archive.org item gt458SteamFlow-WithTrainsAndBones, 3 MP3 + cover), CC0-1.0 (36.8 MB)
+  - Chopin - Ballades (archive.org item musopen-chopin, 4 Ogg Vorbis files), CC0-1.0 (28.1 MB)
+- Checked: 2026-11-25: archive.org metadata licenseurl is http://creativecommons.org/publicdomain/zero/1.0/ for all three items; files checked by SHA-256 in scripts/fetch-music-demo.sh
+
 ## Reference only: ideas or descriptors, no copied bytes or code
 
 ### NSynth dataset

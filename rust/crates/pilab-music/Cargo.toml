@@ -1,0 +1,18 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+[package]
+name = "pilab-music"
+description = "Trillium Base music library: sources, scanner, SQLite/FTS5 index, cover art cache, M3U streams"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
+lofty = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

@@ -19,6 +19,7 @@ mod zeromic;
 mod identity;
 mod library;
 mod mixer;
+mod music;
 mod paths;
 mod samples;
 mod record;
@@ -252,6 +253,7 @@ async fn main() {
         let _ = app.engine_run(true);
     }
     state::spawn_loops(app.clone());
+    music::init(app.clone());
 
     let addr: std::net::SocketAddr = match format!("[{}]:{}", a.bind, a.port).parse().or_else(|_| format!("{}:{}", a.bind, a.port).parse()) {
         Ok(x) => x,

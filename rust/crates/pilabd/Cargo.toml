@@ -18,6 +18,8 @@ path = "src/bin/pilabctl.rs"
 [dependencies]
 pilab-synth.workspace = true
 pilab-core.workspace = true
+pilab-music.workspace = true
+zpod-mpd.workspace = true
 zpod-midi.workspace = true
 zpod-music-core.workspace = true
 serde.workspace = true

@@ -12,6 +12,14 @@ The workspace version is the Trillium Console / pilabd version advertised on the
 - **Record**: one big start/stop with the take time, where takes go, and the recordings list.
 - **Settings > Pair another device**: one-time pairing code with QR and countdown (`POST /api/v1/pair/code`).
 
+### Music
+
+- New **Music** page (one nav entry, between Listen and Record): albums grid with cover art, artists, songs, playlists, a Recordings tab (takes on this unit, kept apart from published music) and a Radio tab; search; album, artist and playlist pages; now-playing bar with transport, seek and volume; queue drawer; library sources with Scan now. iPad-sized touch targets. See `docs/music.md`.
+- Library index in a new crate, `pilab-music`: folder and M3U sources, SQLite + FTS5 index, incremental scan (tags read only for new or changed files), MusicBrainz ids, folder and file-name fallbacks, folder or embedded cover art with cached thumbnails. Schema already holds the empty tables for later editing, merging and duplicate handling.
+- Playback in MPD as a separate process (`pilab-mpd.service`, private socket, PipeWire output to the DAC), driven by pilabd with the `zpod-mpd` client. Player volume starts at 40% and is capped at 80%; the DAC level and synth master are unchanged. Formats other than 48 kHz are resampled by PipeWire (shown in the bar).
+- API: `/api/v1/music/...` (status, sources, scan, albums, artists, tracks, search, takes, streams, art, playlists, play, queue, control). CLI: `trillium-base music ...`.
+- Demo content fetched on install: three CC0 albums from the Internet Archive (credits in `library/ATTRIBUTION.md`, id `music-demo`) and four radio links. Tests: `cargo test -p pilab-music`, `scripts/music-smoke.py`.
+
 ### MIDI router
 
 - Any input (USB/Bluetooth MIDI, Trillium Zero, console, Zero motion out) to any destination (built-in synth, FluidSynth, ZynAddSubFX, any MIDI output port) with channel filter and remap, key-range splits, merges, message-type filters and transpose; per-device profiles; a live monitor with CSV export. Saved in `~/.config/pilab/midi-router.json`; console (Devices), API and `trillium-base midi ...`. See `docs/midi-router.md`.
