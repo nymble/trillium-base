@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Fetch the Adventure Kid Waveforms (AKWF, CC0 1.0) single-cycle library for the pilab
 # synth's wavetable oscillator. The library is never committed to this repo.

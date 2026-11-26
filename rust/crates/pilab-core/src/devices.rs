@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Known MIDI controllers ("device classes"), matched by USB id, ALSA/USB product name or
 //! BlueZ alias, and which of their ports may reach the synth.

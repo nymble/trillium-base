@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "pilab-core"
 description = "Scenes, sound slots, MIDI routing maps and settings for Trillium Base and Trillium Console (serde models, validation, storage)"

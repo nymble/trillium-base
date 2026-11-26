@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 #
 # Trillium Base CPU isolation: reserve one core (default CPU 3) for the audio thread.

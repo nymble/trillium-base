@@ -1,4 +1,4 @@
-<!-- Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
+<!-- Copyright (C) 2026 Paul Lambert. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # Console preview
 
 Look at the Trillium Console, and check it for accessibility, without a device attached.

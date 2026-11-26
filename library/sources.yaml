@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Acknowledged sources for pilab libraries (sounds, waveforms, datasets, books, music).
 #
 # Every byte that pilab ships, fetches, or indexes from a third party must trace

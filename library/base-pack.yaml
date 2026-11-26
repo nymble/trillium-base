@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Base image library: what ships inside every pilab image.
 # Hard budget: 256 MiB (unpacked). The image build fails if the built
 # /usr/share/pilab/library tree is larger than budget_mib.

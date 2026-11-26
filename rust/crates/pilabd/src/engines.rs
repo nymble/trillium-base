@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! External sound engines (FluidSynth, ZynAddSubFX) run as user services that pilabd starts
 //! and stops. Their MIDI comes from the MIDI router and their audio goes into

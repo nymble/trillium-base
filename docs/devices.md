@@ -1,4 +1,4 @@
-<!-- Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
+<!-- Copyright (C) 2026 Paul Lambert. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # Devices and the audio input strip
 
 The console's **Devices** view (`#devices`) shows what is plugged in, the audio

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! MIDI router: any-to-any routes between MIDI sources (USB MIDI devices, the Trillium Zero,
 //! the console, Zero motion CCs) and destinations (the active scene, the built-in synth,

@@ -1,5 +1,9 @@
-Copyright (C) 2026 M-of-N
-SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+Copyright (C) 2026 Paul Lambert
+SPDX-License-Identifier: GPL-3.0-only
+
+This patch modifies Cabbage (https://cabbageaudio.com), which is licensed GPL-3.0-only.
+The patch is a derivative of that code and is distributed under the same licence as the
+code it modifies: GPL-3.0-only. It is not offered under a commercial licence. See NOTICE.md.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 2eb1253..7c5b00e 100644

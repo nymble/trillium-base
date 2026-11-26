@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Turn the TSV from collect-dpkg.sh into a CycloneDX 1.5 JSON SBOM (and optionally a
 license summary). Usage: dpkg2cdx.py packages.tsv out.cdx.json NAME VERSION [extra.json]"""

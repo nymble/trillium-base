@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Sample banks installed by scripts/fetch-samples.sh: the index, and an instrument cache
 //! (banks stay in RAM once loaded; the Pi has plenty).

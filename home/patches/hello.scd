@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 // First patch: short FM chord through the DAC (expects scsynth already running on UDP 57110)
 s = Server.remote(\lab, NetAddr("127.0.0.1", 57110));

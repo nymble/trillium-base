@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Read-only capture of a Trillium Base's kernel, boot and real-time tuning.
 # Run from a machine that can `ssh lab@pilab.local`:

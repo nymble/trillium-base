@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Install the pilab base-pack sample banks onto a device (never into git).
 

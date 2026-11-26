@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 #
 # Generate the software bill of materials for Trillium Base and scan it for known

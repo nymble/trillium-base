@@ -1,4 +1,4 @@
-<!-- Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
+<!-- Copyright (C) 2026 Paul Lambert. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # Gesture-to-sound latency
 
 Measured on the lab Pi 5 (PREEMPT_RT, PipeWire 1.4.2 at 48 kHz, pilabd on isolated CPU 3, built-in / Katana DAC at 0.70, master −18 dB, Trillium Zero firmware 0.8.0) on 24 November 2026, America/Los_Angeles. Tap percussion stayed off (parameter 11 = 0). Deployed build: `880d841` (6:09 PM PT).

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 // Mock of the pilabd console server for visual review: the web directory plus replayed API
 // snapshots (see snapshot-api.sh). Writes are accepted and ignored.

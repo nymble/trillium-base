@@ -1,4 +1,5 @@
-// Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
+// Copyright (C) 2026 Paul Lambert
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 // Trillium Console web UI. Vanilla JS, no build step; served from the pilabd binary.
 "use strict";
 
@@ -1652,7 +1653,7 @@ async function renderSettingsBase() {
         <a href="https://github.com/nymble/trillium-base/releases" target="_blank" rel="noopener noreferrer">Releases</a>
         <a href="mailto:support@m-of-n.com">Support</a>
       </div>
-      <div class="muted small" style="margin-top:12px">Copyright (C) 2026 M-of-N. Trillium, Trillium Base, Trillium Console, Trillium Synth, Ambient Lab and the Rhodonea mark are trademarks of M-of-N. The licences cover the code, not the names and marks.</div>
+      <div class="muted small" style="margin-top:12px">Copyright (C) 2026 Paul Lambert. Trillium, Trillium Base, Trillium Console, Trillium Synth, Ambient Lab and the Rhodonea mark are trademarks of the copyright holder (see NOTICE.md). The licences cover the code, not the names and marks.</div>
     </div>
     <div class="card">
       <div class="card-head"><h3>API reference</h3><span class="spacer"></span><span class="muted small mono">GET /api/v1/endpoints</span></div>
