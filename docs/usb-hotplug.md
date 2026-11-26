@@ -15,8 +15,8 @@ synth's MIDI inputs automatically.
 | Default output | Stays the DAC. `~/.config/wireplumber/wireplumber.conf.d/51-pilab-dac.conf` (written by `scripts/install-dac-pin.sh` from the `audio.dac_sink` setting) gives the DAC, matched by node **name** (not card number), session and driver priority 3000; USB devices get about 1000. |
 | Synth output | Never moves. pilabd links the synth's outputs to the configured port names (`audio.output_ports`). If the DAC node disappears and comes back (WirePlumber restart, replug), pilabd re-links it by name within about 2 s and logs "DAC reappeared". |
 | Synth clock | The DAC drives the synth's graph. When graphs join (the console's meters tap a USB device, or music plays on DAC and USB together), the DAC stays the driver and the USB device follows, resampled by PipeWire. |
-| Input strip | Connects only the configured source (`input.source`, a glob). A new microphone or interface input is not used until you pick it on the Devices page. |
-| Music player | Keeps playing where it was going (the DAC by default). The new output appears in the Music page's output picker and the CLI's `trillium-base music outputs`, with an event "audio output added: …". |
+| Input strip | Connects only the configured source (`input.source`, a glob). A new microphone or interface input is not used until you pick it as the input source in the console. |
+| Music player | Keeps playing where it was going (the DAC by default). The new output appears in the Music page's output picker and the CLI's `trillium-base music outputs`, with an event "audio device added: Scarlett 2i2 USB: 1 output(s) (FL FR), 2 input(s). Not used until you pick it". |
 | Not picked up | If the kernel has a USB card that PipeWire has not set up after about 10 s, pilabd logs a warning and the output picker shows it. Fix: replug, or `systemctl --user restart wireplumber` (the synth re-links by itself). |
 
 Seen on a Pi with a WirePlumber that had been up for five days: a Scarlett 2i2 plugged in
@@ -40,4 +40,4 @@ to connect controllers by hand on the MIDI page. Bluetooth MIDI works the same w
   1-2", and two mono sources (Mic1, Mic2). Runs at the graph's 48 kHz.
 - No MIDI ports.
 - Use: a second music output (Music page → output picker), or an input for recording
-  (Devices page → input source). It never takes over the synth on its own.
+  (the console's input source). It never takes over the synth on its own.
