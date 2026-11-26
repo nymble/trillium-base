@@ -73,11 +73,17 @@ after pilabd starts, and re-runs when the recordings folder changes.
   or below **80%** (`DEFAULT_VOLUME`, `MAX_VOLUME` in `music.rs`); a higher request is capped
   and reported. ReplayGain and normalisation are off.
 - Bit-perfect, honestly: the PipeWire graph stays at 48 kHz and quantum 64 for the synth.
-  A 48 kHz source at 100% player volume reaches PipeWire unchanged; other rates (44.1, 96 kHz)
-  are resampled by PipeWire, and any volume below 100% scales samples. The status line shows
-  the path (`44.1 kHz 16-bit → 48 kHz`). A bit-perfect mode (rate follows the source while
-  the synth is idle, volume fixed at 100%, level set on the DAC) is a later step.
-- The player runs with `CPUAffinity=0-2` and `Nice=5`; nothing of it runs on CPU 3.
+  MPD's output is fixed at 48 kHz float and kept open (`always_on`): a 48 kHz source at 100%
+  player volume reaches PipeWire unchanged (float holds 16/24-bit samples exactly); other
+  rates (44.1, 96 kHz) are resampled inside MPD by soxr ("very high"), outside the real-time
+  graph, and any volume below 100% scales samples. The status line shows the path
+  (`44100:16:2 → resampled to 48 kHz by the player`). A bit-perfect mode (rate follows the
+  source while the synth is idle, volume fixed at 100%, level set on the DAC) is a later step.
+- Keeping the synth clean: MPD runs with `CPUAffinity=0-1` (off the synth's CPU 3 and the
+  PipeWire driver's usual CPU 2), `Nice=10`, idle I/O, and its PipeWire node is `node.async`
+  so the graph never waits on it. Measured on the Pi 5 (quantum 64): with the first config
+  (output reopened per rate, CPUs 0-2) about one synth xrun per play/stop/format change;
+  with this one about 1 in 16 transitions and none in steady playback, streams included.
 
 ## Console
 

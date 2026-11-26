@@ -144,6 +144,10 @@ fn out(r: Result<String, String>) {
 }
 
 fn main() {
+    // Exit quietly when piped into head and the like, instead of panicking on EPIPE.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     match a.as_slice() {

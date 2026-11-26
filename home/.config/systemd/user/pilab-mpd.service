@@ -1,8 +1,10 @@
 # Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Trillium Base player: MPD as a separate process for the console's Music page.
-# Installed and enabled by scripts/install-music.sh. Control threads stay off CPU 3 (the
-# synth's isolated core) and run at a lower priority than pilabd.
+# Installed and enabled by scripts/install-music.sh. MPD stays off CPU 3 (the synth's
+# isolated core) and off CPU 2, where the PipeWire driver usually runs; decoding runs at a
+# low priority with idle I/O, and its PipeWire node is async so the graph never waits on it.
+# Measured on the Pi: start/stop/format-change xruns went from ~1 per transition to ~1 in 16.
 [Unit]
 Description=Trillium Base player (MPD)
 After=pipewire.service wireplumber.service
@@ -12,8 +14,10 @@ Wants=pipewire.service wireplumber.service
 Type=simple
 ExecStartPre=/bin/mkdir -p %h/.local/state/pilab/mpd
 ExecStart=/usr/bin/mpd --no-daemon --stderr %h/.config/pilab/mpd.conf
-CPUAffinity=0-2
-Nice=5
+CPUAffinity=0-1
+Nice=10
+IOSchedulingClass=idle
+Environment="PIPEWIRE_PROPS={ node.async = true }"
 Restart=on-failure
 RestartSec=3
 

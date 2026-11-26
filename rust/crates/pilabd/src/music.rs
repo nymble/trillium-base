@@ -27,7 +27,7 @@ use crate::state::App;
 
 pub const DEFAULT_VOLUME: u8 = 40;
 pub const MAX_VOLUME: u8 = 80;
-/// The PipeWire graph rate the synth runs at; other rates are resampled by PipeWire.
+/// The PipeWire graph rate the synth runs at; other rates are resampled by MPD (soxr) to it.
 pub const GRAPH_RATE: u32 = 48_000;
 
 pub const ENDPOINTS: &[(&str, &str, &str)] = &[
@@ -383,11 +383,11 @@ fn player_json(m: &Music) -> Value {
             let path = if rate == 0 {
                 String::new()
             } else if rate == GRAPH_RATE && vol == 100 {
-                format!("{} → PipeWire {} kHz (unchanged)", audio, GRAPH_RATE / 1000)
+                format!("{} → PipeWire {} kHz float (unchanged)", audio, GRAPH_RATE / 1000)
             } else if rate == GRAPH_RATE {
-                format!("{} → PipeWire {} kHz (player volume {vol}%)", audio, GRAPH_RATE / 1000)
+                format!("{} → PipeWire {} kHz float (player volume {vol}%)", audio, GRAPH_RATE / 1000)
             } else {
-                format!("{} → resampled to {} kHz by PipeWire (the synth's rate)", audio, GRAPH_RATE / 1000)
+                format!("{} → resampled to {} kHz by the player (soxr), the synth's rate", audio, GRAPH_RATE / 1000)
             };
             json!({
                 "connected": true, "version": version, "state": s.state, "volume": vol,

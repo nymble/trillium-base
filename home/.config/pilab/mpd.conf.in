@@ -24,10 +24,20 @@ input {
 
 # The default PipeWire sink (the DAC), beside the synth. The DAC level (0.70) and the synth
 # master are not touched; volume is MPD's own (software), so a fresh start is never loud and
-# pilabd holds it at or below its cap. At 100% and a 48 kHz source nothing is changed on the
-# way to PipeWire; other rates are resampled by PipeWire to the synth's 48 kHz graph.
+# pilabd holds it at or below its cap.
+# The output is fixed at the synth graph's format (48 kHz float) and kept open: a stream that
+# reopens at every rate change, or joins and leaves the graph, cost the synth xruns on the Pi.
+# A 48 kHz source at 100% is carried unchanged (float holds 16/24-bit samples exactly); other
+# rates are resampled here by soxr, not in the real-time graph.
 audio_output {
     type        "pipewire"
     name        "Trillium Base player"
     mixer_type  "software"
+    format      "48000:f:2"
+    always_on   "yes"
+}
+
+resampler {
+    plugin  "soxr"
+    quality "very high"
 }
