@@ -76,6 +76,7 @@ rm -f "$TMP"
 
 # Music page: MPD as a separate player process, its config and the demo albums.
 sh "$REPO/scripts/install-music.sh"
+sh "$REPO/scripts/install-dac-pin.sh"
 
 systemctl --user daemon-reload
 systemctl --user enable pilabd.service >/dev/null 2>&1

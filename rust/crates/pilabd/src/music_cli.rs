@@ -239,7 +239,7 @@ pub fn run(args: &[&str], http: Http) {
             let mut pick = vec![];
             for n in names {
                 let l = n.to_lowercase();
-                let hit = list.iter().find(|x| s(x, "name") == *n).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().starts_with(&l))).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().contains(&l)));
+                let hit = list.iter().find(|x| s(x, "name") == *n || (*n == "dac" && s(x, "kind") == "dac")).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().starts_with(&l))).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().contains(&l)));
                 match hit {
                     Some(x) => pick.push(s(x, "name").to_string()),
                     None => die(format!("no output matches {n:?} (see: trillium-base music outputs)")),

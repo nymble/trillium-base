@@ -408,6 +408,8 @@ pub fn init(app: Arc<App>) {
             let mut devices: BTreeMap<String, String> = BTreeMap::new();
             let mut sinks: BTreeMap<String, String> = BTreeMap::new();
             let mut cards_seen: BTreeSet<u32> = BTreeSet::new();
+            let mut pending: Vec<String> = vec![];
+            let mut ever: BTreeSet<String> = BTreeSet::new();
             let mut tick = 0u64;
             loop {
                 let g = o.apply();
@@ -424,15 +426,23 @@ pub fn init(app: Arc<App>) {
                     o.app.event("warn", format!("DAC sink {dac} is gone from PipeWire"));
                 }
                 dac_id = now_dac;
-                // Hardware added or removed (reported, never used automatically).
+                // Hardware added or removed (reported, never used automatically). A new device
+                // is reported one loop later, once its outputs and inputs exist.
                 let devs: BTreeMap<String, String> = g.devices.iter().map(|d| (d.name.clone(), d.label.clone())).collect();
                 let snk: BTreeMap<String, String> = g.sinks.iter().map(|s| (s.name.clone(), s.label.clone())).collect();
                 if !first {
-                    for (n, l) in &devs {
+                    for n in std::mem::take(&mut pending) {
+                        let Some(l) = devs.get(&n) else { continue };
+                        let key = n.trim_start_matches("alsa_card.").to_string();
+                        let outs: Vec<String> = g.sinks.iter().filter(|s| s.name.contains(&key)).map(|s| format!("{} ({} ch)", s.label, s.channels.len())).collect();
+                        let ins = g.sources.iter().filter(|s| s.0.contains(&key)).count();
+                        let again = if ever.contains(&n) { "back" } else { "added" };
+                        ever.insert(n.clone());
+                        o.app.event("info", format!("audio device {again}: {l}: {} output(s){}, {ins} input(s). Not used until you pick it (Music output, Settings input)", outs.len(), if outs.is_empty() { String::new() } else { format!(" [{}]", outs.join(", ")) }));
+                    }
+                    for n in devs.keys() {
                         if !devices.contains_key(n) {
-                            let outs = g.sinks.iter().filter(|s| s.name.contains(n.trim_start_matches("alsa_card."))).count();
-                            let ins = g.sources.iter().filter(|s| s.0.contains(n.trim_start_matches("alsa_card."))).count();
-                            o.app.event("info", format!("audio device added: {l} ({outs} output, {ins} input). Not used until you pick it (Music output, Settings input)"));
+                            pending.push(n.clone());
                         }
                     }
                     for (n, l) in &devices {
@@ -445,6 +455,8 @@ pub fn init(app: Arc<App>) {
                             o.app.event("info", format!("AirPlay speaker found: {l}"));
                         }
                     }
+                } else {
+                    ever.extend(devs.keys().cloned());
                 }
                 devices = devs;
                 sinks = snk;
