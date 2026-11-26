@@ -175,7 +175,12 @@ pub fn parse(v: &Value, dac: &str) -> Graph {
                 channels: ins.iter().map(|x| x.1.clone()).collect(),
                 ports: ins,
                 state: o["info"]["state"].as_str().unwrap_or("").to_string(),
-                card: s(p, "api.alsa.card").parse().ok(),
+                // UCM sinks carry the card number on their device, not on the node.
+                card: s(p, "api.alsa.card")
+                    .parse()
+                    .ok()
+                    .or_else(|| s(p, "alsa.card").parse().ok())
+                    .or_else(|| s(p, "device.id").parse::<u32>().ok().and_then(|d| g.devices.iter().find(|x| x.id == d).and_then(|x| x.card))),
                 label,
                 name,
             });
@@ -497,7 +502,7 @@ mod tests {
     fn dump_fixture() -> Value {
         json!([
             {"id": 96, "type": "PipeWire:Interface:Node", "info": {"state": "running", "props": {"media.class": "Audio/Sink", "node.name": DAC, "node.description": "Built-in Audio Stereo", "device.api": "alsa", "alsa.card_name": "Allo Katana", "api.alsa.card": "3"}}},
-            {"id": 200, "type": "PipeWire:Interface:Node", "info": {"state": "suspended", "props": {"media.class": "Audio/Sink", "node.name": "alsa_output.usb-Focusrite_Scarlett_2i2_USB-00.analog-stereo", "node.description": "Scarlett 2i2 USB Analog Stereo", "device.api": "alsa", "alsa.card_name": "Scarlett 2i2 USB", "api.alsa.card": 5}}},
+            {"id": 200, "type": "PipeWire:Interface:Node", "info": {"state": "suspended", "props": {"media.class": "Audio/Sink", "node.name": "alsa_output.usb-Focusrite_Scarlett_2i2_USB-00.analog-stereo", "node.description": "Scarlett 2i2 USB Analog Stereo", "device.api": "alsa", "alsa.card_name": "Scarlett 2i2 USB", "device.id": 70}}},
             {"id": 300, "type": "PipeWire:Interface:Node", "info": {"state": "suspended", "props": {"media.class": "Audio/Sink", "node.name": "raop_sink.Kitchen.local", "node.description": "Kitchen"}}},
             {"id": 165, "type": "PipeWire:Interface:Node", "info": {"state": "running", "props": {"media.class": "Stream/Output/Audio", "node.name": "mpd.Trillium Base player"}}},
             {"id": 50, "type": "PipeWire:Interface:Port", "info": {"direction": "output", "props": {"node.id": 165, "audio.channel": "FL", "port.name": "output_FL"}}},
@@ -525,6 +530,7 @@ mod tests {
         assert_eq!(g.sinks[0].label, "Allo Katana");
         assert_eq!(g.sinks[0].channels, vec!["FL", "FR"]); // sorted, monitor port dropped
         assert_eq!(g.sinks[0].card, Some(3));
+        assert_eq!(g.sinks.iter().find(|s| s.kind == "usb").unwrap().card, Some(5), "card found through the sink's device");
         assert!(g.sinks.iter().any(|s| s.kind == "usb" && s.label == "Scarlett 2i2 USB"));
         assert!(g.sinks.iter().any(|s| s.kind == "airplay" && s.label == "Kitchen"));
         assert_eq!(g.players.len(), 1);

@@ -53,9 +53,39 @@ Grouping and fallbacks:
   `Artist - Album` folder name.
 - MusicBrainz ids (recording, track, release, release group, artist) are read and stored.
 - Cover art: `cover|folder|front|album|albumart|0cover.jpg|png` in the album folder (or the
-  only image there), else the first embedded picture. Thumbnails: 300 and 600 px square JPEGs
+  only image there), else the same in a `Covers/`, `Scans/`, `Artwork/`, `Art/` or `Images/`
+  subfolder (where `1.jpg` / `01.jpg` counts as the front), else the first embedded picture. Thumbnails: 300 and 600 px square JPEGs
   in `~/.cache/pilab/music-art`.
 - Search: FTS5, prefix match per word, accents ignored (`beyon` finds Beyoncé).
+
+### The index in plain terms
+
+- **Holding**: one file on disk. Path, size, modification time, codec, sample rate, bit
+  depth, channels, bitrate, duration, every tag as read (JSON), and which source it came
+  from. Rows are reused between scans, so ids stay put.
+- **Track**: what you play. Title, disc and track number, duration, genre, year, and the
+  MusicBrainz recording and track ids and ISRC when the file's tags carry them.
+- **Release** (album): title, album artist, year, genre, MusicBrainz release and release
+  group ids (from tags), the folder, the format (MP3, FLAC …), number of tracks, total
+  length, the cover art key and where the art came from (`folder` or `embedded`), and when
+  it was first added. Multi-disc folders with the same release id or album + album artist
+  become one release.
+- **Artist**: name, sort name, MusicBrainz artist id (from tags).
+- **Take**: a recording made on this unit (its `record.toml` card: scene, session, rights,
+  role). Recordings never mix with releases.
+- **Stream**, **playlist**, **play event** (what played and when), and the empty tables
+  for later library work (edits, merges, duplicate candidates and decisions).
+
+What the import adds beyond the file's own tags: the source and collection, the size and
+time stamp used to skip unchanged files, the stable ids, the "added" date, the art source
+and thumbnails, and the search index. Nothing is written back into the files, and nothing
+is looked up online.
+
+Possible next annotations (proposals, not built): per-field provenance (tag, folder name or
+file name), an import batch id and date per source, user ratings, notes and "loved", the
+file's sha256 for duplicate checks (the column exists), ReplayGain values read from tags
+(for display only; playback stays unprocessed), and MusicBrainz ids used only as they come
+in the tags (for grouping and future links), with no audio fingerprint service.
 
 The scan runs on a background thread at nice 15 on CPUs 0-2 (pilabd's affinity; CPU 3 is
 the synth's), holds while a recording is running, writes in short transactions, starts 15 s
