@@ -109,3 +109,9 @@
   .mu-head-r { width: 100%; }
   .mu-head-r .mu-search { flex: 1; }
 }
+
+/* SVG icons in place of text glyphs (iOS draws some as emoji; some fonts lack them). */
+.mu-tile-play { display: grid; place-items: center; padding: 0; }
+.mu-tile-play svg { width: 18px; height: 18px; }
+.mu-actions .btn svg { width: 15px; height: 15px; margin-right: 6px; flex: none; }
+.mu-more svg { width: 20px; height: 20px; }

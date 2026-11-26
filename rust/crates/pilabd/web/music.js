@@ -29,6 +29,7 @@ const MU_ICON = {
   shuffle: '<path d="M3 7h3.5c2.5 0 3.9 1.3 5.5 5s3 5 5.5 5H21"/><path d="M3 17h3.5c1.4 0 2.4-.4 3.3-1.3"/><path d="M14.2 8.3C15 7.4 16 7 17.5 7H21"/><path d="m18 4 3 3-3 3"/><path d="m18 14 3 3-3 3"/>',
   repeat: '<path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 11.5V10a4 4 0 0 1 4-4h13"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 12.5V14a4 4 0 0 1-4 4h-13"/>',
   queue: '<path d="M4 6h12M4 12h12M4 18h8"/><path d="m16 15 5 3-5 3z" fill="currentColor"/>',
+  phones: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.5"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.5"/>',
   vol: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>',
 };
 const muIcon = (n) => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MU_ICON[n]}</svg>`;
@@ -177,7 +178,7 @@ function muBindBack(el) { $$("[data-back]", el).forEach((b) => b.onclick = () =>
 
 function muAlbumTile(a) {
   return `<div class="mu-tile" data-album="${a.id}" tabindex="0" role="button" aria-label="${esc(a.title)} by ${esc(a.artist)}">
-    <div class="mu-cover">${muArt(a.art, a.title)}<button class="mu-tile-play" data-play-album="${a.id}" aria-label="Play ${esc(a.title)}" title="Play">▶</button></div>
+    <div class="mu-cover">${muArt(a.art, a.title)}<button class="mu-tile-play" data-play-album="${a.id}" aria-label="Play ${esc(a.title)}" title="Play">${muIcon("play")}</button></div>
     <div class="mu-t1">${esc(a.title)}</div><div class="mu-t2">${esc(a.artist)}${a.year ? ` · ${a.year}` : ""}</div></div>`;
 }
 function muBindTiles(el) {
@@ -224,7 +225,7 @@ async function muAlbum(el, id) {
         <button class="mu-link" data-artist="${a.artist_id}">${esc(a.artist)}</button>
         <div class="muted small">${[a.genre, a.year || "", `${a.tracks} songs, ${muTotal(a.duration)}`].filter(Boolean).map(esc).join(" · ")}</div>
         ${a.format ? `<div><span class="badge" title="As stored; PipeWire plays at 48 kHz">${esc(a.format)}</span>${a.mbid ? ` <span class="badge" title="MusicBrainz release ${esc(a.mbid)}">MusicBrainz</span>` : ""}</div>` : ""}
-        <div class="mu-actions"><button class="btn primary" id="mu-a-play">▶ Play</button><button class="btn ghost" id="mu-a-shuf">Shuffle</button><button class="btn ghost" id="mu-a-next">Play next</button><button class="btn ghost" id="mu-a-q">Add to queue</button><button class="btn ghost" id="mu-a-pl">Add to playlist</button></div>
+        <div class="mu-actions"><button class="btn primary" id="mu-a-play">${muIcon("play")}<span>Play</span></button><button class="btn ghost" id="mu-a-shuf">Shuffle</button><button class="btn ghost" id="mu-a-next">Play next</button><button class="btn ghost" id="mu-a-q">Add to queue</button><button class="btn ghost" id="mu-a-pl">Add to playlist</button></div>
       </div></div>
     <div class="mu-list">${muTrackRows(r.tracks, { albumArtist: a.artist })}</div>`;
   muBindBack(el);
@@ -249,7 +250,7 @@ async function muArtist(el, id) {
   const a = r.artist;
   el.innerHTML = `${muBack("Artists")}
     <div class="mu-hero">${muArt(a.art, a.name, "lg round")}<div class="mu-hero-txt"><h2>${esc(a.name)}</h2><div class="muted small">${r.albums.length} albums · ${a.tracks} songs</div>
-      <div class="mu-actions"><button class="btn primary" id="mu-ar-play">▶ Play</button><button class="btn ghost" id="mu-ar-shuf">Shuffle</button></div></div></div>
+      <div class="mu-actions"><button class="btn primary" id="mu-ar-play">${muIcon("play")}<span>Play</span></button><button class="btn ghost" id="mu-ar-shuf">Shuffle</button></div></div></div>
     <h3 class="mu-h">Albums</h3><div class="mu-grid">${r.albums.map(muAlbumTile).join("")}</div>
     ${r.tracks.length ? `<h3 class="mu-h">Appears on</h3><div class="mu-list">${muTrackRows(r.tracks, { art: true })}</div>` : ""}`;
   muBindBack(el);
@@ -273,7 +274,7 @@ async function muPlaylists(el) {
   const r = await get("/music/playlists");
   if (MU.tab !== "playlists" || MU.detail || MU.q) return;
   el.innerHTML = `<div class="mu-bar-top"><button class="btn primary" id="mu-pl-new">New playlist</button><span class="muted small">${r.playlists.length} playlists</span></div>
-    ${r.playlists.length ? `<div class="mu-grid">${r.playlists.map((p) => `<div class="mu-tile" data-pl="${p.id}" tabindex="0" role="button"><div class="mu-cover">${muArt(p.art, p.name)}<button class="mu-tile-play" data-play-pl="${p.id}" aria-label="Play ${esc(p.name)}">▶</button></div><div class="mu-t1">${esc(p.name)}</div><div class="mu-t2">${p.count} items${p.duration ? ` · ${muTotal(p.duration)}` : ""}</div></div>`).join("")}</div>`
+    ${r.playlists.length ? `<div class="mu-grid">${r.playlists.map((p) => `<div class="mu-tile" data-pl="${p.id}" tabindex="0" role="button"><div class="mu-cover">${muArt(p.art, p.name)}<button class="mu-tile-play" data-play-pl="${p.id}" aria-label="Play ${esc(p.name)}">${muIcon("play")}</button></div><div class="mu-t1">${esc(p.name)}</div><div class="mu-t2">${p.count} items${p.duration ? ` · ${muTotal(p.duration)}` : ""}</div></div>`).join("")}</div>`
       : `<div class="empty-state">No playlists yet. Make one here, or use “Add to playlist” on an album or song.</div>`}`;
   $("#mu-pl-new", el).onclick = async () => {
     const name = await askText("New playlist", "Name", "", "Create");
@@ -289,7 +290,7 @@ async function muPlaylist(el, id) {
   const p = r.playlist;
   el.innerHTML = `${muBack("Playlists")}
     <div class="mu-hero">${muArt(p.art, p.name, "lg")}<div class="mu-hero-txt"><h2>${esc(p.name)}</h2><div class="muted small">${p.count} items${p.duration ? ` · ${muTotal(p.duration)}` : ""}</div>
-      <div class="mu-actions"><button class="btn primary" id="mu-p-play" ${p.count ? "" : "disabled"}>▶ Play</button><button class="btn ghost" id="mu-p-shuf" ${p.count ? "" : "disabled"}>Shuffle</button><button class="btn ghost" id="mu-p-ren">Rename</button><button class="btn ghost" id="mu-p-del">Delete</button></div></div></div>
+      <div class="mu-actions"><button class="btn primary" id="mu-p-play" ${p.count ? "" : "disabled"}>${muIcon("play")}<span>Play</span></button><button class="btn ghost" id="mu-p-shuf" ${p.count ? "" : "disabled"}>Shuffle</button><button class="btn ghost" id="mu-p-ren">Rename</button><button class="btn ghost" id="mu-p-del">Delete</button></div></div></div>
     <div class="mu-list">${r.items.map((it, i) => `<div class="mu-row ${it.missing ? "missing" : ""}" data-i="${i}" tabindex="0" role="button">
         ${it.kind === "track" ? muArt(it.art, it.subtitle, "sm") : `<div class="mu-art sm mu-glyph" aria-hidden="true"><span>${it.kind === "take" ? "●" : "≋"}</span></div>`}
         <div class="grow"><div class="mu-t1">${esc(it.title || it.url || "")}</div><div class="mu-t2">${it.missing ? "missing from the library" : esc(it.subtitle)}</div></div>
@@ -316,7 +317,7 @@ async function muTakes(el) {
         <div class="mu-art sm mu-glyph" aria-hidden="true"><span>●</span></div>
         <div class="grow"><div class="mu-t1">${esc(t.title)}</div><div class="mu-t2">${esc([t.scene, t.source, t.sample_rate ? `${t.sample_rate / 1000} kHz` : "", t.filed ? "filed" : "on this unit"].filter(Boolean).join(" · "))}</div></div>
         <span class="mu-dur mono">${muTime(t.duration)}</span>
-        <button class="btn ghost mu-more" data-browser="${esc(t.id)}" title="Play in this browser" aria-label="Play ${esc(t.title)} in this browser">⧉</button>
+        <button class="btn ghost mu-more" data-browser="${esc(t.id)}" title="Play in this browser" aria-label="Play ${esc(t.title)} in this browser">${muIcon("phones")}</button>
         <button class="btn ghost mu-more" data-tmore="${esc(t.id)}" aria-label="More for ${esc(t.title)}">⋯</button></div>`).join("")}</div>`).join("") : `<div class="empty-state">No recordings yet. Use Record to make a take.</div>`}`;
   $$("[data-take]", el).forEach((row) => row.onclick = (e) => { if (e.target.closest("button")) return; muPlay({ kind: "take", id: row.dataset.take }, false); });
   $$("[data-browser]", el).forEach((b) => b.onclick = (e) => { e.stopPropagation(); playRecording(b.dataset.browser, $("#mu-take-player")); });
