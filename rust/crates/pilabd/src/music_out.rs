@@ -222,9 +222,12 @@ pub fn plan(g: &Graph, targets: &[String]) -> (Vec<(u32, u32)>, Vec<u32>) {
         }
     }
     let player_ports: BTreeSet<u32> = g.players.iter().flat_map(|p| p.2.iter().map(|x| x.0)).collect();
-    let have: BTreeSet<(u32, u32)> = g.links.iter().filter(|l| player_ports.contains(&l.out_port)).map(|l| (l.out_port, l.in_port)).collect();
+    // Only links into sinks are ours to manage (the console's meters also tap the player).
+    let sink_ports: BTreeSet<u32> = g.sinks.iter().flat_map(|s| s.ports.iter().map(|p| p.0)).collect();
+    let mine = |l: &&Link| player_ports.contains(&l.out_port) && sink_ports.contains(&l.in_port);
+    let have: BTreeSet<(u32, u32)> = g.links.iter().filter(mine).map(|l| (l.out_port, l.in_port)).collect();
     let add = want.difference(&have).cloned().collect();
-    let rm = g.links.iter().filter(|l| player_ports.contains(&l.out_port) && !want.contains(&(l.out_port, l.in_port))).map(|l| l.id).collect();
+    let rm = g.links.iter().filter(mine).filter(|l| !want.contains(&(l.out_port, l.in_port))).map(|l| l.id).collect();
     (add, rm)
 }
 
@@ -497,6 +500,7 @@ mod tests {
             {"id": 900, "type": "PipeWire:Interface:Link", "info": {"output-port-id": 50, "input-port-id": 11}},
             {"id": 901, "type": "PipeWire:Interface:Link", "info": {"output-port-id": 53, "input-port-id": 10}},
             {"id": 902, "type": "PipeWire:Interface:Link", "info": {"output-port-id": 7, "input-port-id": 11}},
+            {"id": 903, "type": "PipeWire:Interface:Link", "info": {"output-port-id": 50, "input-port-id": 777}},
             {"id": 70, "type": "PipeWire:Interface:Device", "info": {"props": {"media.class": "Audio/Device", "device.name": "alsa_card.usb-Focusrite_Scarlett_2i2_USB-00", "device.description": "Scarlett 2i2 USB", "device.api": "alsa", "device.bus": "usb", "api.alsa.card": "5"}}}
         ])
     }
@@ -525,7 +529,7 @@ mod tests {
         let t = effective(&g, &["alsa_output.usb-Focusrite_Scarlett_2i2_USB-00.analog-stereo".into()], DAC);
         let (add, rm) = plan(&g, &t);
         assert_eq!(add, vec![(50, 20), (53, 21)]);
-        assert_eq!(rm, vec![900, 901]);
+        assert_eq!(rm, vec![900, 901]); // the meter tap (903) stays
         // DAC + AirPlay at once.
         let t = effective(&g, &[DAC.into(), "raop_sink.Kitchen.local".into()], DAC);
         let (add, rm) = plan(&g, &t);

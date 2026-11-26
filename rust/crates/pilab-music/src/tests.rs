@@ -382,3 +382,21 @@ fn demo_albums_if_present() {
     assert!(rep.albums >= 3, "{rep:?}");
     assert!(ix.albums("artist").unwrap().iter().all(|a| !a.title.is_empty()));
 }
+
+#[test]
+fn two_disc_folders_without_album_artist_are_one_release() {
+    let t = Tmp::new("discs");
+    let m = t.0.join("music/Box Set");
+    for (d, names) in [("Disc 1", ["One", "Two"]), ("Disc 2", ["Three", "Four"])] {
+        for (i, n) in names.iter().enumerate() {
+            let p = m.join(d).join(format!("0{} {n}.wav", i + 1));
+            wav(&p, 44100, 0.2);
+            tag(&p, n, "Brian Eno", "Box Set", i as u32 + 1, &[], None);
+        }
+    }
+    let ix = Index::open_memory().unwrap();
+    let srcs = vec![folder_src("music", &t.0.join("music"), "music")];
+    let rep = scan::scan(&ix, &srcs, &ArtCache::new(t.0.join("art")), &ScanCtl::default()).unwrap();
+    assert_eq!(rep.albums, 1);
+    assert_eq!(rep.tracks, 4);
+}

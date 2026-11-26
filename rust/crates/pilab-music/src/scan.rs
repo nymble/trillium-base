@@ -356,23 +356,44 @@ fn rebuild(ix: &Index, sources: &[SourceCfg], cache: &ArtCache, ctl: &ScanCtl) -
         duration: f64,
         format: String,
     }
-    let mut rows = vec![];
-    for (_, r) in rels {
-        ctl.wait();
+    let rel_artist_of = |r: &Rel| -> String {
         let uniq: HashSet<&String> = r.artists.iter().collect();
-        let rel_artist = if !r.album_artist.is_empty() {
+        if !r.album_artist.is_empty() {
             r.album_artist.clone()
         } else if uniq.len() == 1 {
             r.artists[0].clone()
         } else {
             "Various Artists".into()
-        };
-        let aid = artist_id(&rel_artist, &r.mb_artist, &mut artists);
+        }
+    };
+    // Groups that end up with the same release id (same title and artist in two folders,
+    // e.g. "Disc 1" and "Disc 2" without an album-artist tag) are one release.
+    let mut merged: BTreeMap<i64, Rel> = BTreeMap::new();
+    for (_, r) in rels {
+        let ra = rel_artist_of(&r);
         let id = if r.mbid.is_empty() {
-            stable_id(&["release", &r.collection, &r.title.to_lowercase(), &rel_artist.to_lowercase()])
+            stable_id(&["release", &r.collection, &r.title.to_lowercase(), &ra.to_lowercase()])
         } else {
             stable_id(&["release-mb", &r.mbid])
         };
+        match merged.get_mut(&id) {
+            Some(m) => {
+                m.tracks.extend(r.tracks);
+                m.artists.extend(r.artists);
+                if m.album_artist.is_empty() {
+                    m.album_artist = r.album_artist;
+                }
+            }
+            None => {
+                merged.insert(id, r);
+            }
+        }
+    }
+    let mut rows = vec![];
+    for (id, r) in merged {
+        ctl.wait();
+        let rel_artist = rel_artist_of(&r);
+        let aid = artist_id(&rel_artist, &r.mb_artist, &mut artists);
         let year = r.tracks.iter().map(|&i| hs[i].meta.year as i64).filter(|y| *y > 0).min().unwrap_or(0);
         let mut gc: HashMap<&str, usize> = HashMap::new();
         for &i in &r.tracks {
