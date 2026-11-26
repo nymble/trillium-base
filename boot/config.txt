@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # For more options and information see
 # http://rptl.io/configtxt
 # Some settings may impact device functionality. See link above for details

@@ -14,12 +14,11 @@ precedence = "closest"
 SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert"
 SPDX-License-Identifier = "GPL-3.0-or-later OR LicenseRef-Commercial"
 
-# Real captures from a Raspberry Pi image or upstream installs (see NOTICE.md).
+# Unmodified captures from a Raspberry Pi image (see NOTICE.md).
 # Only these paths are LicenseRef-System-Snapshot; they are not first-party code.
 [[annotations]]
 path = [
   "packages/*", "kernel/configs/*", "kernel/snapshots/*", "boot/issue.txt",
-  "boot/config.txt", "etc/systemd/system/nqptp.service.installed",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (C) 2026 Paul Lambert"

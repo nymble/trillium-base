@@ -1,7 +1,6 @@
 System configuration snapshots
 
 Files marked LicenseRef-System-Snapshot are configuration captured from a Raspberry Pi
-image or an upstream install (packages/, kernel/configs/, kernel/snapshots/, boot/issue.txt,
-boot/config.txt, etc/systemd/system/nqptp.service.installed). Many of them derive from upstream package
+image (packages/, kernel/configs/, kernel/snapshots/, boot/issue.txt). Many of them derive from upstream package
 defaults or distribution files. The project asserts no licence for them beyond whatever
 licence the upstream source of each file provides.
