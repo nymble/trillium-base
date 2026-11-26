@@ -126,7 +126,8 @@
 .mu-out-group { margin: 6px 0 12px; }
 .mu-out-h { text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 4px; }
 .mu-out-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 10px; border-radius: var(--r-ctl, 10px); cursor: pointer; }
-.mu-out-row input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.mu-outs .mu-out-row input[type="checkbox"] { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); flex: none; }
+.mu-out-row .grow { min-width: 0; }
 .mu-out-row .mu-t1, .mu-out-row .mu-t2 { display: block; }
 .mu-out-row:has(input:checked) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .mu-out-hint { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; }
