@@ -332,6 +332,14 @@ impl Index {
         Ok(v)
     }
 
+    /// A take's file and the source it was found in (for moving it to the trash).
+    pub fn take_file(&self, id: &str) -> R<Option<(String, String)>> {
+        self.db
+            .query_row("SELECT h.path, h.source_id FROM take k JOIN holding h ON h.id = k.holding_id WHERE k.id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .map_err(e)
+    }
+
     pub fn take(&self, id: &str) -> R<Option<Take>> {
         self.db.query_row(&format!("{TAKE_SQL} WHERE k.id = ?1"), [id], take_row).optional().map_err(e)
     }

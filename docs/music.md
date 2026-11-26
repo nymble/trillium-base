@@ -67,8 +67,13 @@ after pilabd starts, and re-runs when the recordings folder changes.
   keeps no database of its own and listens only on `~/.local/state/pilab/mpd/socket`
   (`MPD_HOST` in `pilabd.service`). Debian's system and user `mpd` units are masked so no
   other MPD opens the DAC.
-- Output: the default PipeWire sink (the DAC) through MPD's PipeWire output. The DAC sink
-  level (0.70) and the synth master (−18 dB) are not touched.
+- Output: MPD's PipeWire stream is started with `node.autoconnect = false`, so WirePlumber
+  never links it. pilabd (`music_out.rs`) links it **by node name** to the outputs picked
+  on the Music page: the DAC by default, or a USB interface, AirPlay speakers (from the
+  AirPlay sender), or several at once. A picked output that is unplugged is skipped; if none
+  is left, music falls back to the DAC. Plugging in an interface never takes the music (or
+  the synth) over. The DAC sink level (0.70) and the synth master (−18 dB) are not touched.
+  See "Outputs" below.
 - Volume is MPD's software volume: a fresh player starts at **40%**, and pilabd holds it at
   or below **80%** (`DEFAULT_VOLUME`, `MAX_VOLUME` in `music.rs`); a higher request is capped
   and reported. ReplayGain and normalisation are off.
@@ -80,10 +85,42 @@ after pilabd starts, and re-runs when the recordings folder changes.
   (`44100:16:2 → resampled to 48 kHz by the player`). A bit-perfect mode (rate follows the
   source while the synth is idle, volume fixed at 100%, level set on the DAC) is a later step.
 - Keeping the synth clean: MPD runs with `CPUAffinity=0-1` (off the synth's CPU 3 and the
-  PipeWire driver's usual CPU 2), `Nice=10`, idle I/O, and its PipeWire node is `node.async`
-  so the graph never waits on it. Measured on the Pi 5 (quantum 64): with the first config
-  (output reopened per rate, CPUs 0-2) about one synth xrun per play/stop/format change;
-  with this one about 1 in 16 transitions and none in steady playback, streams included.
+  PipeWire driver's usual CPU 2), `Nice=10` and idle I/O. Measured on the Pi 5 (quantum 64):
+  with the first config (output reopened per rate, CPUs 0-2) about one synth xrun per
+  play/stop/format change; with the fixed 48 kHz output kept open, about 1 in 16 and none
+  in steady playback. `node.async` was tried (2026-11-25) and removed: after a night idle the
+  player's stream errored on every graph cycle, MPD reported "play" at 0:00 and nothing was
+  heard (2026-11-26).
+- Watchdog: if MPD reports "play" but the position has not moved for 8 s, pilabd reopens
+  the player output; after 20 s it restarts `pilab-mpd` and resumes at the same place (at
+  most once every 2 minutes). The Music page shows a note when this happens.
+
+## Outputs
+
+`GET /api/v1/music/outputs` lists every PipeWire sink with its kind (`dac`, `usb`,
+`airplay`, `bluetooth`, `hdmi`, `other`), channels, whether it is chosen, used (chosen and
+present) and active (linked now), the USB stream capabilities from
+`/proc/asound/cardN/stream0`, and any USB sound card the kernel has that PipeWire has not
+set up. `PUT {outputs:[node.name, ...]}` chooses (saved in
+`~/.config/pilab/music/outputs.json`; empty = the DAC; up to 4). The player bar shows the
+output chip ("Allo Katana · 2 ch"); tapping it opens the picker. CLI:
+`trillium-base music outputs`, `trillium-base music output dac|NAME..` (name, or the start
+of the label, e.g. `output scarlett kitchen`).
+
+Several outputs play the same stream. They are not sample-locked: a USB interface joins the
+DAC's graph as a resampled follower, and AirPlay adds about 2 s. Use one output for
+critical listening.
+
+## Deleting recordings
+
+Recordings → ⋯ → Move to Trash (confirm, then Undo in the toast). The take (its folder:
+WAV and `record.toml`) moves to `.trash/` inside the recordings folder it came from, a
+rename on the same disk. Recordings → Trash lists it with Restore; Empty Trash deletes for
+good and needs the word `delete` typed. Only sources in the Recordings collection qualify;
+anything in the Music collection is refused. CLI: `trillium-base music take rm ID`,
+`music trash`, `music trash restore ID`, `music trash empty --yes`. API:
+`DELETE /music/takes/{id}`, `GET /music/trash`, `POST /music/trash/{id}/restore`,
+`DELETE /music/trash/{id}` and `POST /music/trash/empty` (both `{confirm:"delete"}`).
 
 ## Console
 

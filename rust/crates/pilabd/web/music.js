@@ -29,6 +29,8 @@ const MU_ICON = {
   shuffle: '<path d="M3 7h3.5c2.5 0 3.9 1.3 5.5 5s3 5 5.5 5H21"/><path d="M3 17h3.5c1.4 0 2.4-.4 3.3-1.3"/><path d="M14.2 8.3C15 7.4 16 7 17.5 7H21"/><path d="m18 4 3 3-3 3"/><path d="m18 14 3 3-3 3"/>',
   repeat: '<path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 11.5V10a4 4 0 0 1 4-4h13"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 12.5V14a4 4 0 0 1-4 4h-13"/>',
   queue: '<path d="M4 6h12M4 12h12M4 18h8"/><path d="m16 15 5 3-5 3z" fill="currentColor"/>',
+  speaker: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><circle cx="12" cy="14.5" r="3.5"/><circle cx="12" cy="7" r="1.2" fill="currentColor"/>',
+  trash: '<path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
   phones: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.5"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.5"/>',
   vol: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>',
 };
@@ -122,6 +124,7 @@ function muMenu(ev, kind, id, title) {
     <button class="btn ghost" data-a="next">Play next</button>
     <button class="btn ghost" data-a="append">Add to queue</button>
     ${canList ? `<button class="btn ghost" data-a="pl">Add to playlist…</button>` : ""}
+    ${kind === "take" ? `<button class="btn ghost danger" data-a="trash">${muIcon("trash")}<span>Move to Trash…</span></button>` : ""}
     <button class="btn ghost" data-a="cancel">Cancel</button></div>`;
   document.body.appendChild(d);
   const close = () => { d.close(); d.remove(); };
@@ -130,7 +133,103 @@ function muMenu(ev, kind, id, title) {
     const a = b.dataset.a;
     if (a === "next" || a === "append") muPlay({ kind, id, mode: a });
     if (a === "pl") muAddToPlaylist([{ kind, id }]);
+    if (a === "trash") muTrashTake(id, title);
   });
+  d.addEventListener("cancel", close);
+  d.showModal();
+}
+
+// ------------------------------------------------------------------ recordings trash
+// A toast with one action (Undo). The app's toast has no buttons; this one sits above it.
+function muActionToast(msg, label, fn) {
+  let t = $("#mu-atoast");
+  if (!t) { t = document.createElement("div"); t.id = "mu-atoast"; t.className = "mu-atoast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.innerHTML = `<span>${esc(msg)}</span><button class="btn small">${esc(label)}</button>`;
+  t.classList.remove("hidden");
+  clearTimeout(MU.atoast);
+  const hide = () => t.classList.add("hidden");
+  $("button", t).onclick = () => { hide(); fn(); };
+  MU.atoast = setTimeout(hide, 9000);
+}
+async function muTrashTake(id, title) {
+  const ok = await ask("Move this recording to the Trash?", `<b>${esc(title)}</b> moves to the Trash in its recordings folder. You can restore it from Recordings → Trash until you empty the Trash. Published music is never deleted from here.`, "Move to Trash");
+  if (!ok) return;
+  try {
+    const r = await api("DELETE", `/music/takes/${encodeURIComponent(id)}`);
+    muActionToast(`“${title}” moved to the Trash`, "Undo", () => muRestore(r.trash.id, title));
+    setTimeout(muBody, 300);
+  } catch (e) { fail(e); }
+}
+async function muRestore(tid, title) {
+  try { await post(`/music/trash/${encodeURIComponent(tid)}/restore`, {}); toast(`Restored “${title}”`); setTimeout(muBody, 400); } catch (e) { fail(e); }
+}
+async function muTrashPanel(el) {
+  let r;
+  try { r = await get("/music/trash"); } catch (e) { return; }
+  const box = document.createElement("details");
+  box.className = "mu-trash";
+  box.open = !!MU.trashOpen;
+  const mb = (b) => `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB`;
+  box.innerHTML = `<summary>${muIcon("trash")}<span>Trash</span><span class="muted small">${r.items.length ? `${r.items.length} · ${mb(r.bytes)}` : "empty"}</span></summary>
+    ${r.items.length ? `<div class="mu-list">${r.items.map((e) => `<div class="mu-row" data-tid="${esc(e.id)}">
+      <div class="mu-art sm mu-glyph" aria-hidden="true"><span>●</span></div>
+      <div class="grow"><div class="mu-t1">${esc(e.title)}</div><div class="mu-t2">deleted ${esc(new Date(e.deleted_unix * 1000).toLocaleString())} · ${mb(e.bytes)}</div></div>
+      <button class="btn ghost small" data-restore="${esc(e.id)}">Restore</button></div>`).join("")}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn ghost small danger" id="mu-trash-empty">Empty Trash…</button></div>` : `<p class="muted small">Recordings you delete wait here and can be restored.</p>`}`;
+  el.appendChild(box);
+  box.addEventListener("toggle", () => { MU.trashOpen = box.open; });
+  $$("[data-restore]", box).forEach((b) => b.onclick = () => { const e = r.items.find((x) => x.id === b.dataset.restore); muRestore(e.id, e.title); });
+  const emp = $("#mu-trash-empty", box);
+  if (emp) emp.onclick = async () => {
+    const v = await dialog({ title: "Empty the Trash?", body: `<p>${r.items.length} recording(s), ${mb(r.bytes)}, will be deleted for good. This cannot be undone.</p><p class="muted small">Type <b>delete</b> to confirm.</p>`, typed: "delete", ok: "Delete for good" });
+    if (v === null) return;
+    try { const x = await post("/music/trash/empty", { confirm: "delete" }); toast(`Deleted ${x.deleted} for good`); muBody(); } catch (e) { fail(e); }
+  };
+}
+
+// ------------------------------------------------------------------ outputs
+const MU_KIND = { dac: "This unit", usb: "USB", airplay: "AirPlay", bluetooth: "Bluetooth", hdmi: "HDMI", other: "Other" };
+function muOutLabel(o) {
+  const used = ((o && o.outputs) || []).filter((x) => x.used);
+  if (!used.length) return "No output";
+  const ch = (x) => (x.channels || []).length;
+  if (used.length === 1) return `${used[0].label} · ${ch(used[0])} ch`;
+  return used.map((x) => x.label).join(" + ");
+}
+async function muOutputs() {
+  let o;
+  try { o = await get("/music/outputs"); } catch (e) { return fail(e); }
+  const d = document.createElement("dialog");
+  d.className = "dlg mu-sheet mu-outs";
+  const groups = {};
+  o.outputs.forEach((x) => (groups[x.kind] = groups[x.kind] || []).push(x));
+  const order = ["dac", "usb", "airplay", "bluetooth", "hdmi", "other"].filter((k) => groups[k]);
+  const caps = (c) => c && c.playback ? `${c.playback.channels || "?"} out${c.capture ? ` / ${c.capture.channels} in` : ""} · ${Math.min(...(c.playback.rates || [0])) / 1000}–${Math.max(...(c.playback.rates || [0])) / 1000} kHz · ${c.playback.bits || "?"}-bit` : "";
+  const row = (x) => `<label class="mu-out-row">
+      <input type="checkbox" value="${esc(x.name)}" ${x.used ? "checked" : ""}>
+      <span class="grow"><span class="mu-t1">${esc(x.label)}${x.kind === "dac" ? ' <span class="muted small">(default)</span>' : ""}</span>
+      <span class="mu-t2">${esc([(x.channels || []).join(" "), caps(x.caps), x.latency ? `delay ${x.latency}` : "", x.active ? "playing now" : ""].filter(Boolean).join(" · "))}</span></span></label>`;
+  const airplay = groups.airplay ? "" : `<div class="mu-out-hint"><div class="muted small">AirPlay speakers appear here when the AirPlay sender is on (about 2 s delay; for listening, not playing live).</div><button class="btn ghost small" id="mu-ap-on">Find AirPlay speakers</button></div>`;
+  const un = (o.unclaimed_cards || []).map((c) => `<div class="mu-out-warn">Sound card ${c.card} (${esc(c.name)}) is attached but PipeWire has not set it up yet. Replug it, or restart audio devices.</div>`).join("");
+  const miss = (o.missing || []).length ? `<div class="mu-out-warn">Chosen but not connected: ${o.missing.map(esc).join(", ")}. Playing on ${esc(muOutLabel(o))} meanwhile.</div>` : "";
+  d.innerHTML = `<h3>Play music on</h3><div class="dlg-body">
+    ${order.map((k) => `<div class="mu-out-group"><div class="mu-out-h muted small">${MU_KIND[k]}</div>${groups[k].map(row).join("")}</div>`).join("")}
+    ${airplay}${un}${miss}
+    <p class="muted small">Only music moves. The synth always plays on the DAC; DAC level and master are unchanged. Pick several to play in more than one place.</p></div>
+    <div class="row" style="justify-content:space-between;margin-top:14px"><button class="btn ghost" data-x="dac">DAC only</button><span><button class="btn ghost" data-x="cancel">Cancel</button> <button class="btn primary" data-x="ok">Play here</button></span></div>`;
+  document.body.appendChild(d);
+  const close = () => { d.close(); d.remove(); };
+  const send = async (names) => {
+    try { const r = await api("PUT", "/music/outputs", { outputs: names }); close(); MU.st && (MU.st.outputs = r); muBar(); toast(`Music plays on ${muOutLabel(r)}`); } catch (e) { fail(e); }
+  };
+  $('[data-x="ok"]', d).onclick = () => { const v = $$("input[type=checkbox]", d).filter((c) => c.checked).map((c) => c.value); if (!v.length) return toast("Pick at least one output", true); send(v); };
+  $('[data-x="dac"]', d).onclick = () => send([]);
+  $('[data-x="cancel"]', d).onclick = close;
+  const ap = $("#mu-ap-on", d);
+  if (ap) ap.onclick = async () => {
+    if (!(await ask("Turn on the AirPlay sender?", "The unit looks for AirPlay speakers on this network and lists them here. Nothing plays on them until you pick one.", "Turn on"))) return;
+    try { await post("/services/airplay-tx", { on: true }); toast("Looking for AirPlay speakers…"); close(); setTimeout(muOutputs, 5000); } catch (e) { fail(e); }
+  };
   d.addEventListener("cancel", close);
   d.showModal();
 }
@@ -322,6 +421,7 @@ async function muTakes(el) {
   $$("[data-take]", el).forEach((row) => row.onclick = (e) => { if (e.target.closest("button")) return; muPlay({ kind: "take", id: row.dataset.take }, false); });
   $$("[data-browser]", el).forEach((b) => b.onclick = (e) => { e.stopPropagation(); playRecording(b.dataset.browser, $("#mu-take-player")); });
   $$("[data-tmore]", el).forEach((b) => b.onclick = (e) => { const t = r.takes.find((x) => x.id === b.dataset.tmore); muMenu(e, "take", t.id, t.title); });
+  muTrashPanel(el);
 }
 
 async function muRadio(el) {
@@ -405,6 +505,7 @@ function muBar() {
         <div class="mu-seek"><span class="mono" id="mu-el">0:00</span><input type="range" id="mu-seek" min="0" max="1" step="1" value="0" aria-label="Position"><span class="mono" id="mu-du">0:00</span></div>
       </div>
       <div class="mu-right">
+        <button class="mu-out" id="mu-out" title="Where music plays" aria-label="Output">${muIcon("speaker")}<span class="mu-out-l" id="mu-out-l"></span></button>
         <span class="mu-fmt muted small" id="mu-fmt"></span>
         <label class="mu-vol" title="Player volume (capped on this unit)">${muIcon("vol")}<input type="range" id="mu-vol" min="0" max="${vmax}" step="1" value="0" aria-label="Player volume"><output class="mono small" id="mu-vol-v"></output></label>
         <button class="mu-ib" id="mu-qbtn" aria-label="Queue" aria-expanded="${MU.queueOpen}" title="Queue">${muIcon("queue")}</button>
@@ -420,6 +521,7 @@ function muBar() {
     sk.addEventListener("change", () => { MU.seeking = false; muCtl("seek", +sk.value); });
     const vl = $("#mu-vol", el);
     vl.addEventListener("input", () => { $("#mu-vol-v").textContent = vl.value + "%"; MU.volBusy = performance.now(); debounce("mu-vol", () => muCtl("volume", +vl.value), 120); });
+    $("#mu-out", el).onclick = () => muOutputs();
     $("#mu-qbtn", el).onclick = () => { MU.queueOpen = !MU.queueOpen; $("#mu-queue").classList.toggle("hidden", !MU.queueOpen); $("#mu-qbtn").setAttribute("aria-expanded", MU.queueOpen); if (MU.queueOpen) muQueue(); };
   }
   el.classList.toggle("off", !p.connected);
@@ -453,6 +555,15 @@ function muBar() {
   vl.disabled = !p.connected;
   $("#mu-fmt").textContent = p.audio ? muFmt(p.audio, st.graph_rate) : "";
   $("#mu-fmt").title = p.output_path || "";
+  const o = st && st.outputs;
+  const ol = muOutLabel(o);
+  if ($("#mu-out-l").textContent !== ol) $("#mu-out-l").textContent = ol;
+  const warn = o && ((o.missing || []).length || (o.unclaimed_cards || []).length);
+  $("#mu-out").classList.toggle("warn", !!warn);
+  $("#mu-out").title = `Music plays on: ${ol}${p.output_path ? `\n${p.output_path}` : ""}`;
+  const rec = st && st.recovered;
+  if (rec && rec.at && rec.at !== MU.recSeen) { if (MU.recSeen !== undefined) toast(`Player was stuck; ${rec.what}`); MU.recSeen = rec.at; }
+  else if (MU.recSeen === undefined) MU.recSeen = rec && rec.at || 0;
 }
 function muFmt(audio, graph) {
   const [sr, bits] = audio.split(":");

@@ -9,7 +9,8 @@ type Http<'a> = &'a dyn Fn(&str, &str, Option<String>) -> Result<String, String>
 
 pub const USAGE: &str = "music [status | scan [--wait] | sources | albums | artists | songs | takes | streams | search TEXT.. | playlists | \
 play album|artist|track|take|stream|playlist ID | play url URL | play TEXT.. | add KIND ID | next-up KIND ID | queue [clear] | \
-toggle | pause | resume | stop | next | prev | seek SECS | vol N | repeat on|off | shuffle on|off | stream add NAME URL | stream rm ID]";
+toggle | pause | resume | stop | next | prev | seek SECS | vol N | repeat on|off | shuffle on|off | stream add NAME URL | stream rm ID | \
+outputs | output dac|NAME.. | take rm ID | trash | trash restore ID | trash empty --yes]";
 
 fn die(e: impl std::fmt::Display) -> ! {
     eprintln!("{e}");
@@ -67,7 +68,33 @@ fn print_status(v: &Value) {
     if !s(p, "output_path").is_empty() {
         println!("output:  {}", s(p, "output_path"));
     }
+    let o = &v["outputs"];
+    if let Some(outs) = o["outputs"].as_array() {
+        let used: Vec<String> = outs.iter().filter(|x| x["used"].as_bool() == Some(true)).map(|x| format!("{} ({} ch)", s(x, "label"), x["channels"].as_array().map(|a| a.len()).unwrap_or(0))).collect();
+        println!("to:      {}", if used.is_empty() { "no output present".to_string() } else { used.join(" + ") });
+    }
+    if !v["recovered"].is_null() {
+        println!("note:    player {} at {}", s(&v["recovered"], "what"), v["recovered"]["at"]);
+    }
     println!("queue:   {} items{}{}", p["length"], if p["repeat"].as_bool() == Some(true) { ", repeat" } else { "" }, if p["random"].as_bool() == Some(true) { ", shuffle" } else { "" });
+}
+
+fn put(http: Http, path: &str, body: Value) -> Value {
+    serde_json::from_str(&http("PUT", path, Some(body.to_string())).unwrap_or_else(|e| die(e))).unwrap_or_default()
+}
+
+fn print_outputs(v: &Value) {
+    for o in v["outputs"].as_array().cloned().unwrap_or_default() {
+        let mark = if o["used"].as_bool() == Some(true) { "*" } else if o["chosen"].as_bool() == Some(true) { "?" } else { " " };
+        let ch = o["channels"].as_array().map(|a| a.iter().filter_map(|c| c.as_str()).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+        println!("{mark} {:<10} {:<28} {:<10} {}", s(&o, "kind"), s(&o, "label"), ch, s(&o, "name"));
+    }
+    for c in v["unclaimed_cards"].as_array().cloned().unwrap_or_default() {
+        println!("! card {} {} is attached but PipeWire has not set it up", c["card"], s(&c, "name"));
+    }
+    if let Some(m) = v["missing"].as_array().filter(|m| !m.is_empty()) {
+        println!("chosen but not present: {}", m.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "));
+    }
 }
 
 fn control(http: Http, action: &str, value: Option<f64>) {
@@ -204,6 +231,35 @@ pub fn run(args: &[&str], http: Http) {
         ["vol" | "volume", n] => control(http, "volume", Some(n.parse().unwrap_or_else(|_| die("vol 0-100")))),
         ["repeat", v] => control(http, "repeat", Some((*v == "on") as u8 as f64)),
         ["shuffle", v] => control(http, "random", Some((*v == "on") as u8 as f64)),
+        ["outputs"] => print_outputs(&get(http, "/music/outputs")),
+        ["output", "dac"] => print_outputs(&put(http, "/music/outputs", json!({ "outputs": [] }))),
+        ["output", names @ ..] if !names.is_empty() => {
+            let all = get(http, "/music/outputs");
+            let list = all["outputs"].as_array().cloned().unwrap_or_default();
+            let mut pick = vec![];
+            for n in names {
+                let l = n.to_lowercase();
+                let hit = list.iter().find(|x| s(x, "name") == *n).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().starts_with(&l))).or_else(|| list.iter().find(|x| s(x, "label").to_lowercase().contains(&l)));
+                match hit {
+                    Some(x) => pick.push(s(x, "name").to_string()),
+                    None => die(format!("no output matches {n:?} (see: trillium-base music outputs)")),
+                }
+            }
+            print_outputs(&put(http, "/music/outputs", json!({ "outputs": pick })));
+        }
+        ["take", "rm" | "delete", id] => {
+            let v: Value = serde_json::from_str(&http("DELETE", &format!("/music/takes/{}", qenc(id)), None).unwrap_or_else(|e| die(e))).unwrap_or_default();
+            println!("moved to trash: {}  (undo: trillium-base music trash restore {})", s(&v["trash"], "title"), s(&v["trash"], "id"));
+        }
+        ["trash"] => {
+            let v = get(http, "/music/trash");
+            for e in v["items"].as_array().cloned().unwrap_or_default() {
+                println!("{:<44} {:<18} {:>8.1} MB  {}", s(&e, "id"), s(&e, "title"), e["bytes"].as_f64().unwrap_or(0.0) / 1e6, s(&e, "original"));
+            }
+            println!("{:.1} MB in the trash", v["bytes"].as_f64().unwrap_or(0.0) / 1e6);
+        }
+        ["trash", "restore", id] => println!("{}", post(http, &format!("/music/trash/{}/restore", qenc(id)), json!({}))),
+        ["trash", "empty", "--yes"] => println!("{}", post(http, "/music/trash/empty", json!({ "confirm": "delete" }))),
         _ => {
             eprintln!("usage: trillium-base {USAGE}");
             std::process::exit(2);

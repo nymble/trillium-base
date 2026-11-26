@@ -20,6 +20,8 @@ mod identity;
 mod library;
 mod mixer;
 mod music;
+mod music_out;
+mod music_trash;
 mod paths;
 mod samples;
 mod record;

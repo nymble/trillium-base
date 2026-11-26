@@ -3,8 +3,9 @@
 //! Music: the library index (pilab-music) and the player.
 //!
 //! Playback runs in MPD, a separate process (user unit pilab-mpd.service) reached over its
-//! private UNIX socket (`$MPD_HOST`, set in pilabd.service). pilabd never links MPD. MPD
-//! plays to the default PipeWire sink beside the synth; it never touches the DAC level
+//! private UNIX socket (`$MPD_HOST`, set in pilabd.service). MPD's PipeWire stream is not
+//! auto-linked; music_out links it by name to the chosen outputs (the DAC by default)
+//! beside the synth. Nothing here touches the DAC level
 //! (0.70) or the synth master (-18 dB). Player volume is MPD's own software volume, starts
 //! at DEFAULT_VOLUME and is held at or below MAX_VOLUME.
 
@@ -61,6 +62,13 @@ pub const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/music/queue/{pos}/play", "Jump to a queue entry"),
     ("POST", "/api/v1/music/queue/move", "{from, to} reorder the queue"),
     ("POST", "/api/v1/music/control", "{action: toggle|play|pause|stop|next|prev|seek|volume|repeat|random, value?}"),
+    ("GET", "/api/v1/music/outputs", "Where music plays: every audio output (DAC, USB, AirPlay, ...) with channels, chosen/used/active, and sound cards PipeWire has not set up"),
+    ("PUT", "/api/v1/music/outputs", "{outputs:[sink node.name, ...]} route music to these outputs (empty = the DAC); never moves the synth"),
+    ("DELETE", "/api/v1/music/takes/{id}", "Move a recording to the trash of its recordings folder (restorable; never published music)"),
+    ("GET", "/api/v1/music/trash", "Recordings in the trash"),
+    ("POST", "/api/v1/music/trash/{id}/restore", "Put a trashed recording back"),
+    ("DELETE", "/api/v1/music/trash/{id}", "{confirm:\"delete\"} delete one trashed recording for good"),
+    ("POST", "/api/v1/music/trash/empty", "{confirm:\"delete\"} empty the recordings trash for good"),
 ];
 
 pub struct ScanState {
@@ -80,6 +88,8 @@ pub struct Music {
     pub ix: Mutex<Index>,
     mpd: Mutex<Option<Client>>,
     pub scan: Mutex<ScanState>,
+    /// Last automatic player recovery (time, what), shown on the Music page.
+    pub recovered: Mutex<Value>,
     app: Arc<App>,
 }
 
@@ -128,9 +138,12 @@ pub fn init(app: Arc<App>) {
         ix: Mutex::new(ix),
         mpd: Mutex::new(None),
         scan: Mutex::new(ScanState { running: false, started: 0, finished: 0, last: None, error: String::new(), ctl: None }),
+        recovered: Mutex::new(Value::Null),
         app: app.clone(),
     });
     let _ = MUSIC.set(m.clone());
+    crate::music_out::init(app.clone());
+    spawn_watchdog(m.clone());
     std::thread::Builder::new()
         .name("music-watch".into())
         .spawn(move || {
@@ -324,6 +337,12 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/music/queue/{pos}", delete(queue_rm))
         .route("/music/queue/{pos}/play", post(queue_play))
         .route("/music/control", post(control))
+        .route("/music/outputs", get(outputs_get).put(outputs_put))
+        .route("/music/takes/{id}", delete(take_del))
+        .route("/music/trash", get(trash_list))
+        .route("/music/trash/empty", post(trash_empty))
+        .route("/music/trash/{id}", delete(trash_purge))
+        .route("/music/trash/{id}/restore", post(trash_restore))
 }
 
 /// MPD records: split a pair list at each "file" key.
@@ -415,6 +434,8 @@ async fn status() -> R {
         drop(sc);
         Ok(json!({
             "library": js(stats), "scan": scan, "player": player_json(m),
+            "outputs": crate::music_out::get().map(|o| o.json()).unwrap_or(Value::Null),
+            "recovered": m.recovered.lock().unwrap().clone(),
             "volume_default": DEFAULT_VOLUME, "volume_max": MAX_VOLUME, "graph_rate": GRAPH_RATE,
         }))
     })
@@ -880,4 +901,168 @@ mod tests {
         assert_eq!(ack_text("ACK [50@0] {add} No such directory"), "player add: No such directory");
         assert!(DEFAULT_VOLUME < MAX_VOLUME && MAX_VOLUME < 100);
     }
+}
+
+// ---- player watchdog --------------------------------------------------------------------------
+
+/// MPD says "play" but the position has not moved: the PipeWire stream is stuck (seen on the
+/// Pi after a long idle: the stream errored every cycle and nothing played). First reopen the
+/// output; if that does not help, restart the player process and resume. At most one restart
+/// every two minutes.
+fn spawn_watchdog(m: Arc<Music>) {
+    std::thread::Builder::new()
+        .name("music-dog".into())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            let mut last = (String::new(), -1.0f32, 0usize);
+            let mut stuck = 0u32;
+            let mut last_restart = std::time::Instant::now() - std::time::Duration::from_secs(600);
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let Ok(st) = m.with_mpd(|c| c.status()) else {
+                    stuck = 0;
+                    continue;
+                };
+                let key = (st.state.clone(), st.elapsed, st.song.unwrap_or(usize::MAX));
+                if st.state == "play" && key == last {
+                    stuck += 2;
+                } else {
+                    stuck = 0;
+                }
+                last = key;
+                if stuck == 8 {
+                    let _ = m.with_mpd(|c| {
+                        c.simple("disableoutput 0")?;
+                        c.simple("enableoutput 0")
+                    });
+                    m.app.event("warn", "music: playback was stuck; reopened the player output");
+                    *m.recovered.lock().unwrap() = json!({ "at": pilab_music::now_unix(), "what": "reopened the output" });
+                } else if stuck >= 20 && last_restart.elapsed() > std::time::Duration::from_secs(120) {
+                    last_restart = std::time::Instant::now();
+                    stuck = 0;
+                    let pos = st.song;
+                    let at = st.elapsed;
+                    let ok = std::process::Command::new("systemctl").args(["--user", "restart", "pilab-mpd.service"]).status().map(|s| s.success()).unwrap_or(false);
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    *m.mpd.lock().unwrap() = None;
+                    if let Some(p) = pos {
+                        let _ = m.with_mpd(|c| c.simple(&format!("seek {p} {at:.1}")));
+                    }
+                    let _ = m.with_mpd(|c| c.simple("play"));
+                    m.app.event("warn", format!("music: playback was still stuck; restarted the player{}", if ok { "" } else { " (restart failed)" }));
+                    *m.recovered.lock().unwrap() = json!({ "at": pilab_music::now_unix(), "what": "restarted the player" });
+                }
+            }
+        })
+        .ok();
+}
+
+// ---- outputs ----------------------------------------------------------------------------------
+
+async fn outputs_get() -> R {
+    let o = crate::music_out::get().ok_or_else(|| bad("outputs not started"))?;
+    tokio::task::spawn_blocking(move || {
+        o.apply();
+        Json(o.json())
+    })
+    .await
+    .map_err(bad)
+    .map(Ok)?
+}
+
+#[derive(Deserialize)]
+struct OutBody {
+    #[serde(default)]
+    outputs: Vec<String>,
+}
+
+async fn outputs_put(Json(b): Json<OutBody>) -> R {
+    let o = crate::music_out::get().ok_or_else(|| bad("outputs not started"))?;
+    match tokio::task::spawn_blocking(move || o.set(b.outputs)).await {
+        Ok(Ok(v)) => Ok(Json(v)),
+        Ok(Err(e)) => Err(bad(e)),
+        Err(e) => Err(bad(e)),
+    }
+}
+
+// ---- recordings trash -------------------------------------------------------------------------
+
+/// Folders of the Recordings collection (the only places a delete may touch).
+fn recording_roots(m: &Music) -> Result<Vec<(String, PathBuf)>, String> {
+    Ok(m.sources()?.source.into_iter().filter(|s| s.collection == "recordings" && s.kind == "folder").map(|s| (s.id.clone(), pilab_music::expand(&s.path))).collect())
+}
+
+async fn take_del(Path(id): Path<String>) -> R {
+    blk(move |m| {
+        if m.app.recorder.is_recording() {
+            return Err("a recording is running; stop it first".into());
+        }
+        let take = m.ix.lock().unwrap().take(&id)?.ok_or_else(|| "not found: no such recording".to_string())?;
+        let (file, source) = m.ix.lock().unwrap().take_file(&id)?.ok_or_else(|| "not found: no such recording".to_string())?;
+        let roots = recording_roots(m)?;
+        let Some((_, root)) = roots.iter().find(|(sid, _)| *sid == source) else {
+            return Err("only recordings can be deleted here (published music is never deleted)".into());
+        };
+        // Stop the player first if it is playing this take.
+        let fu = pilab_music::index::file_uri(&file);
+        let _ = m.with_mpd(|c| {
+            let cur = c.cmd("currentsong")?;
+            if field(&cur, "file") == Some(fu.as_str()) {
+                c.simple("stop")?;
+            }
+            Ok(())
+        });
+        let e = crate::music_trash::trash(std::path::Path::new(&file), root, &take.id, &take.title, pilab_music::now_unix())?;
+        m.app.event("info", format!("recording \"{}\" moved to the trash ({})", take.title, e.id));
+        start_scan(m);
+        Ok(json!({ "ok": true, "trash": e }))
+    })
+    .await
+}
+
+async fn trash_list() -> R {
+    blk(|m| {
+        let roots: Vec<PathBuf> = recording_roots(m)?.into_iter().map(|x| x.1).collect();
+        let items = crate::music_trash::list(&roots);
+        let bytes: u64 = items.iter().map(|e| e.bytes).sum();
+        Ok(json!({ "items": items, "bytes": bytes }))
+    })
+    .await
+}
+
+async fn trash_restore(Path(id): Path<String>) -> R {
+    blk(move |m| {
+        let roots: Vec<PathBuf> = recording_roots(m)?.into_iter().map(|x| x.1).collect();
+        let e = crate::music_trash::restore(&roots, &id)?;
+        m.app.event("info", format!("recording \"{}\" restored from the trash", e.title));
+        start_scan(m);
+        Ok(json!({ "ok": true, "restored": e }))
+    })
+    .await
+}
+
+#[derive(Deserialize, Default)]
+struct ConfirmBody {
+    #[serde(default)]
+    confirm: String,
+}
+
+fn purge_common(m: &Music, id: Option<String>, confirm: &str) -> Result<Value, String> {
+    if confirm != crate::music_trash::PURGE_CONFIRM {
+        return Err(format!("permanent delete needs {{\"confirm\": \"{}\"}}", crate::music_trash::PURGE_CONFIRM));
+    }
+    let roots: Vec<PathBuf> = recording_roots(m)?.into_iter().map(|x| x.1).collect();
+    let (n, bytes) = crate::music_trash::purge(&roots, id.as_deref())?;
+    m.app.event("info", format!("recordings trash: {n} item(s) deleted for good ({:.1} MB)", bytes as f64 / 1e6));
+    Ok(json!({ "ok": true, "deleted": n, "bytes": bytes }))
+}
+
+async fn trash_purge(Path(id): Path<String>, body: Option<Json<ConfirmBody>>) -> R {
+    let c = body.map(|b| b.0.confirm).unwrap_or_default();
+    blk(move |m| purge_common(m, Some(id), &c)).await
+}
+
+async fn trash_empty(body: Option<Json<ConfirmBody>>) -> R {
+    let c = body.map(|b| b.0.confirm).unwrap_or_default();
+    blk(move |m| purge_common(m, None, &c)).await
 }

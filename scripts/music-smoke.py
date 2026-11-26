@@ -148,6 +148,63 @@ if PLAY and player.get("connected"):
         call("DELETE", "/music/queue")
 call("DELETE", f"/music/playlists/{pid}")
 
+# Outputs: listed, the DAC is among them, choosing "DAC only" works.
+st, o, _ = call("GET", "/music/outputs")
+check("outputs listed", st == 200 and isinstance(o.get("outputs"), list), st)
+if o.get("outputs"):
+    check("dac is an output", any(x["kind"] == "dac" for x in o["outputs"]), [x.get("name") for x in o["outputs"]])
+else:
+    print("skip dac is an output (no PipeWire here)")
+st, o2, _ = call("PUT", "/music/outputs", {"outputs": o.get("chosen", [])})
+check("outputs choice saved", st == 200 and o2.get("chosen") == o.get("chosen"), o2)
+st, _, _ = call("PUT", "/music/outputs", {"outputs": ["a", "b", "c", "d", "e"]})
+check("more than 4 outputs refused", st == 400, st)
+call("PUT", "/music/outputs", {"outputs": o.get("chosen", [])})
+
+# Recordings trash: a throwaway take (0.2 s of silence) is trashed, restored and purged.
+import struct, time, wave
+_, tk, _ = call("GET", "/music/takes")
+loc = tk.get("location", "")
+if loc and os.path.isdir(loc):
+    tid = time.strftime("pilab-smoke-%Y%m%d-%H%M%S")
+    d = os.path.join(loc, tid)
+    os.makedirs(d, exist_ok=True)
+    with wave.open(os.path.join(d, tid + ".wav"), "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(48000 * 4 // 5))
+    open(os.path.join(d, "record.toml"), "w").write(f'id = "{tid}"\nscene = "smoke test"\nrole = "test"\n')
+    def scan_wait():
+        call("POST", "/music/scan", {})
+        for _ in range(60):
+            time.sleep(0.5)
+            _, ss, _ = call("GET", "/music/status")
+            if not ss["scan"]["running"]:
+                return
+    scan_wait()
+    _, tk, _ = call("GET", "/music/takes")
+    check("smoke take indexed", any(t["id"] == tid for t in tk["takes"]))
+    st, r, _ = call("DELETE", f"/music/takes/{tid}")
+    check("take moved to trash", st == 200 and not os.path.exists(d), r)
+    trash_id = r.get("trash", {}).get("id", "")
+    _, tr, _ = call("GET", "/music/trash")
+    check("trash lists it", any(e["id"] == trash_id for e in tr["items"]))
+    st, _, _ = call("DELETE", f"/music/trash/{trash_id}", {})
+    check("purge without confirm refused", st == 400, st)
+    st, r, _ = call("POST", f"/music/trash/{trash_id}/restore", {})
+    check("restore puts it back", st == 200 and os.path.exists(os.path.join(d, tid + ".wav")), r)
+    scan_wait()
+    st, r, _ = call("DELETE", f"/music/takes/{tid}")
+    check("trash again after restore", st == 200, r)
+    st, r, _ = call("DELETE", f"/music/trash/{r.get('trash', {}).get('id', 'x')}", {"confirm": "delete"})
+    check("purge with confirm", st == 200 and r.get("deleted") == 1, r)
+    scan_wait()
+    _, tk, _ = call("GET", "/music/takes")
+    check("smoke take gone", not any(t["id"] == tid for t in tk["takes"]))
+_, al, _ = call("GET", "/music/albums")
+if al["albums"]:
+    _, ad, _ = call("GET", f"/music/albums/{al['albums'][0]['id']}")
+    st, _, _ = call("DELETE", f"/music/takes/{ad['tracks'][0]['id']}")
+    check("a music track cannot be deleted as a take", st in (400, 404), st)
+
 _, ep, _ = call("GET", "/endpoints")
 check("endpoints list has music routes", sum(1 for e in ep if e["path"].startswith("/api/v1/music/")) >= 25)
 
