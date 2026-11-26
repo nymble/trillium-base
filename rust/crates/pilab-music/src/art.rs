@@ -70,7 +70,28 @@ pub fn valid_key(k: &str) -> bool {
 }
 
 /// A cover image in an album folder: preferred names first, else the only image there.
+/// Failing that, the same in an artwork subfolder (Covers/, Scans/, Artwork/ …), where a
+/// numbered set ("1.jpg", "01.jpg") starts with the front.
 pub fn folder_image(dir: &Path) -> Option<PathBuf> {
+    if let Some(p) = pick_image(dir, false) {
+        return Some(p);
+    }
+    let mut subs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_dir()
+                && p.file_name().and_then(|s| s.to_str()).map(|n| SUBDIRS.iter().any(|s| n.eq_ignore_ascii_case(s))).unwrap_or(false)
+        })
+        .collect();
+    subs.sort();
+    subs.iter().find_map(|d| pick_image(d, true))
+}
+
+const SUBDIRS: &[&str] = &["covers", "cover", "scans", "artwork", "art", "images", "img"];
+
+fn pick_image(dir: &Path, numbered: bool) -> Option<PathBuf> {
     let mut images = vec![];
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let p = e.path();
@@ -79,10 +100,14 @@ pub fn folder_image(dir: &Path) -> Option<PathBuf> {
         }
     }
     images.sort();
+    let stem = |p: &PathBuf| p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
     for n in NAMES {
-        if let Some(p) = images.iter().find(|p| {
-            p.file_stem().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case(n)).unwrap_or(false)
-        }) {
+        if let Some(p) = images.iter().find(|p| stem(p).eq_ignore_ascii_case(n)) {
+            return Some(p.clone());
+        }
+    }
+    if numbered {
+        if let Some(p) = images.iter().find(|p| matches!(stem(p).trim_start_matches('0'), "1")) {
             return Some(p.clone());
         }
     }

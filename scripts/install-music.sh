@@ -17,7 +17,7 @@ for u in mpd.service mpd.socket; do
 done
 dpkg -s mpd >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -q --no-install-recommends mpd
 
-mkdir -p "$STATE/mpd" "$CONF/music"
+mkdir -p "$STATE/mpd/empty" "$CONF/music"
 TMP=$(mktemp)
 sed "s|@STATE@|$STATE|g" "$REPO/home/.config/pilab/mpd.conf.in" > "$TMP"
 cmp -s "$TMP" "$CONF/mpd.conf" 2>/dev/null || install -m 644 "$TMP" "$CONF/mpd.conf"

@@ -95,6 +95,10 @@ check("search finds a stream", len(sr["streams"]) >= 1)
 _, tk, _ = call("GET", "/music/takes")
 print(f"     recordings: {len(tk['takes'])} in {tk['location']}")
 
+# A run that was cut short may have left its test stream behind.
+for x in call("GET", "/music/streams")[1]["streams"]:
+    if x["url"] == "https://example.invalid/smoke.mp3":
+        call("DELETE", f"/music/streams/{x['id']}")
 st, v, _ = call("POST", "/music/streams", {"name": "Smoke test stream", "url": "https://example.invalid/smoke.mp3"})
 check("add stream", st == 200, v)
 st, v, _ = call("POST", "/music/streams", {"name": "bad", "url": "file:///etc/passwd"})

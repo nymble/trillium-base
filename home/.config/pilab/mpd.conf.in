@@ -10,6 +10,9 @@ state_file          "@STATE@/mpd/state"
 state_file_interval "120"
 restore_paused      "yes"
 auto_update         "no"
+# An empty folder of its own. Left unset, MPD would take ~/Music (the XDG music folder) and
+# then refuse files there as "No such song", since it has no database to find them in.
+music_directory     "@STATE@/mpd/empty"
 zeroconf_enabled    "no"
 log_level           "notice"
 filesystem_charset  "UTF-8"

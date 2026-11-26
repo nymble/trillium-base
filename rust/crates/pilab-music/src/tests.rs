@@ -400,3 +400,25 @@ fn two_disc_folders_without_album_artist_are_one_release() {
     assert_eq!(rep.albums, 1);
     assert_eq!(rep.tracks, 4);
 }
+
+#[test]
+fn cover_in_a_covers_subfolder_is_found() {
+    let tmp = Tmp::new("covers-sub");
+    let a = tmp.0.join("named");
+    std::fs::create_dir_all(a.join("Covers")).unwrap();
+    for n in ["Back.jpg", "Front.jpg", "Inside.jpg"] {
+        std::fs::write(a.join("Covers").join(n), b"x").unwrap();
+    }
+    assert_eq!(crate::art::folder_image(&a).unwrap().file_name().unwrap(), "Front.jpg");
+    let b = tmp.0.join("numbered");
+    std::fs::create_dir_all(b.join("covers")).unwrap();
+    for n in ["2.jpg", "1.jpg", "3.jpg"] {
+        std::fs::write(b.join("covers").join(n), b"x").unwrap();
+    }
+    assert_eq!(crate::art::folder_image(&b).unwrap().file_name().unwrap(), "1.jpg");
+    let c = tmp.0.join("top");
+    std::fs::create_dir_all(c.join("Scans")).unwrap();
+    std::fs::write(c.join("cover.png"), b"x").unwrap();
+    std::fs::write(c.join("Scans").join("front.jpg"), b"x").unwrap();
+    assert_eq!(crate::art::folder_image(&c).unwrap().file_name().unwrap(), "cover.png");
+}
