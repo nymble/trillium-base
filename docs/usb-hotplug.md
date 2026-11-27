@@ -17,11 +17,21 @@ synth's MIDI inputs automatically.
 | Synth clock | The DAC drives the synth's graph. When graphs join (the console's meters tap a USB device, or music plays on DAC and USB together), the DAC stays the driver and the USB device follows, resampled by PipeWire. |
 | Input strip | Connects only the configured source (`input.source`, a glob). A new microphone or interface input is not used until you pick it as the input source in the console. |
 | Music player | Keeps playing where it was going (the DAC by default). The new output appears in the Music page's output picker and the CLI's `trillium-base music outputs`, with an event "audio device added: Scarlett 2i2 USB: 1 output(s) (FL FR), 2 input(s). Not used until you pick it". |
+| Console meters | While someone views the meters, they tap running outputs, app streams and only those capture devices something else already uses (the input strip's source). An idle USB microphone is never woken just to be metered, so it does not join the DAC's graph as an extra clock. |
 | Not picked up | If the kernel has a USB card that PipeWire has not set up after about 10 s, pilabd logs a warning and the output picker shows it. Fix: replug, or `systemctl --user restart wireplumber` (the synth re-links by itself). |
 
 Seen on a Pi with a WirePlumber that had been up for five days: a Scarlett 2i2 plugged in
 appeared in the kernel but not in PipeWire until WirePlumber was restarted. The warning
 above exists for that case.
+
+## Measured on the Pi (Scarlett unplugged, 2026-11-27)
+
+About 11 min each, with album play, radio, stop and quiet stretches: Yeti linked to the
+input strip, 0 synth xruns; Yeti unlinked, 0; console meters open (before the meter change,
+which also tapped an idle USB Composite microphone), 1 xrun as music started.
+The 18-30 xrun bursts on 2026-11-26 all fell within WirePlumber restarts, console
+restarts, music moving to or from the Scarlett, and full-API snapshots that opened the
+meters while USB inputs with their own clocks were in the graph.
 
 ## MIDI controllers
 

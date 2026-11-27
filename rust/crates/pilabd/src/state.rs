@@ -923,8 +923,9 @@ impl App {
     }
 
     /// Links the hidden meter inputs to the outputs worth metering: running non-AirPlay
-    /// sinks (their monitor ports), capture devices and app outputs. Never links to a
-    /// suspended sink or an AirPlay sink, so metering never wakes a device or a speaker.
+    /// sinks (their monitor ports), capture devices already in use, and app outputs. Never
+    /// links to a suspended sink, an unused capture device or an AirPlay sink, so metering
+    /// never wakes a device or a speaker.
     fn ensure_meters(&self, nodes: &[crate::mixer::MixNode]) {
         if self.backend.meter_port(0).is_none() {
             return;
@@ -952,6 +953,14 @@ impl App {
             }
             let is_sink = n.is_some_and(|n| n.role == "sink");
             if is_sink && !n.is_some_and(|n| n.state == "running") {
+                continue;
+            }
+            // A capture device is metered only while something else uses it (the input
+            // strip, a recorder). Linking an idle USB microphone just to meter it would wake
+            // it and pull its clock into the DAC's graph as one more resampled follower,
+            // which cost the synth bursts of xruns when graphs changed.
+            // (`connections` already leaves out the meter inputs.)
+            if n.is_some_and(|n| n.role == "source") && !graph.iter().any(|p| p.client == c && p.dir == "out" && !p.connections.is_empty()) {
                 continue;
             }
             let ports: Vec<&crate::audio::GraphPort> = graph
