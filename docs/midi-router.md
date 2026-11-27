@@ -1,4 +1,4 @@
-<!-- Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
+<!-- Copyright (C) 2026 Paul Lambert. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # MIDI router and sound engines
 
 The router sits in the audio thread between every MIDI input and every MIDI destination.

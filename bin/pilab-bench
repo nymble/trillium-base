@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Latency benchmark: cyclictest on every core (thread N pinned to CPU N), idle and under
 # load, plus CPU 3 interrupt rate and isolation state. Run as root.

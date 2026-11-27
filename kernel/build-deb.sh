@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Reproducible build recipe for the Trillium Base RT kernel as Debian packages.
 # Status: recipe only, not run yet. Runs on any Linux build machine (cross-compile for

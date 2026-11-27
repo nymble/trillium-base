@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Sampler sound kind: multisample instruments loaded from SFZ (a practical subset) with
 //! WAV or FLAC samples, preloaded into RAM as f32. Loading allocates and runs on the host;

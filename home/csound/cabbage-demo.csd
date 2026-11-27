@@ -12,7 +12,7 @@ hslider bounds(10, 150, 440, 50), channel("vol"), range(0, 0.1, 0.03, 1, 0.001),
 -n -d -m0d
 </CsOptions>
 <CsInstruments>
-; Copyright (C) 2026 M-of-N
+; Copyright (C) 2026 Paul Lambert
 ; SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 ; Pi Lab Cabbage demo: always-on voice, silent until the Gate box is ticked.
 ; Volume is capped at 0.1 to keep test levels quiet.

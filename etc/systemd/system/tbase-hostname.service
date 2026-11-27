@@ -1,4 +1,4 @@
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # First boot of a Trillium Base image: name the unit tbase-XXXX (tools/tbase-hostname.sh).
 # Image tooling installs the script as /usr/local/sbin/tbase-hostname and enables this unit.

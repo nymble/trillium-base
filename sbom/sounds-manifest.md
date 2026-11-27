@@ -1,11 +1,11 @@
-<!-- Copyright (C) 2026 M-of-N. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
+<!-- Copyright (C) 2026 Paul Lambert. SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # Sounds manifest
 
 Every sound pack Trillium Base installs, with its licence. Packs are downloaded onto the device by
 `scripts/pilab-samples.py` (pinned by sha256 or git blob id) and never committed to git. Each installed
 bank also gets a `pilab.manifest/v1` record under `~/.local/share/pilab/library/manifest/` with
 the per-file sha256 list. Anything whose licence is not CC0, public domain, MIT, LGPL or GPL
-compatible with `GPL-3.0-or-later OR LicenseRef-Commercial` is not installed.
+compatible with `GPL-3.0-or-later OR LicenseRef-Commercial` is not installed, with one documented exception: the optional TimGM6mb bank (GPL-2.0-only, separate sample data; see `NOTICE.md`).
 
 ## Sample banks (sampler, SFZ)
 

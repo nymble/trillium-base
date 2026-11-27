@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Service side of the MIDI router: the saved configuration, compiling it against the ports
 //! present now, wiring the router's JACK outputs and engine audio, and the MIDI monitor

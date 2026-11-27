@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """Shrink the syft SPDX that rpi-image-gen writes for an image rootfs (build-meta/*.sbom.zst):
 drop the per-file list and the ~3800 kernel-module entries (kept as a count plus the kernel

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 [package]
 name = "pilabd"
 description = "Trillium Base service: Trillium Console HTTP/WebSocket API and embedded web UI, Trillium Synth host (JACK API via PipeWire), discovery, recording"

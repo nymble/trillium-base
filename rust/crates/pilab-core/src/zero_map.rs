@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Trillium Zero mapping model: every configuration parameter with its range, default,
 //! group and display kind, the built-in mapping presets, and conversion to and from the

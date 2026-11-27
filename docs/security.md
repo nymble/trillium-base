@@ -1,4 +1,4 @@
-<!-- Copyright (C) 2026 M-of-N -->
+<!-- Copyright (C) 2026 Paul Lambert -->
 <!-- SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial -->
 # Security: threat model, defaults and gaps
 
@@ -111,13 +111,13 @@ the same request with the page's own origin returns 200; a WebSocket upgrade wit
 ## Gaps, ranked
 
 Fix column: **now** was done in this change; **next** is the next build; **owner** needs a
-decision from Paul; **IT** goes to IT Department.
+decision from the owner; **IT** goes to IT Department.
 
 | # | Gap | Severity | Fix |
 | --- | --- | --- | --- |
 | S1 | Plain HTTP carries the bearer token; WebSocket puts it in the URL | High on a shared LAN | **next**: TLS with a device certificate pinned by device id (in the QR); move the WebSocket token to a first message or subprotocol (touches `app.js`: coordinate with the console work) |
 | S2 | AirPlay receiver enabled with no password on the lab unit; Bluetooth powered and pairable on the lab unit | High for headphones | **next**: `shairport-sync` password setting in the console; both off by default on every unit. The image is already off |
-| S3 | `lab` has `NOPASSWD: ALL` and `pilabd` runs unsandboxed as `lab`, so a bug in `pilabd` is root. `NoNewPrivileges` cannot be set while `pilabd` shells out to `sudo systemctl` for the SSH switch | High | **next**: replace the blanket rule with one sudoers file that allows exactly `systemctl enable|disable --now ssh.service`, or a small root helper behind a socket; then add `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` with `ReadWritePaths=~/.config/pilab ~/.local/share/pilab`, `PrivateTmp`, `RestrictAddressFamilies` to the unit. **owner** (Paul): keep passwordless sudo on the lab unit? |
+| S3 | `lab` has `NOPASSWD: ALL` and `pilabd` runs unsandboxed as `lab`, so a bug in `pilabd` is root. `NoNewPrivileges` cannot be set while `pilabd` shells out to `sudo systemctl` for the SSH switch | High | **next**: replace the blanket rule with one sudoers file that allows exactly `systemctl enable|disable --now ssh.service`, or a small root helper behind a socket; then add `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` with `ReadWritePaths=~/.config/pilab ~/.local/share/pilab`, `PrivateTmp`, `RestrictAddressFamilies` to the unit. **owner**: keep passwordless sudo on the lab unit? |
 | S3b | No unattended security updates; 21 pending on the lab unit | High | **IT**: `unattended-upgrades` for the security origin on the lab unit; for the image, rebuild monthly and on any Critical |
 | S4 | Token holder can set `recording.location` anywhere `lab` can write | Medium | **next**: accept only paths under `~/.local/share/pilab`, `/srv`, `/media`, `/mnt` |
 | S5 | BLE MIDI "just works" pairing; bonds persist and cannot be listed or removed | Medium | **next**: numeric-comparison agent, bond list and remove in the console; 5-minute default window |
@@ -171,7 +171,7 @@ JSON message that names the variable.
 2. `unattended-upgrades` (security origin) on the lab unit; apply the 21 pending updates (S3b).
 3. Remove or disable `cups`, `ModemManager`, `nfs-blkmap`, `lightdm`, `udisks2` auto-mount and wide-area
    mDNS on the lab unit (S12); `X11Forwarding no`, `AllowTcpForwarding no`, a second authorized key.
-4. Replace `NOPASSWD: ALL` for `lab` with the narrow sudoers rule, once Paul agrees (S3).
+4. Replace `NOPASSWD: ALL` for `lab` with the narrow sudoers rule, once the owner agrees (S3).
 5. Backups of `~/.config/pilab` (token, settings, scenes, device profiles) and `~/.local/share/pilab`
    (recordings, library): see `docs/robustness.md`.
 6. Ownership of the monthly Debian package scan: `tools/sbom.sh --unit lab@host`.

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # pilab console: the Waveform synth (a PipeWire node via pw-jack) plus the web console
 # on TCP 8410. Installed by scripts/install-console.sh; enabled at boot (linger is on).
 # Audio starts quiet: master -18 dBFS max, fade-in, limiter and soft clip on the output.

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Read-only check of a Trillium Zero firmware image (UF2, XIAO nRF52840 Sense UF2
 //! bootloader). An image is accepted only if every block is a well-formed UF2 block for

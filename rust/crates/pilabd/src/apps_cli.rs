@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! `trillium-base apps ...`: list, inspect, enable and disable the apps that have a manifest
 //! (see `docs/app-manager.md`). Included into pilabctl; it never installs software.

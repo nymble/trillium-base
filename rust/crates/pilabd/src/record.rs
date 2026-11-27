@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Local recording of the synth output (32-bit float WAV) with a small record card
 //! (`record.toml`) per take. Recordings are masters until filed to the NAS Archive.

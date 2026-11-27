@@ -3,7 +3,7 @@
 -odac -+rtaudio=jack -b 64 -B 256 -d -m0
 </CsOptions>
 <CsInstruments>
-; Copyright (C) 2026 M-of-N
+; Copyright (C) 2026 Paul Lambert
 ; SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 sr = 48000
 ksmps = 32

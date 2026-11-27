@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Example library roots registry. The console owns the real file at
 # /etc/pilab/library/roots.yaml (root-owned, 0644). Credentials never go here:
 # credentials_ref names a root-only file under /etc/pilab/secrets/ (mode 0600).

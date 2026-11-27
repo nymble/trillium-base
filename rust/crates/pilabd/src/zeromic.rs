@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! Brings the Trillium Zero 16 kHz PCM test stream into PipeWire as a capture
 //! source named "Trillium Zero Mic", resampled to 48 kHz. Not auto-routed to the

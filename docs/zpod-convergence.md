@@ -15,7 +15,7 @@ zpod-music-core = { git = "https://github.com/nymble/zpod", rev = "2dedb10..." }
 ```
 
 Tag `licenses-dual-mofn` (commit `2dedb10`, branch `test8`). At this revision the crates
-are dual licensed, `GPL-3.0-or-later OR LicenseRef-Commercial`, copyright M-of-N, the same
+are dual licensed, `GPL-3.0-or-later OR LicenseRef-Commercial`, copyright Paul Lambert, the same
 terms as this repository; each crate has a LICENSE file pointing at ZPOD's root LICENSE
 (GPL-3.0) and LICENSE-COMMERCIAL.md. Earlier revisions, including the previous pin
 `525bc84` (branch `pipit-seq`) and older tags, are MIT, so the pin must not move back to

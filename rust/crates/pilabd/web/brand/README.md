@@ -17,7 +17,7 @@ their licence texts beside them.
 ## Trademarks
 
 "Trillium", "Trillium Base", "Trillium Console", "Trillium Synth", "Ambient Lab" and the
-Rhodonea mark are trademarks of M-of-N. They are not covered by the GPL or by the
+Rhodonea mark are trademarks of the copyright holder (see NOTICE.md). They are not covered by the GPL or by the
 commercial software licence: the licences cover the code, not the names and marks. You
 may say a build is "based on Trillium Base", but a modified or redistributed build must
 not use these names or marks as its own product name or logo without permission. Contact:

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # Build and install the Trillium Base service (pilabd + pilabctl, plus the `trillium-base`
 # alias for pilabctl) on the Pi, as user lab.

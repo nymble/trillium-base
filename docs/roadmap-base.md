@@ -96,7 +96,7 @@ the GPL); text in `hardware/LICENSE-HARDWARE`, notice in `hardware/README.md`. I
 GPL-3.0 + commercial model of the software. A company that wants to ship a closed derivative
 takes a commercial licence, as with the code. The enclosure CAD sits under the same licence. Logos and the
 Trillium name stay trademarks and are outside the licence. Copyright line: "Copyright (C)
-2026 M-of-N".
+2026 Paul Lambert".
 
 **Repository layout** (new top-level `hardware/`, SVG and text formats only, no rendered
 images in git):

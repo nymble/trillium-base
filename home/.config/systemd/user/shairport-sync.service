@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Paul Lambert
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 # AirPlay 2 receiver for the audio user. Off by default; toggle with
 # "pilab-airplay receiver on|off". Needs the nqptp.service system unit.
 [Unit]

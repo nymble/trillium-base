@@ -54,20 +54,26 @@ output limiter). Details in [docs/console.md](./docs/console.md); security notes
 
 ## Licence
 
-Copyright (C) 2026 M-of-N. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-Commercial`:
+Copyright (C) 2026 Paul Lambert. Dual licensed, SPDX `GPL-3.0-or-later OR LicenseRef-Commercial`:
 
 - **GPL-3.0-or-later**: [LICENSE](./LICENSE) (the full GPL text);
-- **LicenseRef-Commercial**: commercial terms from M-of-N, see
-  [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md).
+- **LicenseRef-Commercial**: commercial terms from the copyright holder, see
+  [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md) (enquiries: support@m-of-n.com).
+
+All licence texts used here are in [LICENSES/](./LICENSES/); [REUSE.toml](./REUSE.toml) records
+the licence of files that cannot carry a header. Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
+(interim terms: contributions may be licensed under both the GPL and commercial terms).
 
 Hardware design files in [hardware/](./hardware/) are licensed separately under
-**CERN-OHL-S-2.0** (see [hardware/LICENSE-HARDWARE](./hardware/LICENSE-HARDWARE)).
+**CERN-OHL-S-2.0** (see [hardware/LICENSE-HARDWARE](./hardware/LICENSE-HARDWARE)); a commercial
+option is stated in `hardware/README.md`.
 
-Third-party parts keep their own licences (ZPOD crates, fonts, sample libraries, system
-packages).
+Third-party parts keep their own licences (ZPOD crates, fonts, sample libraries, engines and
+system packages) and known exceptions are listed in [NOTICE.md](./NOTICE.md), including the
+Cabbage patch, which is GPL-3.0-only, and the optional TimGM6mb sound bank, GPL-2.0-only.
 
 "Trillium", "Trillium Base", "Trillium Console", "Trillium Synth" and the Rhodonea mark
-are trademarks of M-of-N and are not covered by the GPL or the commercial licence; see
+are trademarks of the copyright holder (see [NOTICE.md](./NOTICE.md)) and are not covered by the GPL or the commercial licence; see
 [rust/crates/pilabd/web/brand/README.md](./rust/crates/pilabd/web/brand/README.md).
 
 ## Refreshing from a running Pi

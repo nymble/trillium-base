@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2026 M-of-N
+# Copyright (C) 2026 Paul Lambert
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 """License summary for the Rust CycloneDX SBOM and a Debian CycloneDX SBOM (Markdown on stdout).
 Usage: license-summary.py rust.cdx.json debian.cdx.json"""

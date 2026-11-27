@@ -1,4 +1,4 @@
-// Copyright (C) 2026 M-of-N
+// Copyright (C) 2026 Paul Lambert
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //! pilabd: the Trillium Base service: Trillium Console (web UI and API) and the Trillium Synth host.
 //!
